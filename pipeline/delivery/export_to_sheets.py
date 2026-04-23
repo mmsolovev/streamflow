@@ -7,8 +7,8 @@ from services.sheets_sync_service import (
 )
 
 
-def run_all():
-    # sync_bot_info()
+def export_all():
+    sync_bot_info()
     sync_streams_safe()
     sync_games_safe()
     sync_releases_safe()
@@ -16,4 +16,4 @@ def run_all():
 
 
 if __name__ == "__main__":
-    run_all()
+    export_all()
