@@ -8,6 +8,17 @@ import g4f
 
 
 def generate_short_description_sync(text: str) -> str | None:
+    """Генерирует краткое описание игры через AI.
+
+    Переводит и сокращает исходный текст до заданной длины.
+
+    Args:
+        text: Оригинальное описание игры.
+
+    Returns:
+        Сокращённое описание или None при ошибке.
+    """
+
     try:
         result = g4f.ChatCompletion.create(
             model="",
@@ -33,6 +44,10 @@ def generate_short_description_sync(text: str) -> str | None:
 
 
 async def process():
+    """Обрабатывает в базе данных игры без краткого описания и заполняет его через AI.
+
+    :return:
+    """
     session = SessionLocal()
 
     try:
