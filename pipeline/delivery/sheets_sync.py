@@ -1,3 +1,8 @@
+"""
+Pipeline delivery layer: экспорт внутреннего состояния базы данных в пользовательский интерфейс Google Sheets UI.
+
+"""
+
 from datetime import datetime
 from pathlib import Path
 import re
@@ -7,16 +12,19 @@ from database.models import Game, GameMeta, GameStats, RecommendedGame, Stream
 from config.settings import RECOMMENDATIONS_STREAMER_LOGIN
 from services.google_sheets_service import format_dt, get_client
 from services.recommendations_service import STATUS_RELEASED, STATUS_UPCOMING, refresh_recommendation_lifecycle
+from pipeline.transform.sheets_values import normalize_row as _normalize_row
+from pipeline.sheets import (
+    BOT_INFO_SHEET_NAME,
+    GAMES_SHEET_NAME,
+    RELEASES_SHEET_NAME,
+    RECOMMENDATIONS_SHEET_NAME,
+    SPREADSHEET_NAME,
+    STREAMS_SHEET_NAME,
+    get_or_create_worksheet as _get_or_create_worksheet,
+)
 
 
-SPREADSHEET_NAME = "Tabula Streams"
-STREAMS_SHEET_NAME = "СТРИМЫ"
-GAMES_SHEET_NAME = "ИГРЫ"
-BOT_INFO_SHEET_NAME = "БОТ"
-
-RELEASES_SHEET_NAME = "РЕЛИЗЫ"
-RECOMMENDATIONS_SHEET_NAME = "СОВЕТЫ"
-CHAT_COMMANDS_PATH = Path(__file__).resolve().parent.parent / "CHAT_COMMANDS.txt"
+CHAT_COMMANDS_PATH = Path(__file__).resolve().parents[2] / "CHAT_COMMANDS.txt"
 
 
 def _stream_display_date(stream):
@@ -43,27 +51,6 @@ def _build_stream_row(stream):
         stream.genres_text or "",
         participants,
     ]
-
-
-def _normalize_row(row, width):
-    return row[:width] + [""] * max(0, width - len(row))
-
-
-def _get_or_create_worksheet(client, sheet_name, rows="1000", cols="20"):
-    spreadsheet = client.open(SPREADSHEET_NAME)
-    try:
-        return spreadsheet.worksheet(sheet_name)
-    except Exception:
-        return spreadsheet.add_worksheet(title=sheet_name, rows=rows, cols=cols)
-
-
-def _parse_sheet_bool(value):
-    normalized = str(value).strip().upper()
-    if normalized in {"TRUE", "ИСТИНА"}:
-        return True
-    if normalized in {"FALSE", "ЛОЖЬ"}:
-        return False
-    return None
 
 
 def _build_hyperlink_formula(url, label="Steam"):
@@ -429,25 +416,9 @@ def _build_stream_comparable_row(stream, manual_columns=None):
     return comparable
 
 
-def _get_or_create_game_meta(game):
-    if not game.meta:
-        game.meta = GameMeta()
-    return game.meta
-
-
-def _sync_game_manual_fields_from_sheet(session, existing_rows):
-    for game_name, row in existing_rows.items():
-        game = session.query(Game).filter_by(name=game_name).first()
-        if not game:
-            continue
-
-        meta = _get_or_create_game_meta(game)
-        normalized_row = _normalize_row(row, 12)
-
-        meta.liked = _parse_sheet_bool(normalized_row[7])
-        meta.completed = _parse_sheet_bool(normalized_row[9])
-
-    session.flush()
+def _get_game_meta(game):
+    # Delivery code must not create DB rows as a side-effect of exporting data.
+    return game.meta or GameMeta()
 
 
 def _build_games_dataset(session):
@@ -480,7 +451,7 @@ def _build_games_dataset(session):
 
 
 def _build_game_row(game, stats, rank, manual_columns=None):
-    meta = _get_or_create_game_meta(game)
+    meta = _get_game_meta(game)
     steam = _build_hyperlink_formula(meta.steam_url)
 
     row = [
@@ -591,22 +562,6 @@ def _format_rating_value(recommendation):
         return ""
 
     return value.split("|", 1)[0].strip()
-
-
-def _sync_release_manual_fields_from_sheet(session, existing_rows):
-    for recommendation_name, row in existing_rows.items():
-        recommendation = session.query(RecommendedGame).filter_by(title=recommendation_name).first()
-        if not recommendation:
-            continue
-
-        normalized_row = _normalize_row(row, 12)
-        sheet_value = _parse_sheet_bool(normalized_row[5])
-        if sheet_value is True:
-            recommendation.streamer_interested = True
-        elif sheet_value is False and recommendation.streamer_interested is False:
-            recommendation.streamer_interested = False
-
-    session.flush()
 
 
 def _release_comparable_row(row):
@@ -763,22 +718,9 @@ def sync_games_safe():
     values = sheet.get_all_values()
     data_rows = values[8:] if len(values) > 8 else []
 
-    existing = {}
-    for row in data_rows:
-        normalized_row = _normalize_row(row, 12)
-        game_name = normalized_row[2]
-        if game_name:
-            existing[game_name] = normalized_row
-
-    _sync_game_manual_fields_from_sheet(session, existing)
-
     final_rows = []
     for game, stats, rank in _build_games_dataset(session):
-        manual_columns = None
-        if game.name in existing:
-            old_row = existing[game.name]
-            manual_columns = [old_row[8], old_row[9], old_row[10]]
-        final_rows.append(_build_game_row(game, stats, rank, manual_columns=manual_columns))
+        final_rows.append(_build_game_row(game, stats, rank))
     _finalize_game_row_formulas(final_rows)
 
     current_rows = [_game_comparable_row(row) for row in data_rows]
@@ -792,9 +734,6 @@ def sync_games_safe():
         print(f"Reordered and synced {len(final_rows)} games")
     else:
         print("Games already in sync")
-
-    session.commit()
-
     session.close()
 
 
@@ -807,15 +746,6 @@ def sync_releases_safe():
     session = SessionLocal()
     values = sheet.get_all_values()
     data_rows = values[8:] if len(values) > 8 else []
-
-    existing = {}
-    for row in data_rows:
-        normalized_row = _normalize_row(row, 12)
-        title = normalized_row[2]
-        if title:
-            existing[title] = normalized_row
-
-    _sync_release_manual_fields_from_sheet(session, existing)
 
     recommendations = (
         session.query(RecommendedGame)
@@ -847,7 +777,6 @@ def sync_releases_safe():
 
 
     print(f"Releases synced: {len(rows)}")
-    session.commit()
     session.close()
 
 
