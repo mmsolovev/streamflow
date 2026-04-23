@@ -1,17 +1,8 @@
-import os
-import json
+"""
+Legacy entrypoint kept for backwards compatibility.
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-STREAMS_FILE = os.path.join(BASE_DIR, "storage", "streams.json")
+Prefer: `python pipeline/runtime/reverse_streams.py`.
+"""
 
+from pipeline.runtime.reverse_streams import *  # noqa: F403
 
-with open(STREAMS_FILE, encoding="utf-8") as f:
-    streams = json.load(f)
-
-# разворачиваем список
-streams.reverse()
-
-with open(STREAMS_FILE, "w", encoding="utf-8") as f:
-    json.dump(streams, f, ensure_ascii=False, indent=2)
-
-print("streams.json reversed")

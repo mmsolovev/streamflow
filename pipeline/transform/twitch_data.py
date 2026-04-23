@@ -5,7 +5,7 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
-from config.settings import CLIENT_ID, TWITCH_ACCESS_TOKEN, TWITCH_PRIMARY_CHANNEL
+from config.settings import CLIENT_ID, TWITCH_ACCESS_TOKEN, TWITCH_CHANNEL
 from database.db import SessionLocal
 from database.models import Stream
 
@@ -23,7 +23,7 @@ async def fetch_user_id(session):
         "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}",
     }
 
-    params = {"login": TWITCH_PRIMARY_CHANNEL}
+    params = {"login": TWITCH_CHANNEL}
 
     async with session.get(f"{TWITCH_API}/users", headers=headers, params=params) as resp:
         data = await resp.json()
