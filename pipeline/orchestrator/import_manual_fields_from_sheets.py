@@ -1,5 +1,5 @@
 """
-Runtime job: import user-edited manual fields from Google Sheets into the DB.
+Orchestrator job: import user-edited manual fields from Google Sheets into the DB.
 
 This is the ingest -> transform -> load direction for Sheets, separate from
 delivery exports (DB -> Sheets).

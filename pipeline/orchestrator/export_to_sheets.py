@@ -1,5 +1,5 @@
 """
-Runtime job: export data to Google Sheets UI.
+Orchestrator job: export data to Google Sheets UI.
 
 Implementation lives in pipeline.delivery.*; this file is the stable pipeline entrypoint.
 """
@@ -27,3 +27,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
