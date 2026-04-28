@@ -68,9 +68,26 @@ def _cmd_import_manual_fields_from_sheets(_: argparse.Namespace) -> int:
 
 
 def _cmd_enrich_descriptions(_: argparse.Namespace) -> int:
-    from pipeline.orchestrator.enrich_descriptions import process
+    from pipeline.orchestrator.enrich_descriptions import async_run
 
-    asyncio.run(process())
+    asyncio.run(async_run())
+    return 0
+
+
+def _cmd_sync_new_stream(ns: argparse.Namespace) -> int:
+    from pipeline.orchestrator.sync_new_stream import run
+
+    run(
+        stream_html=Path(ns.stream_html),
+        games_html=Path(ns.games_html) if ns.games_html else None,
+        pages_dir=Path(ns.pages_dir) if ns.pages_dir else None,
+        dry_run=bool(ns.dry_run),
+        write_json=bool(ns.write_json),
+        merge_streams_json=not bool(ns.no_merge_streams_json),
+        streams_json_path=Path(ns.streams_json_path) if ns.streams_json_path else None,
+        games_json_path=Path(ns.games_json_path) if ns.games_json_path else None,
+        update_genres_for_stream=not bool(ns.no_update_genres),
+    )
     return 0
 
 
@@ -109,6 +126,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--games-json-path", default="", help="Override output path for games.json.")
     p.set_defaults(func=_cmd_sync_twitchtracker_html_to_db)
 
+    # --- Single new stream -> DB ---
+    p = sub.add_parser("sync-new-stream", help="Sync one new stream (stream HTML + games HTML) into DB.")
+    p.add_argument("--stream-html", required=True, help="Path to TwitchTracker HTML for the new stream.")
+    p.add_argument("--games-html", default="", help="Path to games_page HTML (all games). If empty, auto-pick from --pages-dir.")
+    p.add_argument("--pages-dir", default="", help="Directory to auto-pick latest games_page*.html (default: storage/pages).")
+    p.add_argument("--dry-run", action="store_true", help="Do not commit changes to DB.")
+    p.add_argument("--write-json", action="store_true", help="Also mirror into storage/*.json as a backup.")
+    p.add_argument("--no-merge-streams-json", action="store_true", help="Overwrite streams.json instead of merging.")
+    p.add_argument("--streams-json-path", default="", help="Override output path for streams.json.")
+    p.add_argument("--games-json-path", default="", help="Override output path for games.json.")
+    p.add_argument("--no-update-genres", action="store_true", help="Do not recompute genres_text for the new stream.")
+    p.set_defaults(func=_cmd_sync_new_stream)
+
     # --- Legacy JSON -> DB ---
     p = sub.add_parser("import-json", help="Import storage/streams.json + storage/games.json into DB.")
     p.add_argument("--dry-run", action="store_true", help="Do not commit changes to DB.")
@@ -146,11 +176,18 @@ def main(argv: list[str] | None = None) -> int:
         "enrich-streams-genres",
         help="Compute streams.genres_text. Pass args after `--` to the underlying job.",
     )
-    p.add_argument("args", nargs=argparse.REMAINDER)
+    p.add_argument("--dry-run", action="store_true", help="Do not commit changes to DB.")
+    p.add_argument("--limit", type=int, default=0, help="Max streams to process (0 = no limit).")
+    p.add_argument("--only-stream-id", type=int, default=0, help="Process only this stream id.")
+    p.add_argument("--force", action="store_true", help="Recompute even if streams.genres_text is not blank.")
     p.set_defaults(
-        func=lambda ns: _cmd_passthrough(
-            "pipeline.orchestrator.enrich_streams_genres", [a for a in ns.args if a != "--"]
+        func=lambda ns: __import__("pipeline.orchestrator.enrich_streams_genres", fromlist=["run"]).run(
+            dry_run=bool(ns.dry_run),
+            limit=int(ns.limit),
+            only_stream_id=int(ns.only_stream_id),
+            force=bool(ns.force),
         )
+        or 0
     )
 
     ns = parser.parse_args(argv)
