@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
@@ -112,6 +113,44 @@ def parse_stream_pages(*, pages_dir: Path) -> list[TwitchTrackerStreamRow]:
     return sorted(streams_by_date.values(), key=lambda x: x.date)
 
 
+def parse_stream_file(*, path: Path) -> list[TwitchTrackerStreamRow]:
+    """
+    Parse a single TwitchTracker stream HTML file into normalized rows.
+
+    The file may contain multiple rows (table id="streams"). Returned rows are de-duplicated by date.
+    """
+    soup = _load_soup(Path(path))
+    table = soup.find("table", id="streams")
+    if table is None:
+        return []
+
+    streams_by_date: dict[datetime, TwitchTrackerStreamRow] = {}
+    for row in table.find_all("tr"):
+        cols = row.find_all("td")
+        if len(cols) != 8:
+            continue
+
+        date = parse_stream_date(cols[0].get_text(strip=True))
+        games: list[str] = []
+        for img in cols[7].find_all("img"):
+            game_name = img.get("data-original-title")
+            if game_name:
+                games.append(game_name)
+
+        streams_by_date[date] = TwitchTrackerStreamRow(
+            date=date,
+            duration_hours=clean_duration_hours(cols[1].get_text(strip=True)),
+            avg_viewers=clean_int(cols[2].get_text(strip=True)),
+            max_viewers=clean_int(cols[3].get_text(strip=True)),
+            followers=clean_int(cols[4].get_text(strip=True)),
+            views=clean_int(cols[5].get_text(strip=True)),
+            title=cols[6].get_text(strip=True),
+            games=games,
+        )
+
+    return sorted(streams_by_date.values(), key=lambda x: x.date)
+
+
 def parse_game_pages(*, pages_dir: Path) -> list[TwitchTrackerGameRow]:
     """
     Парсит HTML-страницы с TwitchTracker и собирает информацию об играх.
@@ -143,6 +182,38 @@ def parse_game_pages(*, pages_dir: Path) -> list[TwitchTrackerGameRow]:
                 followers_per_hour=clean_float(cols[5].get_text(strip=True)),
                 last_stream=parse_game_last_stream(cols[6].get_text(strip=True)),
             )
+
+    return sorted(games_by_name.values(), key=lambda x: (x.rank, x.name.casefold()))
+
+
+def parse_game_file(*, path: Path) -> list[TwitchTrackerGameRow]:
+    """
+    Parse a single TwitchTracker games HTML file into normalized rows.
+
+    The file is expected to contain a table id="games".
+    Returned rows are de-duplicated by game name.
+    """
+    soup = _load_soup(Path(path))
+    table = soup.find("table", id="games")
+    if table is None:
+        return []
+
+    games_by_name: dict[str, TwitchTrackerGameRow] = {}
+    for row in table.find_all("tr"):
+        cols = row.find_all("td")
+        if len(cols) != 7:
+            continue
+
+        game_name = cols[1].get_text(strip=True)
+        games_by_name[game_name] = TwitchTrackerGameRow(
+            name=game_name,
+            rank=clean_int(cols[0].get_text(strip=True)),
+            hours_streamed=clean_float(cols[2].get_text(strip=True)),
+            avg_viewers=clean_int(cols[3].get_text(strip=True)),
+            max_viewers=clean_int(cols[4].get_text(strip=True)),
+            followers_per_hour=clean_float(cols[5].get_text(strip=True)),
+            last_stream=parse_game_last_stream(cols[6].get_text(strip=True)),
+        )
 
     return sorted(games_by_name.values(), key=lambda x: (x.rank, x.name.casefold()))
 

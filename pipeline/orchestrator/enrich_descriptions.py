@@ -1,83 +1,98 @@
 from __future__ import annotations
 
 """
-Orchestrator job: fill short descriptions for recommended games using AI.
+Orchestrator job: fill short descriptions for recommended games.
 
-Note: this uses `g4f` directly. Treat as a best-effort enrichment tool.
+Ingest: uses summary from RecommendedGame.source_payload (already stored in DB).
+Transform: asks AI to produce a short Russian description.
+Load: writes RecommendedGame.description_short back to DB.
 """
 
+import argparse
 import asyncio
 import json
 
 from database.db import SessionLocal
-from database.models import RecommendedGame
-
-import g4f
-
-
-def generate_short_description_sync(text: str) -> str | None:
-    """Generate a short Russian summary for a game's description (best-effort)."""
-    try:
-        result = g4f.ChatCompletion.create(
-            model="",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Translate and briefly summarize the game description in Russian. "
-                        "Max 170 characters. No filler."
-                    ),
-                },
-                {"role": "user", "content": text},
-            ],
-        )
-    except Exception:
-        return None
-
-    if not result:
-        return None
-
-    result = " ".join(str(result).split())
-    return result[:235]
+from pipeline.load.recommended_games import iter_games_missing_short_description, set_game_short_description
+from pipeline.transform.recommended_game_descriptions import generate_short_description
 
 
-async def process() -> None:
+async def async_run(
+    *,
+    limit: int = 0,
+    dry_run: bool = False,
+    delay_seconds: float = 1.5,
+    model: str = "",
+) -> None:
     session = SessionLocal()
     try:
-        games = session.query(RecommendedGame).filter(RecommendedGame.description_short.is_(None)).all()
-        print(f"Found games: {len(games)}")
+        games = list(iter_games_missing_short_description(session, limit=int(limit)))
+        print(f"Found games missing description_short: {len(games)}")
+
+        updated = 0
+        skipped = 0
 
         for i, game in enumerate(games, 1):
             try:
-                if not game.source_payload:
+                payload_raw = game.source_payload
+                if not payload_raw:
+                    skipped += 1
                     continue
 
-                payload = json.loads(game.source_payload)
+                payload = json.loads(payload_raw)
                 summary = payload.get("summary")
                 if not summary:
+                    skipped += 1
                     continue
 
-                short = await asyncio.to_thread(generate_short_description_sync, summary)
+                short = await generate_short_description(str(summary), model=model)
                 if not short:
-                    print(f"[{i}] skip: {game.title}")
+                    print(f"[{i}] skip (ai): {game.title}")
+                    skipped += 1
                     continue
 
-                game.description_short = short
-                session.commit()
-                print(f"[{i}] OK: {game.title}")
+                changed = set_game_short_description(session, game, short)
+                if not changed:
+                    skipped += 1
+                    continue
 
-                await asyncio.sleep(1.5)
+                updated += 1
+
+                if dry_run:
+                    session.rollback()
+                    print(f"[{i}] DRY-RUN: {game.title}")
+                else:
+                    session.commit()
+                    print(f"[{i}] OK: {game.title}")
+
+                if float(delay_seconds) > 0:
+                    await asyncio.sleep(float(delay_seconds))
             except Exception as e:
                 print(f"[{i}] ERROR: {game.title} -> {e}")
+                session.rollback()
                 continue
+
+        print(f"Done. Updated: {updated}. Skipped: {skipped}. Dry run: {'yes' if dry_run else 'no'}.")
     finally:
         session.close()
 
 
 def main() -> None:
-    asyncio.run(process())
+    parser = argparse.ArgumentParser(description="Fill RecommendedGame.description_short using AI (best-effort).")
+    parser.add_argument("--limit", type=int, default=0, help="Max games to process (0 = no limit).")
+    parser.add_argument("--dry-run", action="store_true", help="Do not commit changes to DB.")
+    parser.add_argument("--delay-seconds", type=float, default=1.5, help="Delay between requests.")
+    parser.add_argument("--model", default="", help="Optional provider model name (passed to g4f).")
+    args = parser.parse_args()
+    asyncio.run(
+        async_run(
+            limit=int(args.limit),
+            dry_run=bool(args.dry_run),
+            delay_seconds=float(args.delay_seconds),
+            model=str(args.model or ""),
+        )
+    )
 
 
 if __name__ == "__main__":
     main()
-

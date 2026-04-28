@@ -1,8 +1,6 @@
 """
-Pipeline load layer: apply user-edited fields from Sheets into the DB.
+Pipeline load layer: применение отредактированных пользователем полей из Google Sheets в базу данных.
 
-This is intentionally separate from delivery exports (DB -> Sheets) to keep the
-pipeline directions explicit.
 """
 
 from database.models import Game, GameMeta, RecommendedGame

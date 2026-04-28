@@ -1,8 +1,6 @@
 """
-Pipeline transform helpers for Google Sheets values.
+Вспомогательные функции преобразования данных для значений Google Sheets.
 
-Keep these in transform (not delivery) so both ingest->load jobs and delivery jobs
-can share normalization/parsing without mixing responsibilities.
 """
 
 

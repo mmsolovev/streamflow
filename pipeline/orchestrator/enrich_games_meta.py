@@ -3,28 +3,30 @@ from __future__ import annotations
 """
 Orchestrator job: enrich `games_meta` table (HLTB hours, Steam URL, platforms, genres).
 
-This job operates directly on the SQLite DB (`storage/streams.db`) and maintains its own cache under
-`storage/cache/enrich_games_meta.json`.
+Layering:
+- ingest: external lookups (IGDB, HLTB) + local JSON cache
+- transform: normalization + decision which fields to fill
+- load: read/update GameMeta rows in DB
 """
 
 import argparse
 import asyncio
 import json
 import shutil
-import sqlite3
-import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from database.db import SessionLocal, db_path as _default_db_path_str
+from pipeline.ingest.hltb import HltbResult, search_best
+from pipeline.ingest.igdb_metadata import fetch_igdb_metadata
+from pipeline.load.games_meta import apply_games_meta_patch, select_enrichment_candidates
+from pipeline.transform.games_meta_enrichment import IgdbMetaView, build_patch, normalize_key
+
 
 def _project_root() -> Path:
-    # .../pipeline/orchestrator/enrich_games_meta.py -> project root
     return Path(__file__).resolve().parents[2]
-
-
-def _db_path() -> Path:
-    return _project_root() / "storage" / "streams.db"
 
 
 def _cache_path() -> Path:
@@ -33,43 +35,6 @@ def _cache_path() -> Path:
 
 def _now_ts() -> int:
     return int(time.time())
-
-
-def _normalize_key(value: str) -> str:
-    return " ".join((value or "").casefold().split())
-
-
-def _is_blank(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return not value.strip()
-    return False
-
-
-def _parse_csv(value: str | None) -> list[str]:
-    if not value:
-        return []
-    return [part.strip() for part in value.split(",") if part.strip()]
-
-
-def _normalize_genre_token(token: str) -> str:
-    if _normalize_key(token) == "role-playing (rpg)":
-        return "RPG"
-    return token.strip()
-
-
-def _normalize_genres_text(genres_text: str | None) -> str | None:
-    tokens = [_normalize_genre_token(t) for t in _parse_csv(genres_text)]
-    seen: set[str] = set()
-    out: list[str] = []
-    for t in tokens:
-        key = _normalize_key(t)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        out.append(t)
-    return ", ".join(out) if out else None
 
 
 def _load_cache(path: Path) -> dict[str, Any]:
@@ -100,101 +65,183 @@ def _backup_db(db_path: Path) -> Path:
     return backup_path
 
 
-def _select_candidates(con: sqlite3.Connection) -> list[dict[str, Any]]:
-    con.row_factory = sqlite3.Row
-    cur = con.cursor()
-    rows = cur.execute(
-        """
-        SELECT
-            gm.game_id,
-            g.name AS game_name,
-            gm.hltb_hours,
-            gm.steam_url,
-            gm.platforms_text,
-            gm.genres_text
-        FROM games_meta gm
-        JOIN games g ON g.id = gm.game_id
-        WHERE
-            (gm.hltb_hours IS NULL OR gm.hltb_hours <= 0)
-            OR gm.steam_url IS NULL OR trim(gm.steam_url) = ''
-            OR gm.platforms_text IS NULL OR trim(gm.platforms_text) = ''
-            OR gm.genres_text IS NULL OR trim(gm.genres_text) = ''
-        ORDER BY gm.game_id
-        """
-    ).fetchall()
-    return [dict(r) for r in rows]
+@dataclass(frozen=True, slots=True)
+class _CachedHltb:
+    hltb_hours: float | None
+    updated_at: int
 
 
-def _update_game_meta(
-    con: sqlite3.Connection,
-    *,
-    game_id: int,
-    patch: dict[str, Any],
-) -> None:
-    if not patch:
-        return
-    cols = sorted(patch.keys())
-    assignments = ", ".join(f"{c} = ?" for c in cols)
-    params = [patch[c] for c in cols] + [game_id]
-    con.execute(f"UPDATE games_meta SET {assignments} WHERE game_id = ?", params)
+def _get_cached_hltb(cache: dict[str, Any], key: str, *, ttl_seconds: int) -> float | None:
+    entry = cache.get("hltb", {}).get(key)
+    if not isinstance(entry, dict):
+        return None
+    updated_at = int(entry.get("updated_at") or 0)
+    if ttl_seconds > 0 and (_now_ts() - updated_at) >= ttl_seconds:
+        return None
+    value = entry.get("hltb_hours")
+    if isinstance(value, (int, float)) and float(value) > 0:
+        return float(value)
+    return None
 
 
-async def _fetch_igdb_metadata(game_name: str):
-    # Lazy import so the script can still run with --skip-igdb even if deps are missing.
-    from services.recommendation_metadata_service import fetch_recommendation_metadata
-
-    return await fetch_recommendation_metadata(game_name)
+def _put_cached_hltb(cache: dict[str, Any], key: str, value: float | None) -> None:
+    cache.setdefault("hltb", {})
+    cache["hltb"][key] = {"hltb_hours": value, "updated_at": _now_ts()}
 
 
-def _hltb_search_best(
-    game_name: str,
-    *,
-    min_similarity: float,
-):
-    # Lazy import so the script can still run with --skip-hltb even if deps are missing.
-    import re
-
-    from howlongtobeatpy import HowLongToBeat
-
-    def sanitize(value: str) -> str:
-        sanitized = re.sub(r"[^\w\s:+'\-.]", " ", value, flags=re.UNICODE)
-        return " ".join(sanitized.split())
-
-    client = HowLongToBeat()
-    queries = [game_name]
-    sanitized = sanitize(game_name)
-    if sanitized and sanitized != game_name:
-        queries.append(sanitized)
-
-    best_match = None
-    best_similarity = 0.0
-
-    for q in queries:
-        results = client.search(q) or []
-        for r in results:
-            name = str(getattr(r, "game_name", "") or "")
-            sim = float(getattr(r, "similarity", 0.0) or 0.0)
-            if sim > best_similarity:
-                best_match = r
-                best_similarity = sim
-
-    if best_match is None or best_similarity < float(min_similarity):
+def _get_cached_igdb(cache: dict[str, Any], key: str, *, ttl_seconds: int) -> IgdbMetaView | None:
+    entry = cache.get("igdb", {}).get(key)
+    if not isinstance(entry, dict):
+        return None
+    updated_at = int(entry.get("updated_at") or 0)
+    if ttl_seconds > 0 and (_now_ts() - updated_at) >= ttl_seconds:
         return None
 
-    hours = getattr(best_match, "main_story", None)
-    if hours is None:
-        return None
-
-    return {
-        "hltb_hours": float(hours),
-        "game_name": str(getattr(best_match, "game_name", "") or ""),
-        "similarity": float(best_similarity),
-    }
+    return IgdbMetaView(
+        steam_url=entry.get("steam_url"),
+        platforms_text=entry.get("platforms_text"),
+        genres_text=entry.get("genres_text"),
+    )
 
 
-async def async_main() -> int:
+def _put_cached_igdb(cache: dict[str, Any], key: str, meta: IgdbMetaView | None) -> None:
+    cache.setdefault("igdb", {})
+    payload: dict[str, Any] = {"updated_at": _now_ts()}
+    if meta is not None:
+        payload.update(
+            {
+                "steam_url": meta.steam_url,
+                "platforms_text": meta.platforms_text,
+                "genres_text": meta.genres_text,
+            }
+        )
+    cache["igdb"][key] = payload
+
+
+async def async_run(
+    *,
+    apply: bool,
+    backup: bool,
+    limit: int,
+    only_game_id: int,
+    skip_hltb: bool,
+    skip_igdb: bool,
+    hltb_delay_seconds: float,
+    hltb_min_similarity: float,
+    hltb_cache_ttl_days: int,
+    igdb_cache_ttl_days: int,
+    cache_path: Path | None = None,
+    db_path: Path | None = None,
+) -> int:
+    db_path = Path(db_path) if db_path is not None else Path(_default_db_path_str)
+    if not db_path.exists():
+        raise SystemExit(f"DB not found: {db_path}")
+
+    if apply and backup:
+        backup_path = _backup_db(db_path)
+        print(f"Backup: {backup_path}")
+
+    cache_path = Path(cache_path) if cache_path is not None else _cache_path()
+    cache = _ensure_cache_shape(_load_cache(cache_path))
+
+    hltb_ttl_seconds = max(0, int(hltb_cache_ttl_days) * 24 * 60 * 60)
+    igdb_ttl_seconds = max(0, int(igdb_cache_ttl_days) * 24 * 60 * 60)
+
+    session = SessionLocal()
+    try:
+        candidates = select_enrichment_candidates(
+            session,
+            only_game_id=int(only_game_id),
+            limit=int(limit),
+        )
+        if not candidates:
+            print("Nothing to do: no candidates selected.")
+            return 0
+
+        updated_games = 0
+        updated_fields = 0
+        hltb_calls = 0
+        igdb_calls = 0
+        hltb_last_call_at = 0.0
+
+        for idx, row in enumerate(candidates, start=1):
+            key = normalize_key(row.game_name)
+            if not key:
+                continue
+
+            hltb_hours: float | None = None
+            if not skip_hltb:
+                hltb_hours = _get_cached_hltb(cache, key, ttl_seconds=hltb_ttl_seconds)
+                if hltb_hours is None:
+                    since_last = time.time() - hltb_last_call_at
+                    delay = float(hltb_delay_seconds)
+                    if since_last < delay:
+                        await asyncio.sleep(delay - since_last)
+
+                    result = await asyncio.to_thread(
+                        search_best,
+                        row.game_name,
+                        min_similarity=float(hltb_min_similarity),
+                    )
+                    hltb_last_call_at = time.time()
+                    hltb_calls += 1
+
+                    if isinstance(result, HltbResult) and float(result.hltb_hours) > 0:
+                        hltb_hours = float(result.hltb_hours)
+                        _put_cached_hltb(cache, key, hltb_hours)
+                    else:
+                        _put_cached_hltb(cache, key, None)
+
+            igdb_view: IgdbMetaView | None = None
+            if not skip_igdb:
+                igdb_view = _get_cached_igdb(cache, key, ttl_seconds=igdb_ttl_seconds)
+                if igdb_view is None:
+                    meta_obj = await fetch_igdb_metadata(row.game_name)
+                    igdb_calls += 1
+                    if meta_obj is not None:
+                        igdb_view = IgdbMetaView(
+                            steam_url=getattr(meta_obj, "steam_url", None),
+                            platforms_text=getattr(meta_obj, "platforms_text", None),
+                            genres_text=getattr(meta_obj, "genres_text", None),
+                        )
+                    _put_cached_igdb(cache, key, igdb_view)
+
+            patch = build_patch(row, hltb_hours=hltb_hours, igdb=igdb_view)
+            if not patch:
+                continue
+
+            updated_games += 1
+            updated_fields += len(patch)
+            preview = ", ".join(f"{k}={patch[k]!r}" for k in sorted(patch.keys()))
+            print(f"[{idx}/{len(candidates)}] game_id={row.game_id} {row.game_name}: {preview}")
+
+            if apply:
+                apply_games_meta_patch(session, game_id=int(row.game_id), patch=patch)
+
+        if apply:
+            session.commit()
+        else:
+            session.rollback()
+
+        _save_cache(cache_path, cache)
+
+        mode = "APPLIED" if apply else "DRY-RUN"
+        print(
+            f"{mode}: updated_games={updated_games}, updated_fields={updated_fields}, "
+            f"hltb_calls={hltb_calls}, igdb_calls={igdb_calls}"
+        )
+        return 0
+    except Exception:
+        if apply:
+            session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(description="Enrich games_meta in streams.db (HLTB + IGDB).")
-    parser.add_argument("--db", default=str(_db_path()), help="Path to streams.db")
+    parser.add_argument("--db", default=str(_default_db_path_str), help="Path to streams.db")
     parser.add_argument("--apply", action="store_true", help="Write changes to DB (default: dry-run).")
     parser.add_argument("--backup", action="store_true", help="Create .bak-* copy of DB before applying.")
     parser.add_argument("--limit", type=int, default=0, help="Max games to process (0 = no limit).")
@@ -207,150 +254,24 @@ async def async_main() -> int:
     parser.add_argument("--igdb-cache-ttl-days", type=int, default=30, help="IGDB cache TTL in days.")
     args = parser.parse_args()
 
-    db_path = Path(args.db)
-    if not db_path.exists():
-        raise SystemExit(f"DB not found: {db_path}")
-
-    cache_path = _cache_path()
-    cache = _ensure_cache_shape(_load_cache(cache_path))
-
-    if args.apply and args.backup:
-        backup_path = _backup_db(db_path)
-        print(f"Backup: {backup_path}")
-
-    con = sqlite3.connect(db_path)
-    try:
-        candidates = _select_candidates(con)
-        if args.only_game_id:
-            candidates = [c for c in candidates if int(c["game_id"]) == int(args.only_game_id)]
-        if args.limit and args.limit > 0:
-            candidates = candidates[: args.limit]
-
-        if not candidates:
-            print("Nothing to do: no candidates selected.")
-            return 0
-
-        if args.apply:
-            con.execute("BEGIN")
-
-        updated_games = 0
-        updated_fields = 0
-        hltb_calls = 0
-        igdb_calls = 0
-        hltb_last_call_at = 0.0
-
-        for idx, row in enumerate(candidates, start=1):
-            game_id = int(row["game_id"])
-            game_name = str(row.get("game_name") or "")
-
-            want_hltb = not isinstance(row.get("hltb_hours"), (int, float)) or float(row.get("hltb_hours") or 0) <= 0
-            want_steam = _is_blank(row.get("steam_url"))
-            want_platforms = _is_blank(row.get("platforms_text"))
-            want_genres = _is_blank(row.get("genres_text"))
-            want_igdb = want_steam or want_platforms or want_genres
-
-            patch: dict[str, Any] = {}
-            key = _normalize_key(game_name)
-
-            # ---- HLTB ----
-            if want_hltb and not args.skip_hltb and key:
-                hltb_entry = cache["hltb"].get(key) if key else None
-                ttl_seconds = max(0, int(args.hltb_cache_ttl_days) * 24 * 60 * 60)
-                if (
-                    isinstance(hltb_entry, dict)
-                    and (_now_ts() - int(hltb_entry.get("updated_at") or 0)) < ttl_seconds
-                    and isinstance(hltb_entry.get("hltb_hours"), (int, float))
-                ):
-                    patch["hltb_hours"] = float(hltb_entry["hltb_hours"])
-                else:
-                    since_last = time.time() - hltb_last_call_at
-                    delay = float(args.hltb_delay_seconds)
-                    if since_last < delay:
-                        await asyncio.sleep(delay - since_last)
-
-                    result = await asyncio.to_thread(
-                        _hltb_search_best,
-                        game_name,
-                        min_similarity=float(args.hltb_min_similarity),
-                    )
-                    hltb_last_call_at = time.time()
-                    hltb_calls += 1
-
-                    if isinstance(result, dict) and isinstance(result.get("hltb_hours"), (int, float)):
-                        patch["hltb_hours"] = float(result["hltb_hours"])
-                        cache["hltb"][key] = {
-                            "hltb_hours": float(result["hltb_hours"]),
-                            "matched_name": result.get("game_name"),
-                            "similarity": float(result.get("similarity") or 0.0),
-                            "updated_at": _now_ts(),
-                        }
-                    else:
-                        cache["hltb"][key] = {"hltb_hours": None, "updated_at": _now_ts()}
-
-            # ---- IGDB ----
-            if want_igdb and not args.skip_igdb and key:
-                igdb_entry = cache["igdb"].get(key)
-                ttl_seconds = max(0, int(args.igdb_cache_ttl_days) * 24 * 60 * 60)
-                cached_ok = isinstance(igdb_entry, dict) and (_now_ts() - int(igdb_entry.get("updated_at") or 0)) < ttl_seconds
-
-                if cached_ok:
-                    meta = igdb_entry
-                else:
-                    meta_obj = await _fetch_igdb_metadata(game_name)
-                    igdb_calls += 1
-                    meta = None
-                    if meta_obj is not None:
-                        meta = {
-                            "steam_url": getattr(meta_obj, "steam_url", None),
-                            "platforms_text": getattr(meta_obj, "platforms_text", None),
-                            "genres_text": getattr(meta_obj, "genres_text", None),
-                        }
-                    cache["igdb"][key] = {"updated_at": _now_ts(), **(meta or {})}
-
-                if isinstance(meta, dict):
-                    if want_steam and meta.get("steam_url"):
-                        patch["steam_url"] = str(meta["steam_url"]).strip() or None
-                    if want_platforms and meta.get("platforms_text"):
-                        patch["platforms_text"] = str(meta["platforms_text"]).strip() or None
-                    if want_genres and meta.get("genres_text"):
-                        patch["genres_text"] = _normalize_genres_text(str(meta["genres_text"]))
-
-            if not patch:
-                continue
-
-            updated_games += 1
-            updated_fields += len(patch)
-            preview = ", ".join(f"{k}={patch[k]!r}" for k in sorted(patch.keys()))
-            print(f"[{idx}/{len(candidates)}] game_id={game_id} {game_name}: {preview}")
-
-            if args.apply:
-                _update_game_meta(con, game_id=game_id, patch=patch)
-
-        if args.apply:
-            con.commit()
-        else:
-            con.rollback()
-
-        _save_cache(cache_path, cache)
-
-        mode = "APPLIED" if args.apply else "DRY-RUN"
-        print(
-            f"{mode}: updated_games={updated_games}, updated_fields={updated_fields}, "
-            f"hltb_calls={hltb_calls}, igdb_calls={igdb_calls}"
+    raise SystemExit(
+        asyncio.run(
+            async_run(
+                apply=bool(args.apply),
+                backup=bool(args.backup),
+                limit=int(args.limit),
+                only_game_id=int(args.only_game_id),
+                skip_hltb=bool(args.skip_hltb),
+                skip_igdb=bool(args.skip_igdb),
+                hltb_delay_seconds=float(args.hltb_delay_seconds),
+                hltb_min_similarity=float(args.hltb_min_similarity),
+                hltb_cache_ttl_days=int(args.hltb_cache_ttl_days),
+                igdb_cache_ttl_days=int(args.igdb_cache_ttl_days),
+                cache_path=_cache_path(),
+                db_path=Path(args.db),
+            )
         )
-        return 0
-    except Exception:
-        if args.apply:
-            con.rollback()
-        raise
-    finally:
-        con.close()
-
-
-def main() -> None:
-    # Ensure imports like `services.*` work when running as a script.
-    sys.path.insert(0, str(_project_root()))
-    raise SystemExit(asyncio.run(async_main()))
+    )
 
 
 if __name__ == "__main__":

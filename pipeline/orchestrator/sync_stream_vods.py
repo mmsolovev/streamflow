@@ -14,7 +14,7 @@ import aiohttp
 
 from config.settings import CLIENT_ID, TWITCH_ACCESS_TOKEN, TWITCH_CHANNEL
 from database.db import SessionLocal
-from pipeline.ingest.twitch_api_vods import fetch_user_id, fetch_vods
+from pipeline.ingest.twitch_api import fetch_user_id, fetch_vods
 from pipeline.load.sync_stream_vods import sync_stream_vod_urls
 
 
