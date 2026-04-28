@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""
+Orchestrator job: sync Twitch VOD URLs into streams.vod_url.
+
+Ingest: fetch VODs list from Twitch API.
+Load: match and write VOD URLs into DB.
+"""
+
 import argparse
 import asyncio
 

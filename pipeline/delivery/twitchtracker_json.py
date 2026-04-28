@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pipeline.ingest.twitchtracker_html import TwitchTrackerGameRow, TwitchTrackerStreamRow
+from pipeline.ingest.twitchtracker_data import TwitchTrackerGameRow, TwitchTrackerStreamRow, parse_stream_date
 
 
 def _fmt_stream_date(dt: datetime) -> str:
@@ -44,16 +44,11 @@ def _load_json_list(path: Path) -> list[Any]:
 
 
 def _parse_stream_date_str(value: str) -> datetime:
-    return datetime.strptime(value, "%d/%b/%Y %H:%M")
+    # Keep local wrapper for backward-compat with existing call sites in this module.
+    return parse_stream_date(value)
 
 
 def write_streams_json(path: Path, streams: list[TwitchTrackerStreamRow], *, merge_existing: bool = False) -> None:
-    """
-    Writes streams.json compatible with older import_json_to_db.py:
-    - date: "%d/%b/%Y %H:%M"
-    - duration: "<hours>hrs"
-    - numeric metrics as strings/ints are fine (import normalizes)
-    """
     new_rows: list[dict[str, Any]] = []
     for s in streams:
         new_rows.append(
@@ -99,11 +94,6 @@ def write_streams_json(path: Path, streams: list[TwitchTrackerStreamRow], *, mer
 
 
 def write_games_json(path: Path, games: list[TwitchTrackerGameRow]) -> None:
-    """
-    Writes games.json compatible with older import_json_to_db.py:
-    - last_stream: "%d/%b/%Y"
-    - key names match twitchtracker_games_parser.py output.
-    """
     out: list[dict[str, Any]] = []
     for g in games:
         out.append(

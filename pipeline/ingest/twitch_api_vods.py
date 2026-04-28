@@ -1,3 +1,8 @@
+"""
+Pipeline ingest layer: считывание данных о канале из Twitch API.
+
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -45,6 +50,10 @@ async def fetch_vods(
     user_id: str,
     first: int = 100,
 ) -> list[dict[str, Any]]:
+    """
+    Получает все записи стримов (VOD archive) канала.
+
+    """
     vods: list[dict[str, Any]] = []
     cursor: str | None = None
 
@@ -70,4 +79,3 @@ async def fetch_vods(
             break
 
     return vods
-

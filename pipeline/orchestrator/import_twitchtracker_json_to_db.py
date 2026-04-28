@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+"""
+Orchestrator job: import legacy TwitchTracker JSON (storage/streams.json + storage/games.json) into DB.
+"""
+
 import argparse
 from pathlib import Path
 
 from database.db import Base, SessionLocal, engine
-from pipeline.ingest.twitchtracker_json import load_games_json, load_streams_json
+from pipeline.ingest.twitchtracker_data import load_games_json, load_streams_json
 from pipeline.load.twitchtracker_db_sync import sync_game_stats, sync_streams
 from pipeline.load.update_streams_count import update_streams_count
 
@@ -68,16 +72,8 @@ def run(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import legacy streams.json + games.json into SQLite.")
     parser.add_argument("--dry-run", action="store_true", help="Do not write changes to DB.")
-    parser.add_argument(
-        "--no-prune",
-        action="store_true",
-        help="Do not delete DB rows missing from JSON.",
-    )
-    parser.add_argument(
-        "--no-sync-participants",
-        action="store_true",
-        help="Do not sync stream participants from @mentions in title.",
-    )
+    parser.add_argument("--no-prune", action="store_true", help="Do not delete DB rows missing from JSON.")
+    parser.add_argument("--no-sync-participants", action="store_true", help="Do not sync participants from @mentions.")
     parser.add_argument("--streams-path", default="", help="Path to streams.json (default: storage/streams.json).")
     parser.add_argument("--games-path", default="", help="Path to games.json (default: storage/games.json).")
     args = parser.parse_args()
@@ -96,3 +92,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

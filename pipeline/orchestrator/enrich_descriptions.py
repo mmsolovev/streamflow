@@ -1,24 +1,22 @@
+from __future__ import annotations
+
+"""
+Orchestrator job: fill short descriptions for recommended games using AI.
+
+Note: this uses `g4f` directly. Treat as a best-effort enrichment tool.
+"""
+
 import asyncio
 import json
-import time
 
 from database.db import SessionLocal
 from database.models import RecommendedGame
+
 import g4f
 
 
 def generate_short_description_sync(text: str) -> str | None:
-    """Генерирует краткое описание игры через AI.
-
-    Переводит и сокращает исходный текст до заданной длины.
-
-    Args:
-        text: Оригинальное описание игры.
-
-    Returns:
-        Сокращённое описание или None при ошибке.
-    """
-
+    """Generate a short Russian summary for a game's description (best-effort)."""
     try:
         result = g4f.ChatCompletion.create(
             model="",
@@ -26,8 +24,8 @@ def generate_short_description_sync(text: str) -> str | None:
                 {
                     "role": "system",
                     "content": (
-                        "Переведи и кратко перескажи описание игры на русском языке. "
-                        "Максимум 170 символов. Без лишней воды."
+                        "Translate and briefly summarize the game description in Russian. "
+                        "Max 170 characters. No filler."
                     ),
                 },
                 {"role": "user", "content": text},
@@ -39,25 +37,15 @@ def generate_short_description_sync(text: str) -> str | None:
     if not result:
         return None
 
-    result = " ".join(result.split())
+    result = " ".join(str(result).split())
     return result[:235]
 
 
-async def process():
-    """Обрабатывает в базе данных игры без краткого описания и заполняет его через AI.
-
-    :return:
-    """
+async def process() -> None:
     session = SessionLocal()
-
     try:
-        games = (
-            session.query(RecommendedGame)
-            .filter(RecommendedGame.description_short.is_(None))
-            .all()
-        )
-
-        print(f"Найдено игр: {len(games)}")
+        games = session.query(RecommendedGame).filter(RecommendedGame.description_short.is_(None)).all()
+        print(f"Found games: {len(games)}")
 
         for i, game in enumerate(games, 1):
             try:
@@ -66,35 +54,30 @@ async def process():
 
                 payload = json.loads(game.source_payload)
                 summary = payload.get("summary")
-
                 if not summary:
                     continue
 
-                # 🔥 вызываем g4f в отдельном потоке
-                short = await asyncio.to_thread(
-                    generate_short_description_sync, summary
-                )
-
+                short = await asyncio.to_thread(generate_short_description_sync, summary)
                 if not short:
                     print(f"[{i}] skip: {game.title}")
                     continue
 
                 game.description_short = short
                 session.commit()
-
                 print(f"[{i}] OK: {game.title}")
 
-                # небольшая задержка
                 await asyncio.sleep(1.5)
-
             except Exception as e:
                 print(f"[{i}] ERROR: {game.title} -> {e}")
                 continue
-
     finally:
         session.close()
 
 
-if __name__ == "__main__":
+def main() -> None:
     asyncio.run(process())
-    
+
+
+if __name__ == "__main__":
+    main()
+

@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from database.models import Game, GameStats
-from pipeline.ingest.twitchtracker_html import TwitchTrackerGameRow
+from pipeline.ingest.twitchtracker_data import TwitchTrackerGameRow
 from pipeline.load.twitchtracker.common import SyncStats
 from pipeline.load.twitchtracker.games import get_or_create_game
 

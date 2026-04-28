@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+"""
+Orchestrator job: parse TwitchTracker HTML pages and sync into DB.
+
+Optionally also mirror parsed datasets into JSON as a backup collection format.
+"""
+
 import argparse
 from pathlib import Path
 
 from database.db import Base, SessionLocal, engine
 from pipeline.delivery.twitchtracker_json import write_games_json, write_streams_json
-from pipeline.ingest.twitchtracker_html import parse_game_pages, parse_stream_pages
+from pipeline.ingest.twitchtracker_data import parse_game_pages, parse_stream_pages
 from pipeline.load.twitchtracker_db_sync import sync_game_stats, sync_streams
 from pipeline.load.update_streams_count import update_streams_count
 
 
 def _project_root() -> Path:
-    # .../pipeline/runtime/sync_twitchtracker_html_to_db.py -> project root
+    # .../pipeline/orchestrator/sync_twitchtracker_html_to_db.py -> project root
     return Path(__file__).resolve().parents[2]
 
 
@@ -72,44 +78,14 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Sync TwitchTracker HTML pages into SQLite (and optionally mirror to JSON)."
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Parse and compare data without writing changes to the database.",
-    )
-    parser.add_argument(
-        "--prune",
-        action="store_true",
-        help="Delete DB rows that are missing in the parsed HTML dataset.",
-    )
-    parser.add_argument(
-        "--pages-dir",
-        default="",
-        help="Path to directory with TwitchTracker HTML pages (default: storage/pages).",
-    )
-    parser.add_argument(
-        "--write-json",
-        action="store_true",
-        help="Also write parsed datasets to storage/streams.json and storage/games.json.",
-    )
-    parser.add_argument(
-        "--merge-json",
-        action="store_true",
-        help="When writing streams.json, merge into existing file instead of overwriting.",
-    )
-    parser.add_argument(
-        "--streams-json-path",
-        default="",
-        help="Override output path for streams.json (requires --write-json).",
-    )
-    parser.add_argument(
-        "--games-json-path",
-        default="",
-        help="Override output path for games.json (requires --write-json).",
-    )
+    parser = argparse.ArgumentParser(description="Sync TwitchTracker HTML pages into SQLite (and optionally mirror to JSON).")
+    parser.add_argument("--dry-run", action="store_true", help="Parse and compare data without writing DB changes.")
+    parser.add_argument("--prune", action="store_true", help="Delete DB rows missing in parsed dataset.")
+    parser.add_argument("--pages-dir", default="", help="Path to directory with TwitchTracker HTML pages (default: storage/pages).")
+    parser.add_argument("--write-json", action="store_true", help="Also write parsed datasets to storage/*.json.")
+    parser.add_argument("--merge-json", action="store_true", help="When writing streams.json, merge instead of overwrite.")
+    parser.add_argument("--streams-json-path", default="", help="Override output path for streams.json (requires --write-json).")
+    parser.add_argument("--games-json-path", default="", help="Override output path for games.json (requires --write-json).")
     args = parser.parse_args()
 
     pages_dir = Path(args.pages_dir) if str(args.pages_dir or "").strip() else None
@@ -129,3 +105,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

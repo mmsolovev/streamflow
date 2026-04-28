@@ -1,27 +1,22 @@
 from __future__ import annotations
 
+"""
+Orchestrator job: compute streams.genres_text from games_meta + simple rules.
+
+This job operates directly on the SQLite DB (`storage/streams.db`).
+"""
+
 import argparse
-from pathlib import Path
 import re
 import shutil
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any
 
 
-"""
-Запуск:
-python scripts\\enrich_streams_genres.py --limit 50
-python scripts\\enrich_streams_genres.py --apply --backup
-# пересчитать даже если уже заполнено:
-python scripts\\enrich_streams_genres.py --force --apply --backup
-# точечно:
-python scripts\\enrich_streams_genres.py --only-stream-id 1230 --apply --backup
-"""
-
-
 def _project_root() -> Path:
-    # .../pipeline/runtime/enrich_streams_genres.py -> project root
+    # .../pipeline/orchestrator/enrich_streams_genres.py -> project root
     return Path(__file__).resolve().parents[2]
 
 
@@ -97,8 +92,6 @@ def _compute_stream_genres(
     # Rule: keywords in title
     if {"ирл", "кирл", "irl"} & title_tokens:
         tags.append("IRL")
-    if "игрокон" in title_tokens and "с" in title_tokens and "@evikey" in title_tokens:
-        tags.append("IRL")
     if "кукинг" in title_tokens or "кукинг" in title_norm:
         tags.append("Кукинг")
 
@@ -112,12 +105,9 @@ def _compute_stream_genres(
     game_genres = _dedup_keep_order(game_genres)
 
     # Desired order:
-    # "Общение" -> "Кооп" -> "Кукинг" -> "IRL" -> the rest (genres from games)
     fixed_order = ["Общение", "Кооп", "Кукинг", "IRL"]
     fixed = [t for t in fixed_order if any(_normalize_key(x) == _normalize_key(t) for x in tags)]
     rest = [g for g in game_genres if _normalize_key(g) not in {_normalize_key(t) for t in fixed}]
-
-    # Keep deterministic output for easier diffs.
     rest = sorted(rest, key=lambda x: x.casefold())
 
     result = _dedup_keep_order(fixed + rest)
@@ -143,9 +133,7 @@ def main() -> None:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
 
-        streams = cur.execute(
-            "SELECT id, title, genres_text FROM streams ORDER BY id"
-        ).fetchall()
+        streams = cur.execute("SELECT id, title, genres_text FROM streams ORDER BY id").fetchall()
         streams = [dict(r) for r in streams]
         if args.only_stream_id:
             streams = [s for s in streams if int(s["id"]) == int(args.only_stream_id)]
@@ -219,10 +207,7 @@ def main() -> None:
             print(f"[{idx}/{len(streams)}] stream_id={stream_id}: {new_value!r}")
 
             if args.apply:
-                cur.execute(
-                    "UPDATE streams SET genres_text = ? WHERE id = ?",
-                    (new_value, stream_id),
-                )
+                cur.execute("UPDATE streams SET genres_text = ? WHERE id = ?", (new_value, stream_id))
 
         if args.apply:
             con.commit()

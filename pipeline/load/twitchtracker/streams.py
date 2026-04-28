@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from database.models import Game, Stream, StreamGame
-from pipeline.ingest.twitchtracker_html import TwitchTrackerStreamRow
+from pipeline.ingest.twitchtracker_data import TwitchTrackerStreamRow
 from pipeline.load.twitchtracker.common import SyncStats, extract_participants_from_title, unique_in_order
 from pipeline.load.twitchtracker.games import get_or_create_game, get_or_create_participant
 
