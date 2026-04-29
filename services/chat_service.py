@@ -59,3 +59,4 @@ async def _flush_batch(channel_key: str, batch: _BatchState) -> None:
 
     for event in events:
         await batch.send_func(event.message)
+
