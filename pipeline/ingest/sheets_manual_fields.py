@@ -3,14 +3,10 @@ Pipeline ingest layer: считывание отредактированных �
 
 """
 
-from services.google_sheets_service import get_client
+from services.sheets_service import get_client
 
-from pipeline.sheets import (
-    GAMES_SHEET_NAME,
-    RELEASES_SHEET_NAME,
-    SPREADSHEET_NAME,
-    get_or_create_worksheet,
-)
+from config.settings import GAMES_SHEET_NAME, RELEASES_SHEET_NAME, SPREADSHEET_NAME
+from pipeline.delivery.sheets_io import get_or_create_worksheet
 from pipeline.transform.sheets_values import normalize_row
 
 

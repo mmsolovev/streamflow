@@ -1,4 +1,3 @@
-import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -15,7 +14,22 @@ from config.settings import (
 from database.db import SessionLocal
 from database.models import Game, RecommendedGame, RecommendedGameVote
 from services.games_service import build_game_response, find_game_lookup
-from services.recommendation_metadata_service import fetch_recommendation_metadata
+from services.igdb_service import fetch_recommendation_metadata
+from pipeline.load.recommendations_db import (
+    add_vote as _db_add_vote,
+    create_recommendation as _db_create_recommendation,
+    find_existing_recommendation as _db_find_existing_recommendation,
+    find_recommendation_by_query as _db_find_recommendation_by_query,
+    find_user_vote_for_recommendation as _db_find_user_vote_for_recommendation,
+    load_user_active_votes as _db_load_user_active_votes,
+    remove_vote as _db_remove_vote,
+    sync_recommendation_matches as _db_sync_recommendation_matches,
+)
+from pipeline.transform.recommendations_transform import (
+    determine_recommendation_status as _tx_determine_recommendation_status,
+    normalize_recommendation_name as _tx_normalize_recommendation_name,
+    normalize_user_login as _tx_normalize_user_login,
+)
 
 
 STATUS_UPCOMING = "upcoming"
@@ -69,7 +83,7 @@ def _is_igdb(recommendation):
 
 
 def _normalize_user_login(value: str) -> str:
-    return " ".join((value or "").casefold().split())
+    return _tx_normalize_user_login(value)
 
 
 def _doc_suffix() -> str:
@@ -87,22 +101,11 @@ def build_recommendations_help_message() -> str:
 
 
 def normalize_recommendation_name(value: str) -> str:
-    normalized = " ".join((value or "").casefold().split())
-    normalized = re.sub(r"[^\w\s]", " ", normalized)
-    return " ".join(normalized.split())
+    return _tx_normalize_recommendation_name(value)
 
 
 def find_recommendation_by_query(session, query: str) -> RecommendedGame | None:
-    normalized_name = normalize_recommendation_name(query)
-    if not normalized_name:
-        return None
-
-    return (
-        session.query(RecommendedGame)
-        .options(joinedload(RecommendedGame.votes))
-        .filter_by(normalized_name=normalized_name)
-        .first()
-    )
+    return _db_find_recommendation_by_query(session, query)
 
 
 def add_vote(
@@ -112,29 +115,13 @@ def add_vote(
     user_display_name: str,
     created_at: datetime | None = None,
 ) -> bool:
-    normalized_login = _normalize_user_login(user_login)
-    if not normalized_login:
-        raise ValueError("user_login is required")
-
-    existing_vote = (
-        session.query(RecommendedGameVote)
-        .filter_by(recommended_game_id=recommendation.id, user_login=normalized_login)
-        .first()
+    return _db_add_vote(
+        session,
+        recommendation,
+        user_login,
+        user_display_name,
+        created_at=created_at,
     )
-    if existing_vote:
-        return False
-
-    now = created_at or datetime.utcnow()
-    vote = RecommendedGameVote(
-        recommended_game=recommendation,
-        user_login=normalized_login,
-        user_display_name=(user_display_name or user_login or "").strip() or normalized_login,
-        created_at=now,
-    )
-    session.add(vote)
-    recommendation.updated_at = now
-    session.flush()
-    return True
 
 
 def create_recommendation(
@@ -155,16 +142,10 @@ def create_recommendation(
     source_payload: str | None = None,
     status: str | None = None,
 ) -> RecommendedGame:
-    normalized_name = normalize_recommendation_name(title or query_name)
-    if not normalized_name:
-        raise ValueError("Recommendation query/title is empty")
-
-    now = datetime.utcnow()
-    recommendation = RecommendedGame(
-        query_name=(query_name or title).strip(),
-        normalized_name=normalized_name,
-        title=title.strip(),
-        status=status or determine_recommendation_status(release_date=release_date),
+    return _db_create_recommendation(
+        session,
+        query_name,
+        title,
         release_date=release_date,
         release_precision=release_precision,
         description_short=description_short,
@@ -176,13 +157,8 @@ def create_recommendation(
         source_name=source_name,
         source_game_id=source_game_id,
         source_payload=source_payload,
-        created_at=now,
-        updated_at=now,
-        last_checked_at=now,
+        status=status,
     )
-    session.add(recommendation)
-    session.flush()
-    return recommendation
 
 
 def determine_recommendation_status(
@@ -191,66 +167,15 @@ def determine_recommendation_status(
     matched_game: Game | None = None,
     streamer_interested: bool = False,
 ) -> str:
-    if matched_game is not None:
-        return STATUS_STREAMED
-
-    if release_date is None:
-        return STATUS_RELEASED
-
-    return STATUS_UPCOMING if release_date > datetime.utcnow() else STATUS_RELEASED
+    return _tx_determine_recommendation_status(
+        release_date=release_date,
+        matched_game=matched_game,
+        streamer_interested=streamer_interested,
+    )
 
 
 def sync_recommendation_matches(session) -> int:
-    updated_count = 0
-
-    recommendations = (
-        session.query(RecommendedGame)
-        .filter(RecommendedGame.status.in_([STATUS_UPCOMING, STATUS_RELEASED, STATUS_STREAMED]))
-        .all()
-    )
-
-    games_by_name = {
-        normalize_recommendation_name(game.name): game
-        for game in session.query(Game).all()
-        if game.name
-    }
-
-    for recommendation in recommendations:
-        real_matched_game = games_by_name.get(recommendation.normalized_name)
-
-        if _has_special_source(recommendation):
-            matched_game = None
-        else:
-            matched_game = real_matched_game
-
-        recommendation.matched_game = real_matched_game
-
-        if _is_igdb(recommendation):
-            recommendation.status = STATUS_UPCOMING
-        else:
-            recommendation.status = determine_recommendation_status(
-                release_date=recommendation.release_date,
-                matched_game=matched_game,
-                streamer_interested=bool(recommendation.streamer_interested),
-            )
-        previous_matched_game_id = recommendation.matched_game_id
-        previous_status = recommendation.status
-
-        recommendation.matched_game = matched_game
-        recommendation.status = determine_recommendation_status(
-            release_date=recommendation.release_date,
-            matched_game=matched_game,
-            streamer_interested=bool(recommendation.streamer_interested),
-        )
-
-        if recommendation.matched_game_id != previous_matched_game_id or recommendation.status != previous_status:
-            recommendation.updated_at = datetime.utcnow()
-            updated_count += 1
-
-    if updated_count:
-        session.flush()
-
-    return updated_count
+    return _db_sync_recommendation_matches(session)
 
 
 def _has_special_source(recommendation):
@@ -315,24 +240,13 @@ def _find_existing_recommendation(
     source_name: str | None = None,
     source_game_id: str | None = None,
 ) -> RecommendedGame | None:
-    recommendation = find_recommendation_by_query(session, query)
-    if recommendation:
-        return recommendation
-
-    if metadata_title:
-        recommendation = find_recommendation_by_query(session, metadata_title)
-        if recommendation:
-            return recommendation
-
-    if source_name and source_game_id:
-        return (
-            session.query(RecommendedGame)
-            .options(joinedload(RecommendedGame.votes))
-            .filter_by(source_name=source_name, source_game_id=source_game_id)
-            .first()
-        )
-
-    return None
+    return _db_find_existing_recommendation(
+        session,
+        query=query,
+        metadata_title=metadata_title,
+        source_name=source_name,
+        source_game_id=source_game_id,
+    )
 
 
 def _find_streamed_game_match(query: str):
@@ -377,34 +291,15 @@ def _delete_recommendation_if_orphaned(session, recommendation: RecommendedGame)
 
 
 def _remove_vote(session, vote: RecommendedGameVote) -> tuple[str, bool]:
-    title = vote.recommended_game.title
-    recommendation = vote.recommended_game
-    session.delete(vote)
-    session.flush()
-    deleted_recommendation = _delete_recommendation_if_orphaned(session, recommendation)
-    return title, deleted_recommendation
+    return _db_remove_vote(session, vote)
 
 
 def _find_user_vote_for_recommendation(session, recommendation_id: int, user_login: str) -> RecommendedGameVote | None:
-    return (
-        session.query(RecommendedGameVote)
-        .filter_by(recommended_game_id=recommendation_id, user_login=_normalize_user_login(user_login))
-        .first()
-    )
+    return _db_find_user_vote_for_recommendation(session, recommendation_id, user_login)
 
 
 def _load_user_active_votes(session, user_login: str) -> list[RecommendedGameVote]:
-    return (
-        session.query(RecommendedGameVote)
-        .join(RecommendedGame, RecommendedGame.id == RecommendedGameVote.recommended_game_id)
-        .options(joinedload(RecommendedGameVote.recommended_game))
-        .filter(
-            RecommendedGameVote.user_login == _normalize_user_login(user_login),
-            RecommendedGame.status.in_(ACTIVE_RECOMMENDATION_STATUSES),
-        )
-        .order_by(RecommendedGameVote.created_at.asc(), RecommendedGameVote.id.asc())
-        .all()
-    )
+    return _db_load_user_active_votes(session, user_login)
 
 
 def _enforce_user_limit(session, user_login: str) -> str | None:

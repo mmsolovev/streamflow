@@ -2,7 +2,7 @@ from twitchio.ext import commands
 
 from config.settings import RECOMMENDATIONS_STREAMER_DISPLAY_NAME, RECOMMENDATIONS_STREAMER_LOGIN
 from services.command_registry import register_command
-from services.recommendation_chat_service import ensure_recommendation_batch, queue_recommendation_chat_message
+from services.chat_service import ensure_recommendation_batch, queue_recommendation_chat_message
 from services.recommendations_service import (
     admin_delete_recommendations,
     build_recommendations_help_message,

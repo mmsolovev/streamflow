@@ -3,10 +3,10 @@ from __future__ import annotations
 """
 Ingest layer: fetch game metadata from IGDB.
 
-This is a thin wrapper around `services.recommendation_metadata_service`.
+This is a thin wrapper around `services.igdb_service` integration client.
 """
 
-from services.recommendation_metadata_service import RecommendationMetadata, fetch_recommendation_metadata
+from services.igdb_service import RecommendationMetadata, fetch_recommendation_metadata
 
 
 async def fetch_igdb_metadata(game_name: str) -> RecommendationMetadata | None:

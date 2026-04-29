@@ -7,7 +7,7 @@ from core.context import SafeContext
 from core.registry import load_commands
 from config.settings import BOT_PREFIX, TWITCH_CHANNEL, TWITCH_NICK, TWITCH_TOKEN
 from services.eventsub_service import EventSubService
-from services.recommendation_sheets_sync_service import RecommendationSheetsSyncScheduler
+from services.deferred_service import RecommendationSheetsSyncScheduler
 
 
 class Bot(commands.Bot):
