@@ -3,15 +3,16 @@ from __future__ import annotations
 """
 Orchestrator job: compute streams.genres_text.
 
-Transform logic lives in `pipeline.transform.stream_genres`.
-DB interactions live in `pipeline.load.stream_genres`.
+Transform logic lives in `pipeline.transform.streams_transform`.
+DB interactions live in `pipeline.load.load_streams`.
 """
 
 import argparse
 
 from database.db import SessionLocal
-from pipeline.load.stream_genres import get_stream_context, iter_streams_for_genres, set_stream_genres_text
-from pipeline.transform.stream_genres import compute_stream_genres, normalize_key
+from pipeline.load.load_streams import get_stream_context, iter_streams_for_genres, set_stream_genres_text
+from pipeline.transform.streams_transform import compute_stream_genres
+from pipeline.transform.utils_transform import normalize_key
 
 
 def run(*, dry_run: bool = False, limit: int = 0, only_stream_id: int = 0, force: bool = False) -> None:

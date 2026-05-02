@@ -14,8 +14,8 @@ from config.settings import (
 from database.db import SessionLocal
 from database.models import Game, RecommendedGame, RecommendedGameVote
 from services.games_service import build_game_response, find_game_lookup
-from services.igdb_service import fetch_recommendation_metadata
-from pipeline.load.recommendations_db import (
+from pipeline.ingest.igdb_api import fetch_recommendation_metadata
+from pipeline.load.load_recommendations import (
     add_vote as _db_add_vote,
     create_recommendation as _db_create_recommendation,
     find_existing_recommendation as _db_find_existing_recommendation,

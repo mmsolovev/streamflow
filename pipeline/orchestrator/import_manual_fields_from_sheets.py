@@ -6,8 +6,9 @@ delivery exports (DB -> Sheets).
 """
 
 from database.db import SessionLocal
-from pipeline.ingest.sheets_manual_fields import ingest_games_manual_rows, ingest_releases_manual_rows
-from pipeline.load.sheets_manual_fields import apply_games_manual_fields, apply_releases_manual_fields
+from pipeline.ingest.google_sheets_reader import ingest_games_manual_rows, ingest_releases_manual_rows
+from pipeline.load.load_game_meta import apply_games_manual_fields
+from pipeline.load.load_recommendations import apply_releases_manual_fields
 
 
 def import_all_manual_fields() -> None:

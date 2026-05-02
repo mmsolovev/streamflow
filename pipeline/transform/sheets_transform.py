@@ -1,6 +1,5 @@
 """
-Вспомогательные функции преобразования данных для значений Google Sheets.
-
+Transform layer: helpers for Google Sheets values.
 """
 
 
@@ -16,4 +15,7 @@ def parse_sheet_bool(value):
     if normalized in {"FALSE", "ЛОЖЬ"}:
         return False
     return None
+
+
+__all__ = ["normalize_row", "parse_sheet_bool"]
 

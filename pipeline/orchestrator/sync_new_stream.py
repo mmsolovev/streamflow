@@ -16,9 +16,10 @@ import argparse
 from pathlib import Path
 
 from database.db import Base, SessionLocal, engine
-from pipeline.delivery.twitchtracker_json import write_games_json, write_streams_json
-from pipeline.ingest.twitchtracker_data import parse_game_file, parse_stream_file
-from pipeline.load.twitchtracker_db_sync import sync_game_stats, sync_streams, update_streams_count
+from pipeline.delivery.json_twitchtracker import write_games_json, write_streams_json
+from pipeline.ingest.twitchtracker_parser import parse_game_file, parse_stream_file
+from pipeline.load.load_game_stats import sync_game_stats, update_streams_count
+from pipeline.load.load_streams import sync_streams
 from pipeline.orchestrator.enrich_streams_genres import run as run_enrich_stream_genres
 
 

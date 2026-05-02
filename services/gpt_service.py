@@ -36,7 +36,7 @@ async def generate_short_description(text: str) -> str | None:
                         "role": "system",
                         "content": (
                             "Переведи и кратко перескажи описание игры на русском языке. "
-                            "Максимум 235 символов. Без лишней воды."
+                            "Максимум 170 символов. Без лишней воды."
                         ),
                     },
                     {"role": "user", "content": text},
@@ -57,4 +57,4 @@ async def generate_short_description(text: str) -> str | None:
         return None
 
     result = " ".join(result.split())
-    return result[:235]
+    return result[:170]

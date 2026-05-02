@@ -8,8 +8,9 @@ import argparse
 from pathlib import Path
 
 from database.db import Base, SessionLocal, engine
-from pipeline.ingest.twitchtracker_data import load_games_json, load_streams_json
-from pipeline.load.twitchtracker_db_sync import sync_game_stats, sync_streams, update_streams_count
+from pipeline.ingest.twitchtracker_parser import load_games_json, load_streams_json
+from pipeline.load.load_game_stats import sync_game_stats, update_streams_count
+from pipeline.load.load_streams import sync_streams
 
 
 def _project_root() -> Path:

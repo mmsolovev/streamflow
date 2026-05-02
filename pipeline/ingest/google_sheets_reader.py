@@ -1,13 +1,13 @@
 """
-Pipeline ingest layer: считывание отредактированных пользователем полей «вручную» из Google Sheets.
+Pipeline ingest layer: считывание полей из Google Sheets.
 
 """
 
 from services.sheets_service import get_client
 
 from config.settings import GAMES_SHEET_NAME, RELEASES_SHEET_NAME, SPREADSHEET_NAME
-from pipeline.delivery.sheets_io import get_or_create_worksheet
-from pipeline.transform.sheets_values import normalize_row
+from pipeline.delivery.sheets_utils import get_or_create_worksheet
+from pipeline.transform.sheets_transform import normalize_row
 
 
 def ingest_games_manual_rows(width: int = 12, header_rows: int = 8) -> dict[str, list]:
