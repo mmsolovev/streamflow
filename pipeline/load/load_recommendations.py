@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 """
-DB operations for recommendations (RecommendedGame / RecommendedGameVote).
+Load layer: writes targeting `recommended_games` and related tables (RecommendedGame, RecommendedGameVote).
 
-Commit/rollback is responsibility of the caller unless explicitly stated.
+This module is the single entry-point for recommendations persistence.
 """
 
+from collections.abc import Iterable
 from datetime import datetime
 
 from sqlalchemy.orm import Session, joinedload
@@ -19,9 +20,20 @@ from pipeline.transform.recommendations_transform import (
     normalize_recommendation_name,
     normalize_user_login,
 )
+from pipeline.transform.sheets_transform import normalize_row, parse_sheet_bool
 
 
 ACTIVE_RECOMMENDATION_STATUSES = {STATUS_UPCOMING, STATUS_RELEASED}
+
+
+def existing_recommendation_titles(session: Session) -> set[str]:
+    return {str(r[0]) for r in session.query(RecommendedGame.title).all() if r and r[0]}
+
+
+def find_recommendation_by_normalized_name(session: Session, normalized_name: str) -> RecommendedGame | None:
+    if not normalized_name:
+        return None
+    return session.query(RecommendedGame).filter_by(normalized_name=normalized_name).first()
 
 
 def find_recommendation_by_query(session: Session, query: str) -> RecommendedGame | None:
@@ -116,6 +128,58 @@ def create_recommendation(
     session.add(recommendation)
     session.flush()
     return recommendation
+
+
+def create_igdb_recommendation(
+    session: Session,
+    *,
+    normalized_name: str,
+    title: str,
+    status: str,
+    release_date,
+    steam_url: str | None,
+    rating_text: str | None,
+    platforms_text: str | None,
+    genres_text: str | None,
+    cover_url: str | None,
+    source_name: str | None,
+    source_game_id: str | None,
+    source_payload: str | None,
+    now: datetime,
+) -> RecommendedGame:
+    rec = RecommendedGame(
+        query_name="igdb",
+        normalized_name=normalized_name,
+        title=title,
+        status=status,
+        release_date=release_date,
+        release_precision="unknown",
+        description_short=None,
+        steam_url=steam_url,
+        rating_text=rating_text,
+        platforms_text=platforms_text,
+        genres_text=genres_text,
+        cover_url=cover_url,
+        source_name=source_name,
+        source_game_id=source_game_id,
+        source_payload=source_payload,
+        streamer_interested=False,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(rec)
+    session.flush()
+    return rec
+
+
+def add_igdb_vote(session: Session, *, recommended_game_id: int, now: datetime) -> None:
+    vote = RecommendedGameVote(
+        recommended_game_id=int(recommended_game_id),
+        user_login="igdb",
+        user_display_name="IGDB",
+        created_at=now,
+    )
+    session.add(vote)
 
 
 def _has_special_source(recommendation: RecommendedGame) -> bool:
@@ -250,16 +314,76 @@ def remove_vote(session: Session, vote: RecommendedGameVote) -> tuple[str, bool]
     return title, deleted_recommendation
 
 
+def iter_games_missing_short_description(session: Session, *, limit: int = 0) -> Iterable[RecommendedGame]:
+    q = session.query(RecommendedGame).filter(RecommendedGame.description_short.is_(None))
+    if int(limit) > 0:
+        q = q.limit(int(limit))
+    return q.all()
+
+
+def set_game_short_description(session: Session, game: RecommendedGame, description_short: str) -> bool:
+    """
+    Mutates `game` in-place. Commit/rollback is responsibility of the caller.
+    Returns True if the row was changed.
+    """
+    value = (description_short or "").strip()
+    if not value:
+        return False
+    if (game.description_short or "").strip() == value:
+        return False
+    game.description_short = value
+    session.add(game)
+    return True
+
+
+def apply_releases_manual_fields(session: Session, rows_by_title: dict[str, list], width: int = 12) -> int:
+    """
+    Updates manual fields from Sheets targeting `recommended_games`.
+    Commit/rollback is responsibility of the caller.
+    """
+    updated = 0
+
+    for title, row in (rows_by_title or {}).items():
+        recommendation = session.query(RecommendedGame).filter_by(title=title).first()
+        if not recommendation:
+            continue
+
+        normalized = normalize_row(row, width)
+        sheet_value = parse_sheet_bool(normalized[5])
+
+        # Preserve previous semantics from legacy sync:
+        # - TRUE always sets streamer_interested=True
+        # - FALSE does not override True once it's set
+        if sheet_value is True and recommendation.streamer_interested is not True:
+            recommendation.streamer_interested = True
+            updated += 1
+        elif sheet_value is False and recommendation.streamer_interested is False:
+            recommendation.streamer_interested = False
+
+    session.flush()
+    return updated
+
+
 __all__ = [
     "ACTIVE_RECOMMENDATION_STATUSES",
+    "STATUS_RELEASED",
+    "STATUS_STREAMED",
+    "STATUS_UPCOMING",
+    "add_igdb_vote",
     "add_vote",
+    "apply_releases_manual_fields",
+    "create_igdb_recommendation",
     "create_recommendation",
     "delete_recommendation_if_orphaned",
+    "existing_recommendation_titles",
     "find_existing_recommendation",
+    "find_recommendation_by_normalized_name",
     "find_recommendation_by_query",
     "find_user_vote_for_recommendation",
+    "iter_games_missing_short_description",
     "load_user_active_votes",
     "remove_vote",
+    "set_game_short_description",
     "sync_recommendation_matches",
 ]
 

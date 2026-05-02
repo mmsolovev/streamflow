@@ -3,13 +3,20 @@ from __future__ import annotations
 """
 Transform helpers for the recommendations domain.
 
-These functions are intentionally free of database access and external I/O.
+Normalization and status computation here are intentionally pure (no DB access).
+
+AI short description generation is provided via `services.gpt_service` and may perform external I/O.
 """
 
 import re
 from datetime import datetime
 
-from database.models import Game
+from typing import TYPE_CHECKING
+
+from services.gpt_service import generate_short_description
+
+if TYPE_CHECKING:
+    from database.models import Game
 
 
 STATUS_UPCOMING = "upcoming"
@@ -30,7 +37,7 @@ def normalize_recommendation_name(value: str) -> str:
 def determine_recommendation_status(
     *,
     release_date: datetime | None,
-    matched_game: Game | None = None,
+    matched_game: "Game | None" = None,
     streamer_interested: bool = False,
 ) -> str:
     # streamer_interested is currently not affecting status; keep the param for call-site compatibility.
@@ -50,7 +57,7 @@ __all__ = [
     "STATUS_STREAMED",
     "STATUS_UPCOMING",
     "determine_recommendation_status",
+    "generate_short_description",
     "normalize_recommendation_name",
     "normalize_user_login",
 ]
-

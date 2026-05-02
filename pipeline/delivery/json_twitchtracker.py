@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pipeline.ingest.twitchtracker_data import TwitchTrackerGameRow, TwitchTrackerStreamRow, parse_stream_date
+from pipeline.ingest.twitchtracker_parser import TwitchTrackerGameRow, TwitchTrackerStreamRow, parse_stream_date
 
 
 def _fmt_stream_date(dt: datetime) -> str:
@@ -110,3 +110,7 @@ def write_games_json(path: Path, games: list[TwitchTrackerGameRow]) -> None:
 
     text = json.dumps(out, ensure_ascii=False, indent=2)
     _atomic_write_text(Path(path), text + "\n")
+
+
+__all__ = ["write_games_json", "write_streams_json"]
+

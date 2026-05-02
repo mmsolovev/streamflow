@@ -1,7 +1,8 @@
 import asyncio
 
 from config.settings import RECOMMENDATION_SHEETS_SYNC_DEBOUNCE_SECONDS
-from pipeline.delivery.sheets_sync import sync_recommendations_safe, sync_releases_safe
+from pipeline.delivery.sheets_recommendations import sync_recommendations_safe
+from pipeline.delivery.sheets_releases import sync_releases_safe
 from utils.logger import get_logger
 
 

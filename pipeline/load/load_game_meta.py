@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 """
-Load layer: select/update games_meta rows for enrichment.
+Load layer: writes targeting `games_meta` table (GameMeta).
 """
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from database.models import Game, GameMeta
-from pipeline.transform.games_meta_enrichment import GamesMetaRowView
+from pipeline.transform.games_transform import GamesMetaRowView
+from pipeline.transform.sheets_transform import normalize_row, parse_sheet_bool
 
 
 def select_enrichment_candidates(
@@ -83,5 +84,45 @@ def apply_games_meta_patch(session: Session, *, game_id: int, patch: dict) -> bo
     return changed
 
 
-__all__ = ["apply_games_meta_patch", "select_enrichment_candidates"]
+def _get_or_create_game_meta(game: Game) -> GameMeta:
+    if not game.meta:
+        game.meta = GameMeta()
+    return game.meta
+
+
+def apply_games_manual_fields(session: Session, rows_by_game_name: dict[str, list], width: int = 12) -> int:
+    """
+    Updates manual flags from Sheets targeting `games_meta`.
+    Commit/rollback is responsibility of the caller.
+    """
+    updated = 0
+
+    for game_name, row in (rows_by_game_name or {}).items():
+        game = session.query(Game).filter_by(name=game_name).first()
+        if not game:
+            continue
+
+        meta = _get_or_create_game_meta(game)
+        normalized = normalize_row(row, width)
+
+        new_liked = parse_sheet_bool(normalized[7])
+        new_completed = parse_sheet_bool(normalized[9])
+
+        # Only assign when sheet value is explicit; keep DB value otherwise.
+        if new_liked is not None and bool(meta.liked) != bool(new_liked):
+            meta.liked = bool(new_liked)
+            updated += 1
+        if new_completed is not None and bool(meta.completed) != bool(new_completed):
+            meta.completed = bool(new_completed)
+            updated += 1
+
+    session.flush()
+    return updated
+
+
+__all__ = [
+    "apply_games_manual_fields",
+    "apply_games_meta_patch",
+    "select_enrichment_candidates",
+]
 

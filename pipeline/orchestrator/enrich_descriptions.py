@@ -13,8 +13,8 @@ import asyncio
 import json
 
 from database.db import SessionLocal
-from pipeline.load.recommended_games import iter_games_missing_short_description, set_game_short_description
-from pipeline.transform.recommended_game_descriptions import generate_short_description
+from pipeline.load.load_recommendations import iter_games_missing_short_description, set_game_short_description
+from services.gpt_service import generate_short_description
 
 
 async def async_run(

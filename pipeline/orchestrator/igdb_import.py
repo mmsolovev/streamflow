@@ -10,14 +10,14 @@ from datetime import datetime, timezone
 
 from database.db import SessionLocal
 from database.models import RecommendedGame, RecommendedGameVote
-from pipeline.ingest.igdb_upcoming import ingest_recommendation_metadata, ingest_top_upcoming_games
-from pipeline.load.recommendations import (
+from pipeline.ingest.igdb_api import ingest_recommendation_metadata, ingest_top_upcoming_games
+from pipeline.load.load_recommendations import (
     add_igdb_vote,
     create_igdb_recommendation,
     existing_recommendation_titles,
     find_recommendation_by_normalized_name,
 )
-from pipeline.transform.recommendations_normalize import normalize_name
+from pipeline.transform.recommendations_transform import normalize_recommendation_name
 from services.recommendations_service import STATUS_RELEASED, STATUS_UPCOMING
 
 
@@ -31,7 +31,7 @@ def import_igdb_games(*, limit: int = 15) -> None:
         now = datetime.now(timezone.utc)
 
         for meta in games:
-            normalized = normalize_name(meta.title)
+            normalized = normalize_recommendation_name(meta.title)
             if not meta.title or meta.title in titles:
                 continue
 

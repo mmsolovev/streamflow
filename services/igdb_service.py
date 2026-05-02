@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 """
-IGDB integration client.
+IGDB authorization helpers.
 
-This module is intentionally kept outside `pipeline/*` because it is an integration layer
-used by both pipeline jobs and interactive bot services.
+This module only contains shared Twitch/IGDB auth primitives.
 """
 
 import asyncio
-import json
-import random
-from collections import deque
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from weakref import WeakKeyDictionary
 
@@ -22,62 +17,13 @@ from utils.logger import get_logger
 
 
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
-IGDB_GAMES_URL = "https://api.igdb.com/v4/games"
-_STEAM_HOST_MARKERS = ("store.steampowered.com", "steamcommunity.com", "steam://")
-_PC_MARKERS = {"pc (microsoft windows)", "linux", "mac"}
-_PS_MARKERS = {"playstation 5", "playstation 4", "playstation 3", "playstation 2", "playstation"}
-
-# IGDB docs: 4 req/sec and up to 8 open requests. We enforce both locally to avoid 429 spikes.
-_IGDB_RATE_LIMIT_RPS = 4
-_IGDB_MAX_INFLIGHT = 8
-
-# Cache is intentionally short-ish: it protects IGDB from spam and speeds up repeated lookups.
-_META_CACHE_TTL_SECONDS = 60 * 60  # 1 hour
-_META_NEGATIVE_CACHE_TTL_SECONDS = 20  # "not found" cache
 
 
-class _SlidingWindowRateLimiter:
-    def __init__(self, *, max_calls: int, period_seconds: float):
-        self._max_calls = max(1, int(max_calls))
-        self._period = float(period_seconds)
-        self._calls: deque[float] = deque()
-        self._lock = asyncio.Lock()
-
-    async def acquire(self) -> None:
-        loop = asyncio.get_running_loop()
-        while True:
-            async with self._lock:
-                now = loop.time()
-                while self._calls and (now - self._calls[0]) >= self._period:
-                    self._calls.popleft()
-
-                if len(self._calls) < self._max_calls:
-                    self._calls.append(now)
-                    return
-
-                sleep_for = self._period - (now - self._calls[0])
-
-            if sleep_for > 0:
-                await asyncio.sleep(sleep_for)
-            else:
-                await asyncio.sleep(0)
-
-
-@dataclass
-class _IGDBCacheEntry:
-    value: "RecommendationMetadata | None"
-    expires_at: float  # loop.time()
-
-
-@dataclass
 class _IGDBLoopState:
-    token: str | None
-    token_expires_at: datetime | None
-    token_lock: asyncio.Lock
-    inflight: asyncio.Semaphore
-    rate: _SlidingWindowRateLimiter
-    meta_cache: dict[str, _IGDBCacheEntry]
-    meta_inflight: dict[str, asyncio.Task["RecommendationMetadata | None"]]
+    def __init__(self, *, token: str | None, token_expires_at: datetime | None, token_lock: asyncio.Lock):
+        self.token = token
+        self.token_expires_at = token_expires_at
+        self.token_lock = token_lock
 
 
 _state_by_loop: "WeakKeyDictionary[asyncio.AbstractEventLoop, _IGDBLoopState]" = WeakKeyDictionary()
@@ -89,120 +35,15 @@ def _get_state() -> _IGDBLoopState:
     if state is not None:
         return state
 
-    state = _IGDBLoopState(
-        token=None,
-        token_expires_at=None,
-        token_lock=asyncio.Lock(),
-        inflight=asyncio.Semaphore(_IGDB_MAX_INFLIGHT),
-        rate=_SlidingWindowRateLimiter(max_calls=_IGDB_RATE_LIMIT_RPS, period_seconds=1.0),
-        meta_cache={},
-        meta_inflight={},
-    )
+    state = _IGDBLoopState(token=None, token_expires_at=None, token_lock=asyncio.Lock())
     _state_by_loop[loop] = state
     return state
 
 
-@dataclass
-class RecommendationMetadata:
-    title: str
-    description_short: str | None
-    release_date: datetime | None
-    release_precision: str
-    steam_url: str | None
-    rating_text: str | None
-    platforms_text: str | None
-    genres_text: str | None
-    cover_url: str | None
-    source_name: str
-    source_game_id: str
-    source_payload: str | None
-
-
-def _parse_release_date(value: int | str | None) -> tuple[datetime | None, str]:
-    if value is None:
-        return None, "unknown"
-
-    try:
-        timestamp = int(value)
-    except (TypeError, ValueError):
-        return None, "unknown"
-
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc).replace(tzinfo=None), "day"
-
-
-def _truncate_text(value: str | None, max_length: int = 280) -> str | None:
-    if not value:
-        return None
-
-    compact = " ".join(value.split())
-    if len(compact) <= max_length:
-        return compact
-
-    return compact[: max_length - 3].rstrip() + "..."
-
-
-def _build_rating_text(payload: dict) -> str | None:
-    total_rating = payload.get("total_rating")
-    total_rating_count = payload.get("total_rating_count")
-    aggregated_rating = payload.get("aggregated_rating")
-    aggregated_rating_count = payload.get("aggregated_rating_count")
-
-    parts = []
-    if total_rating:
-        parts.append(f"IGDB {total_rating:.0f}/100")
-    if total_rating_count:
-        parts.append(f"оценок {int(total_rating_count)}")
-    if aggregated_rating:
-        parts.append(f"critic {aggregated_rating:.0f}/100")
-    if aggregated_rating_count:
-        parts.append(f"critic votes {int(aggregated_rating_count)}")
-
-    return " | ".join(parts) if parts else None
-
-
-def _extract_nested_value(item: dict, key: str) -> str:
-    current = item
-    for part in key.split("."):
-        if not isinstance(current, dict):
-            return ""
-        current = current.get(part)
-    return str(current or "")
-
-
-def _join_names(values: list[dict] | None) -> str | None:
-    if not values:
-        return None
-    out = []
-    for item in values:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        if name:
-            out.append(name)
-    return ", ".join(out) if out else None
-
-
-def _build_platforms_text(platforms: list[dict] | None) -> str | None:
-    if not platforms:
-        return None
-
-    names = [str(p.get("name") or "").strip().casefold() for p in platforms if isinstance(p, dict)]
-    names = [n for n in names if n]
-
-    tags: list[str] = []
-    if any(n in _PC_MARKERS for n in names):
-        tags.append("PC")
-    if any(n in _PS_MARKERS for n in names):
-        tags.append("PS")
-
-    # keep stable output for Sheets
-    return ", ".join(tags) if tags else _join_names(platforms)
-
-
-async def _get_token(state: _IGDBLoopState) -> str:
+async def _get_token(state: _IGDBLoopState, *, force_refresh: bool = False) -> str:
     logger = get_logger("igdb.token")
     async with state.token_lock:
-        if state.token and state.token_expires_at and state.token_expires_at > datetime.utcnow():
+        if (not force_refresh) and state.token and state.token_expires_at and state.token_expires_at > datetime.utcnow():
             return state.token
 
         timeout = aiohttp.ClientTimeout(total=15)
@@ -226,204 +67,17 @@ async def _get_token(state: _IGDBLoopState) -> str:
         return token
 
 
-async def _igdb_query(state: _IGDBLoopState, session: aiohttp.ClientSession, body: str) -> list[dict]:
-    await state.rate.acquire()
-    async with state.inflight:
-        token = await _get_token(state)
-        headers = {
-            "Client-ID": IGDB_CLIENT_ID,
-            "Authorization": f"Bearer {token}",
-        }
-
-        for attempt in range(1, 6):
-            async with session.post(IGDB_GAMES_URL, data=body.encode("utf-8"), headers=headers) as resp:
-                # Handle token expiration / 429 / transient 5xx
-                if resp.status == 401:
-                    state.token = None
-                    state.token_expires_at = None
-                    token = await _get_token(state)
-                    headers["Authorization"] = f"Bearer {token}"
-                    continue
-                if resp.status == 429 or resp.status >= 500:
-                    await asyncio.sleep(min(5.0, 0.25 * (2**attempt)) + random.random() * 0.1)
-                    continue
-
-                data = await resp.json()
-
-            if isinstance(data, list):
-                return [d for d in data if isinstance(d, dict)]
-
-            return []
-
-    return []
-
-
-async def fetch_recommendation_metadata(search_query: str) -> RecommendationMetadata | None:
-    logger = get_logger("recommendations.metadata")
+async def get_igdb_token(*, force_refresh: bool = False) -> str:
     state = _get_state()
-
-    key = " ".join((search_query or "").casefold().split())
-    if not key:
-        return None
-
-    now = asyncio.get_running_loop().time()
-    cached = state.meta_cache.get(key)
-    if cached is not None and cached.expires_at > now:
-        return cached.value
-
-    inflight = state.meta_inflight.get(key)
-    if inflight is not None:
-        return await inflight
-
-    timeout = aiohttp.ClientTimeout(total=15)
-
-    async def _do_fetch() -> RecommendationMetadata | None:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            body = f"""
-            fields id,name,summary,first_release_date,total_rating,total_rating_count,aggregated_rating,aggregated_rating_count,
-                   genres.name,platforms.name,websites.url,cover.url;
-            search "{search_query.replace('"', '')}";
-            limit 10;
-            """
-            results = await _igdb_query(state, session, body)
-            if not results:
-                return None
-
-            # pick best by name match (simple heuristic)
-            best_match = results[0]
-            for item in results:
-                if str(item.get("name") or "").casefold() == str(search_query or "").casefold():
-                    best_match = item
-                    break
-
-            game_id = best_match.get("id")
-            release_date, release_precision = _parse_release_date(best_match.get("first_release_date"))
-
-            steam_url = None
-            for website in best_match.get("websites") or []:
-                url = (website.get("url") or "").strip()
-                if any(marker in url.casefold() for marker in _STEAM_HOST_MARKERS):
-                    steam_url = url
-                    break
-
-            cover = best_match.get("cover") or {}
-            cover_url = (cover.get("url") or "").strip()
-            if cover_url.startswith("//"):
-                cover_url = f"https:{cover_url}"
-            elif cover_url.startswith("/"):
-                cover_url = f"https://images.igdb.com{cover_url}"
-
-            meta = RecommendationMetadata(
-                title=best_match.get("name") or search_query,
-                description_short=None,
-                release_date=release_date,
-                release_precision=release_precision,
-                steam_url=steam_url,
-                rating_text=_build_rating_text(best_match),
-                platforms_text=_build_platforms_text(best_match.get("platforms")),
-                genres_text=_join_names(best_match.get("genres")),
-                cover_url=cover_url or None,
-                source_name="igdb",
-                source_game_id=str(game_id),
-                source_payload=json.dumps(best_match, ensure_ascii=False),
-            )
-            return meta
-
-    task = asyncio.create_task(_do_fetch())
-    state.meta_inflight[key] = task
-    try:
-        result = await task
-    except Exception:
-        logger.exception("IGDB fetch failed", extra={"query": search_query})
-        result = None
-    finally:
-        state.meta_inflight.pop(key, None)
-
-    ttl = _META_CACHE_TTL_SECONDS if result is not None else _META_NEGATIVE_CACHE_TTL_SECONDS
-    state.meta_cache[key] = _IGDBCacheEntry(value=result, expires_at=asyncio.get_running_loop().time() + ttl)
-    return result
+    return await _get_token(state, force_refresh=force_refresh)
 
 
-async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetadata]:
-    import time as _time
+async def build_igdb_auth_headers(*, force_refresh: bool = False) -> dict[str, str]:
+    token = await get_igdb_token(force_refresh=force_refresh)
+    return {
+        "Client-ID": IGDB_CLIENT_ID,
+        "Authorization": f"Bearer {token}",
+    }
 
-    now = int(_time.time())
-    month_later = now + 30 * 24 * 60 * 60
-
-    state = _get_state()
-    timeout = aiohttp.ClientTimeout(total=15)
-
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        body = f"""
-        fields
-            id,name,summary,
-            first_release_date,
-            hypes,follows,
-            genres.name,platforms.name,
-            websites.url,cover.url;
-        where
-            first_release_date != null &
-            first_release_date >= {now} &
-            first_release_date <= {month_later};
-        sort hypes desc;
-        limit 50;
-        """
-
-        results = await _igdb_query(state, session, body)
-        if not results:
-            return []
-
-        output: list[RecommendationMetadata] = []
-
-        for game in results:
-            release_ts = game.get("first_release_date")
-            if not release_ts:
-                continue
-            if release_ts < now or release_ts > month_later:
-                continue
-
-            release_date, release_precision = _parse_release_date(release_ts)
-
-            cover = game.get("cover") or {}
-            cover_url = (cover.get("url") or "").strip()
-            if cover_url.startswith("//"):
-                cover_url = f"https:{cover_url}"
-            elif cover_url.startswith("/"):
-                cover_url = f"https://images.igdb.com{cover_url}"
-
-            steam_url = None
-            for website in game.get("websites") or []:
-                url = (website.get("url") or "").strip()
-                if any(marker in url.casefold() for marker in _STEAM_HOST_MARKERS):
-                    steam_url = url
-                    break
-
-            output.append(
-                RecommendationMetadata(
-                    title=game.get("name") or "Unknown",
-                    description_short=_truncate_text(game.get("summary")),
-                    release_date=release_date,
-                    release_precision=release_precision,
-                    steam_url=steam_url,
-                    rating_text=_build_rating_text(game),
-                    platforms_text=_build_platforms_text(game.get("platforms")),
-                    genres_text=_join_names(game.get("genres")),
-                    cover_url=cover_url or None,
-                    source_name="igdb",
-                    source_game_id=str(game.get("id")),
-                    source_payload=json.dumps(game, ensure_ascii=False),
-                )
-            )
-
-            if len(output) >= limit:
-                break
-
-        return output
-
-
-__all__ = [
-    "RecommendationMetadata",
-    "fetch_recommendation_metadata",
-    "fetch_top_upcoming_games",
-]
+__all__ = ["build_igdb_auth_headers", "get_igdb_token"]
 

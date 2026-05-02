@@ -19,10 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from database.db import SessionLocal, db_path as _default_db_path_str
-from pipeline.ingest.hltb import HltbResult, search_best
-from pipeline.ingest.igdb_metadata import fetch_igdb_metadata
-from pipeline.load.games_meta import apply_games_meta_patch, select_enrichment_candidates
-from pipeline.transform.games_meta_enrichment import IgdbMetaView, build_patch, normalize_key
+from pipeline.ingest.hltb_client import HltbResult, search_best
+from pipeline.ingest.igdb_api import fetch_igdb_metadata
+from pipeline.load.load_game_meta import apply_games_meta_patch, select_enrichment_candidates
+from pipeline.transform.games_transform import IgdbMetaView, build_patch
+from pipeline.transform.utils_transform import normalize_key
 
 
 def _project_root() -> Path:
