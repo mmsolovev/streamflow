@@ -1,10 +1,10 @@
 import aiohttp
 
-from config.settings import TWITCH_CHANNEL, CLIENT_ID, CLIENT_SECRET
+from config.settings import TWITCH_PRIMARY_CHANNEL, CLIENT_ID, CLIENT_SECRET
 
 
 async def get_current_game():
-    url = f"https://api.twitch.tv/helix/streams?user_login={TWITCH_CHANNEL}"
+    url = f"https://api.twitch.tv/helix/streams?user_login={TWITCH_PRIMARY_CHANNEL}"
     headers = {
         "Client-ID": CLIENT_ID,
         "Authorization": f"Bearer {await get_app_access_token()}"

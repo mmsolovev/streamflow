@@ -6,7 +6,7 @@ import time
 from twitchio.ext.eventsub.websocket import EventSubWSClient
 from twitchio.http import Route
 
-from config.settings import BOT_ID, GAMES_SHEET_URL, TWITCH_ACCESS_TOKEN, TWITCH_CHANNEL, TWITCH_NICK
+from config.settings import BOT_ID, GAMES_SHEET_URL, TWITCH_ACCESS_TOKEN, TWITCH_PRIMARY_CHANNEL, TWITCH_NICK
 from services.games_service import find_game_lookup
 from services.hltb_service import get_hltb_summary
 from services.runtime_stream_collector import RuntimeStreamCollector
@@ -59,17 +59,17 @@ class EventSubService:
 
     async def resolve_users(self):
         users = await self.bot.fetch_users(
-            names=[TWITCH_CHANNEL, TWITCH_NICK],
+            names=[TWITCH_PRIMARY_CHANNEL, TWITCH_NICK],
             token=TWITCH_ACCESS_TOKEN,
             force=True,
         )
 
         by_name = {user.name.lower(): user for user in users}
-        target_user = by_name.get(TWITCH_CHANNEL.lower())
+        target_user = by_name.get(TWITCH_PRIMARY_CHANNEL.lower())
         bot_user = by_name.get(TWITCH_NICK.lower())
 
         if not target_user:
-            raise RuntimeError(f"Target channel '{TWITCH_CHANNEL}' was not found")
+            raise RuntimeError(f"Target channel '{TWITCH_PRIMARY_CHANNEL}' was not found")
 
         if not bot_user:
             raise RuntimeError(f"Bot account '{TWITCH_NICK}' was not found")
@@ -237,7 +237,7 @@ class EventSubService:
             self.logger.info("[EventSub] shoutout skipped for %s: viewer_count < 50", raider_login)
             return
 
-        if raider_login == TWITCH_CHANNEL.lower():
+        if raider_login == TWITCH_PRIMARY_CHANNEL.lower():
             self.logger.info("[EventSub] shoutout skipped for %s: same as target channel", raider_login)
             return
 
@@ -295,9 +295,12 @@ class EventSubService:
             ) from exc
 
     async def announce_game_change(self, game_name: str):
-        channel = self.bot.get_channel(TWITCH_CHANNEL)
+        channel = self.bot.get_channel(TWITCH_PRIMARY_CHANNEL)
         if not channel:
-            self.logger.info("[EventSub] game-change message skipped: channel %s is not available", TWITCH_CHANNEL)
+            self.logger.info(
+                "[EventSub] game-change message skipped: channel %s is not available",
+                TWITCH_PRIMARY_CHANNEL,
+            )
             return
 
         message = await self.build_game_change_message(game_name)
@@ -403,7 +406,7 @@ class EventSubService:
 
     async def fetch_live_stream_snapshot(self):
         streams = await self.bot.fetch_streams(
-            user_logins=[TWITCH_CHANNEL],
+            user_logins=[TWITCH_PRIMARY_CHANNEL],
             token=TWITCH_ACCESS_TOKEN,
             type="live",
         )

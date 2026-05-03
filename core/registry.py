@@ -11,6 +11,7 @@ def load_commands(bot):
     from commands.admin import setup as admin_setup
     from commands.help import setup as help_setup
     from commands.info import setup as info_setup
+    from commands.movies import setup as movies_setup
 
     games_setup(bot)
     streams_setup(bot)
@@ -24,3 +25,4 @@ def load_commands(bot):
     admin_setup(bot)
     help_setup(bot)
     info_setup(bot)
+    movies_setup(bot)

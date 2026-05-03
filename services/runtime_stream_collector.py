@@ -7,7 +7,7 @@ from pathlib import Path
 
 from twitchio.http import Route
 
-from config.settings import STREAM_RUNTIME_SAMPLE_SECONDS, TWITCH_ACCESS_TOKEN, TWITCH_CHANNEL
+from config.settings import STREAM_RUNTIME_SAMPLE_SECONDS, TWITCH_ACCESS_TOKEN, TWITCH_PRIMARY_CHANNEL
 from utils.logger import get_logger
 
 
@@ -76,7 +76,7 @@ class RuntimeStreamCollector:
 
     async def fetch_live_stream(self):
         streams = await self.bot.fetch_streams(
-            user_logins=[TWITCH_CHANNEL],
+            user_logins=[TWITCH_PRIMARY_CHANNEL],
             token=self.token,
             type="live",
         )
@@ -239,7 +239,7 @@ class RuntimeStreamCollector:
         self.active_session = {
             "version": COLLECTOR_STATE_VERSION,
             "status": "active",
-            "channel_login": TWITCH_CHANNEL,
+            "channel_login": TWITCH_PRIMARY_CHANNEL,
             "broadcaster_id": str(self.broadcaster_id) if self.broadcaster_id is not None else None,
             "stream_id": str(stream_id),
             "started_at": started_at,
