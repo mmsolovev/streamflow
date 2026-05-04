@@ -1,62 +1,64 @@
 from __future__ import annotations
 
 """
-Orchestrator job: sync Twitch VOD URLs into streams.vod_url.
-
-Ingest: fetch VODs list from Twitch API.
-Load: match and write VOD URLs into DB.
+Orchestrator job: fetch VODs from Twitch API and sync Stream.vod_url.
 """
-
-import argparse
-import asyncio
 
 import aiohttp
 
-from config.settings import CLIENT_ID, TWITCH_ACCESS_TOKEN, TWITCH_CHANNEL
-from database.db import SessionLocal
+from config.settings import TWITCH_ACCESS_TOKEN, TWITCH_CHANNEL_LOGIN, TWITCH_CLIENT_ID
+from database.models import Stream
 from pipeline.ingest.twitch_api import fetch_user_id, fetch_vods
-from pipeline.load.load_streams import sync_stream_vod_urls
+from pipeline.load.load_streams import find_streams_without_vod
+from pipeline.transform.vod_matching import build_vods_index, is_match, pick_vod_candidates
+from .context import PipelineContext
 
 
-async def async_run(*, dry_run: bool = False) -> None:
-    async with aiohttp.ClientSession() as http:
+async def run(context: PipelineContext) -> None:
+    """
+    Fetches VODs from Twitch API and matches them to streams in the database.
+    """
+    if context.db_session is None:
+        raise ValueError("DB session not initialized. Use `with PipelineContext(...)`.")
+
+    # LOAD (from DB): Find streams that need a VOD URL
+    streams_to_sync = find_streams_without_vod(context.db_session)
+    if not streams_to_sync:
+        print("All streams already have VOD URLs. Nothing to do.")
+        return
+
+    print(f"Found {len(streams_to_sync)} streams without VOD URL.")
+
+    # INGEST: Fetch VODs from Twitch API
+    async with aiohttp.ClientSession() as session:
+        print("Fetching user ID for channel...")
         user_id = await fetch_user_id(
-            http,
-            client_id=CLIENT_ID,
+            session,
+            client_id=TWITCH_CLIENT_ID,
             access_token=TWITCH_ACCESS_TOKEN,
-            channel_login=TWITCH_CHANNEL,
+            channel_login=TWITCH_CHANNEL_LOGIN,
         )
+        print(f"Fetching all VODs for user {user_id}...")
         vods = await fetch_vods(
-            http,
-            client_id=CLIENT_ID,
+            session,
+            client_id=TWITCH_CLIENT_ID,
             access_token=TWITCH_ACCESS_TOKEN,
             user_id=user_id,
         )
+    print(f"Fetched {len(vods)} VODs.")
 
-    print(f"Fetched VODs: {len(vods)}")
+    # TRANSFORM: Match streams to VODs
+    vods_by_date = build_vods_index(vods)
+    updated_count = 0
+    for stream in streams_to_sync:
+        candidates = pick_vod_candidates(vods_by_date=vods_by_date, stream_date=stream.date.date())
+        for vod in candidates:
+            if is_match(stream, vod):
+                # LOAD (to DB): Update stream with VOD URL
+                stream_orm = context.db_session.query(Stream).get(stream.id)
+                if stream_orm:
+                    stream_orm.vod_url = vod.get("url")
+                    updated_count += 1
+                break  # Move to the next stream once a match is found
 
-    session = SessionLocal()
-    try:
-        stats = sync_stream_vod_urls(session, vods)
-        if dry_run:
-            session.rollback()
-        else:
-            session.commit()
-    finally:
-        session.close()
-
-    print(f"Removed outdated VODs: {stats.removed_outdated}")
-    print(f"Matched new VODs: {stats.matched_new}")
-    print("Dry run: yes" if dry_run else "Dry run: no")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Sync Twitch VOD URLs into streams.vod_url.")
-    parser.add_argument("--dry-run", action="store_true", help="Do not write changes to the database.")
-    args = parser.parse_args()
-    asyncio.run(async_run(dry_run=bool(args.dry_run)))
-
-
-if __name__ == "__main__":
-    main()
-
+    print(f"Successfully matched and updated {updated_count} streams with VOD URLs.")

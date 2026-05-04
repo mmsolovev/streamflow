@@ -16,7 +16,7 @@ from weakref import WeakKeyDictionary
 import aiohttp
 
 from services.igdb_service import build_igdb_auth_headers
-from pipeline.transform.games_transform import (
+from pipeline.transform.igdb_transform import (
     build_platforms_text,
     build_rating_text,
     extract_steam_url,
