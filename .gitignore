@@ -235,3 +235,7 @@ __marimo__/
 /storage/censorship/twitch_rules.txt
 /storage/runtime/active_stream_session.json
 /storage/runtime/completed_stream_sessions.json
+
+/storage/movies/lost.json
+/storage/movies/lost_state.json
+!/storage/movies/*.example.json

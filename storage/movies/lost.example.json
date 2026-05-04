@@ -1,0 +1,20 @@
+{
+  "series": {
+    "title_ru": "Название сериала на русском",
+    "title_en": "Series title in English",
+    "seasons": [
+      {
+        "season_number": 1,
+        "year": 2000,
+        "episodes": [
+          {
+            "episode_number": 1,
+            "title_ru": "Название эпизода",
+            "title_en": "Episode title",
+            "imdb_rating": 8.5
+          }
+        ]
+      }
+    ]
+  }
+}
