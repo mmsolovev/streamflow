@@ -1,28 +1,25 @@
+from __future__ import annotations
+
 """
-Orchestrator job: export data to Google Sheets UI.
-
-Implementation lives in pipeline.delivery.*; this file is the stable pipeline entrypoint.
+Orchestrator job: export DB state to Google Sheets.
 """
 
-from pipeline.delivery.sheets_bot_info import sync_bot_info
-from pipeline.delivery.sheets_games import sync_games_safe
-from pipeline.delivery.sheets_recommendations import sync_recommendations_safe
-from pipeline.delivery.sheets_releases import sync_releases_safe
-from pipeline.delivery.sheets_streams import sync_streams_safe
+from pipeline.delivery.sheets_games import export_games_to_sheet
+from pipeline.delivery.sheets_releases import export_releases_to_sheet
+from pipeline.delivery.sheets_streams import export_streams_to_sheet
+from .context import PipelineContext
 
 
-def export_all() -> None:
-    sync_bot_info()
-    sync_streams_safe()
-    sync_games_safe()
-    sync_releases_safe()
-    sync_recommendations_safe()
+def run(context: PipelineContext) -> None:
+    """
+    Exports data from the database to Google Sheets.
+    """
+    _ = context  # Context might be used in the future for configuration, etc.
+    print("Exporting data to Google Sheets...")
 
+    # Each function is a self-contained delivery job
+    export_games_to_sheet()
+    export_streams_to_sheet()
+    export_releases_to_sheet()
 
-def main() -> None:
-    export_all()
-
-
-if __name__ == "__main__":
-    main()
-
+    print("Successfully exported all data to Google Sheets.")

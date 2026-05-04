@@ -2,28 +2,21 @@ from __future__ import annotations
 
 """
 Orchestrator job: parse TwitchTracker HTML pages and sync into DB.
-
-Optionally also mirror parsed datasets into JSON as a backup collection format.
 """
 
-import argparse
 from pathlib import Path
 
-from database.db import Base, SessionLocal, engine
+from database.models import Game
 from pipeline.delivery.json_twitchtracker import write_games_json, write_streams_json
 from pipeline.ingest.twitchtracker_parser import parse_game_pages, parse_stream_pages
 from pipeline.load.load_game_stats import sync_game_stats, update_streams_count
 from pipeline.load.load_streams import sync_streams
-
-
-def _project_root() -> Path:
-    # .../pipeline/orchestrator/sync_twitchtracker_html_to_db.py -> project root
-    return Path(__file__).resolve().parents[2]
+from .context import PipelineContext
 
 
 def run(
+    context: PipelineContext,
     *,
-    dry_run: bool = False,
     prune: bool = False,
     pages_dir: Path | None = None,
     write_json: bool = False,
@@ -31,78 +24,55 @@ def run(
     streams_json_path: Path | None = None,
     games_json_path: Path | None = None,
 ) -> None:
-    Base.metadata.create_all(bind=engine)
+    """
+    Args:
+        context: The pipeline context.
+        prune: Delete DB rows missing in the parsed dataset.
+        pages_dir: Directory with TwitchTracker HTML pages. If None, uses `storage/pages`.
+        write_json: Also write datasets to `storage/*.json`.
+        merge_json: Merge streams.json into existing file.
+        streams_json_path: Override output path for streams.json.
+        games_json_path: Override output path for games.json.
+    """
+    if context.db_session is None:
+        raise ValueError("DB session not initialized. Use `with PipelineContext(...)`.")
 
-    pages_dir = Path(pages_dir) if pages_dir is not None else (_project_root() / "storage" / "pages")
+    # Set default paths relative to project root
+    pages_dir = pages_dir if pages_dir is not None else (context.project_root / "storage" / "pages")
+    streams_json_path = streams_json_path if streams_json_path is not None else (context.project_root / "storage" / "streams.json")
+    games_json_path = games_json_path if games_json_path is not None else (context.project_root / "storage" / "games.json")
+
+    # INGEST: Parse local HTML files
+    print("Parsing HTML files...")
     streams_data = parse_stream_pages(pages_dir=pages_dir)
     games_data = parse_game_pages(pages_dir=pages_dir)
+    print(f"Parsed {len(streams_data)} streams and {len(games_data)} games.")
 
+    # DELIVERY (optional): Write to JSON as a backup
     if write_json:
-        root = _project_root()
-        streams_path = Path(streams_json_path) if streams_json_path is not None else (root / "storage" / "streams.json")
-        games_path = Path(games_json_path) if games_json_path is not None else (root / "storage" / "games.json")
-        write_streams_json(streams_path, streams_data, merge_existing=merge_json)
-        write_games_json(games_path, games_data)
+        print("Writing to JSON files...")
+        write_streams_json(streams_json_path, streams_data, merge_existing=merge_json)
+        write_games_json(games_json_path, games_data)
+        print(f"Wrote {streams_json_path} and {games_json_path}")
 
-    session = SessionLocal()
-    try:
-        from database.models import Game
+    # LOAD: Sync parsed data into the database
+    print("Syncing data to the database...")
+    game_cache = {game.name: game for game in context.db_session.query(Game).all()}
 
-        game_cache = {game.name: game for game in session.query(Game).all()}
+    stream_stats = sync_streams(context.db_session, streams_data, game_cache, prune_missing=prune)
+    game_stats = sync_game_stats(context.db_session, games_data, game_cache, prune_missing=prune)
+    streams_count_updated = update_streams_count(context.db_session)
 
-        stream_stats = sync_streams(session, streams_data, game_cache, prune_missing=prune)
-        game_stats = sync_game_stats(session, games_data, game_cache, prune_missing=prune)
-        streams_count_updated = update_streams_count(session)
-
-        if dry_run:
-            session.rollback()
-        else:
-            session.commit()
-
-        print(
-            f"Streams -> added: {stream_stats.added}, "
-            f"updated: {stream_stats.updated}, "
-            f"unchanged: {stream_stats.unchanged}, "
-            f"deleted: {stream_stats.deleted}"
-        )
-        print(
-            f"Game stats -> added: {game_stats.added}, "
-            f"updated: {game_stats.updated}, "
-            f"unchanged: {game_stats.unchanged}, "
-            f"deleted: {game_stats.deleted}"
-        )
-        print(f"GameStats.streams_count updated rows: {streams_count_updated}")
-        print("Dry run: yes" if dry_run else "Dry run: no")
-    finally:
-        session.close()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Sync TwitchTracker HTML pages into SQLite (and optionally mirror to JSON).")
-    parser.add_argument("--dry-run", action="store_true", help="Parse and compare data without writing DB changes.")
-    parser.add_argument("--prune", action="store_true", help="Delete DB rows missing in parsed dataset.")
-    parser.add_argument("--pages-dir", default="", help="Path to directory with TwitchTracker HTML pages (default: storage/pages).")
-    parser.add_argument("--write-json", action="store_true", help="Also write parsed datasets to storage/*.json.")
-    parser.add_argument("--merge-json", action="store_true", help="When writing streams.json, merge instead of overwrite.")
-    parser.add_argument("--streams-json-path", default="", help="Override output path for streams.json (requires --write-json).")
-    parser.add_argument("--games-json-path", default="", help="Override output path for games.json (requires --write-json).")
-    args = parser.parse_args()
-
-    pages_dir = Path(args.pages_dir) if str(args.pages_dir or "").strip() else None
-    streams_json_path = Path(args.streams_json_path) if str(args.streams_json_path or "").strip() else None
-    games_json_path = Path(args.games_json_path) if str(args.games_json_path or "").strip() else None
-
-    run(
-        dry_run=bool(args.dry_run),
-        prune=bool(args.prune),
-        pages_dir=pages_dir,
-        write_json=bool(args.write_json),
-        merge_json=bool(args.merge_json),
-        streams_json_path=streams_json_path,
-        games_json_path=games_json_path,
+    print(
+        f"Streams -> added: {stream_stats.added}, "
+        f"updated: {stream_stats.updated}, "
+        f"unchanged: {stream_stats.unchanged}, "
+        f"deleted: {stream_stats.deleted}"
     )
-
-
-if __name__ == "__main__":
-    main()
-
+    print(
+        f"Game stats -> added: {game_stats.added}, "
+        f"updated: {game_stats.updated}, "
+        f"unchanged: {game_stats.unchanged}, "
+        f"deleted: {game_stats.deleted}"
+    )
+    print(f"GameStats.streams_count updated rows: {streams_count_updated}")
