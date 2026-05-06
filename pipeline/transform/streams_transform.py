@@ -42,6 +42,8 @@ def compute_stream_genres(
     # Rule: keywords in title
     if {"ирл", "кирл", "irl"} & title_tokens:
         tags.append("IRL")
+    if "игрокон" in title_tokens and "с" in title_tokens and "@evikey" in title_tokens:
+        tags.append("IRL")
     if "кукинг" in title_tokens or "кукинг" in title_norm:
         tags.append("Кукинг")
 
