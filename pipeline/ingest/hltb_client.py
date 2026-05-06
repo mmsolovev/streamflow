@@ -44,7 +44,7 @@ def search_best(game_name: str, *, min_similarity: float) -> HltbResult | None:
     if best_match is None or best_similarity < float(min_similarity):
         return None
 
-    hours = getattr(best_match, "main_story", None)
+    hours = getattr(best_match, "all_styles", None)
     if hours is None:
         return None
 
