@@ -315,9 +315,9 @@ class EventSubService:
             message_parts.append(f"MrDestructoid Игра {game_name} на канале впервые")
         else:
             message_parts.append(
-                f"MrDestructoid Игра {game_lookup.name} уже была на стриме {game_lookup.streams_count} раз: "
-                f"часов {self._format_hours(game_lookup.hours_streamed)}, "
-                f"последний стрим {self._format_date(game_lookup.last_stream)}."
+                f"MrDestructoid Игра {game_lookup.name} уже была на стриме раз: {game_lookup.streams_count}, "
+                f"часов в игре: {self._format_hours(game_lookup.hours_streamed)}, "
+                f"последний стрим {self._format_date(game_lookup.last_stream)}"
             )
 
         hltb_summary = await get_hltb_summary(game_name)
