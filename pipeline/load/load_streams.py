@@ -204,7 +204,12 @@ class VodSyncStats:
     matched_new: int
 
 
-def sync_stream_vod_urls(session: Session, vods: list[dict[str, Any]]) -> VodSyncStats:
+def sync_stream_vod_urls(
+    session: Session,
+    vods: list[dict[str, Any]],
+    *,
+    only_stream_ids: set[int] | None = None,
+) -> VodSyncStats:
     """
     Updates Stream.vod_url in-place:
     - clears stale vod_url values not present in fetched VODs
@@ -218,14 +223,26 @@ def sync_stream_vod_urls(session: Session, vods: list[dict[str, Any]]) -> VodSyn
     vods_by_date = build_vods_index(vods)
 
     removed = 0
-    streams_with_vods = session.query(Stream).filter(Stream.vod_url.isnot(None)).all()
+    streams_with_vods_q = session.query(Stream).filter(Stream.vod_url.isnot(None))
+    if only_stream_ids is not None:
+        ids = [int(i) for i in only_stream_ids if int(i) > 0]
+        if not ids:
+            return VodSyncStats(removed_outdated=0, matched_new=0)
+        streams_with_vods_q = streams_with_vods_q.filter(Stream.id.in_(ids))
+    streams_with_vods = streams_with_vods_q.all()
     for stream in streams_with_vods:
         if stream.vod_url and stream.vod_url not in vod_urls:
             stream.vod_url = None
             removed += 1
 
     matched = 0
-    streams_without_vods = session.query(Stream).filter(Stream.vod_url.is_(None)).all()
+    streams_without_vods_q = session.query(Stream).filter(Stream.vod_url.is_(None))
+    if only_stream_ids is not None:
+        ids = [int(i) for i in only_stream_ids if int(i) > 0]
+        if not ids:
+            return VodSyncStats(removed_outdated=removed, matched_new=0)
+        streams_without_vods_q = streams_without_vods_q.filter(Stream.id.in_(ids))
+    streams_without_vods = streams_without_vods_q.all()
     for stream in streams_without_vods:
         if not stream.date:
             continue

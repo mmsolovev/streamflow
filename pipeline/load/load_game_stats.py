@@ -48,13 +48,14 @@ def sync_game_stats(
         changed = created
 
         for attr, value in (
-            ("rank", data.rank),
             ("hours_streamed", data.hours_streamed),
             ("avg_viewers", data.avg_viewers),
             ("max_viewers", data.max_viewers),
             ("followers_per_hour", data.followers_per_hour),
             ("last_stream", data.last_stream),
         ):
+            if not hasattr(game_stats, attr):
+                continue
             if getattr(game_stats, attr) != value:
                 setattr(game_stats, attr, value)
                 changed = True
