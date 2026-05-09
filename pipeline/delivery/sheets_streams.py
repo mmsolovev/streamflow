@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+
+
 """
 Google Sheets delivery: Streams worksheet sync.
 """
@@ -9,7 +11,8 @@ from pathlib import Path
 from database.db import SessionLocal
 from database.models import Stream
 from config.settings import SPREADSHEET_NAME, STREAMS_SHEET_NAME
-from pipeline.delivery.sheets_utils import build_hyperlink_formula, comparable_row, get_client
+from pipeline.delivery.sheets_utils import build_hyperlink_formula, get_client
+from pipeline.transform.sheets_transform import normalize_row as _normalize_row
 
 
 def _stream_display_date(stream: Stream) -> str:
@@ -132,6 +135,11 @@ def _format_streams_sheet(sheet, row_count: int) -> None:
     )
 
 
+def _stream_comparable_row(row):
+    normalized_row = _normalize_row(row, 12)
+    return [str(value) for value in normalized_row]
+
+
 def _build_stream_comparable_row(stream: Stream, manual_columns=None) -> list[str]:
     row = _build_stream_row(stream)
     comparable = [
@@ -150,7 +158,7 @@ def _build_stream_comparable_row(stream: Stream, manual_columns=None) -> list[st
     ]
 
     if manual_columns is not None:
-        # G-J keep manual, K (genres_text) always synced from DB.
+        # G-J оставляем ручными, а K (genres_text) всегда из БД.
         comparable[6:10] = [str(value) for value in manual_columns]
 
     return comparable
@@ -182,12 +190,12 @@ def sync_streams_safe() -> None:
     values = sheet.get_all_values()
     data_rows = values[8:] if len(values) > 8 else []
 
-    existing: dict[tuple[str, str], list] = {}
+    existing = {}
     for row in data_rows:
-        normalized_row = comparable_row(row, 12)
+        normalized_row = _normalize_row(row, 12)
         key = (normalized_row[0], normalized_row[2])
         if key[0] and key[1]:
-            existing[key] = list(row)
+            existing[key] = normalized_row
 
     streams = session.query(Stream).order_by(Stream.date.desc()).all()
     final_rows = []
@@ -199,16 +207,16 @@ def sync_streams_safe() -> None:
 
         if row_key in existing:
             old_row = existing[row_key]
-            # keep G-J manual
+            # G-J оставляем ручными, а K (genres_text) всегда из БД.
             row[6:10] = old_row[6:10]
-            comparable = _build_stream_comparable_row(stream, manual_columns=old_row[6:10])
+            comparable_row = _build_stream_comparable_row(stream, manual_columns=old_row[6:10])
         else:
-            comparable = _build_stream_comparable_row(stream)
+            comparable_row = _build_stream_comparable_row(stream)
 
         final_rows.append(row)
-        comparable_final_rows.append(comparable)
+        comparable_final_rows.append(comparable_row)
 
-    current_rows = [comparable_row(row, 12) for row in data_rows]
+    current_rows = [_stream_comparable_row(row) for row in data_rows]
 
     if current_rows != comparable_final_rows:
         sheet.batch_clear(["A9:L1000"])
