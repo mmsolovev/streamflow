@@ -8,12 +8,28 @@ from database.db import SessionLocal
 from database.models import Game, GameMeta, GameStats
 from config.settings import SPREADSHEET_NAME, GAMES_SHEET_NAME
 from pipeline.delivery.sheets_utils import build_hyperlink_formula, build_tags_text, comparable_row, format_dt, get_client
-from pipeline.transform.sheets_transform import normalize_row as _normalize_row
+from pipeline.transform.sheets_transform import normalize_row as _normalize_row, parse_sheet_bool
 
 
-def _get_game_meta(game: Game) -> GameMeta:
-    # Delivery code must not create DB rows as a side-effect of exporting data.
-    return game.meta or GameMeta()
+def _get_or_create_game_meta(game):
+    if not game.meta:
+        game.meta = GameMeta()
+    return game.meta
+
+
+def _sync_game_manual_fields_from_sheet(session, existing_rows):
+    for game_name, row in existing_rows.items():
+        game = session.query(Game).filter_by(name=game_name).first()
+        if not game:
+            continue
+
+        meta = _get_or_create_game_meta(game)
+        normalized_row = _normalize_row(row, 12)
+
+        meta.liked = parse_sheet_bool(normalized_row[7])
+        meta.completed = parse_sheet_bool(normalized_row[9])
+
+    session.flush()
 
 
 def _build_games_dataset(session):
@@ -49,7 +65,7 @@ def _build_games_dataset(session):
 
 
 def _build_game_row(game, stats, rank, manual_columns=None):
-    meta = _get_game_meta(game)
+    meta = _get_or_create_game_meta(game)
     steam = build_hyperlink_formula(meta.steam_url)
 
     row = [
@@ -61,7 +77,7 @@ def _build_game_row(game, stats, rank, manual_columns=None):
         meta.hltb_hours if meta.hltb_hours else "",
         steam,
         bool(meta.liked),
-        '=IF(HROW()=TRUE;"❤";"")',
+        '=IF(HROW()=TRUE;"❤️";"")',
         bool(meta.completed),
         '=IF(JROW()=TRUE;"✅";"")',
         build_tags_text(meta),
@@ -77,7 +93,7 @@ def _build_game_row(game, stats, rank, manual_columns=None):
 def _finalize_game_row_formulas(rows, start_row=9):
     for offset, row in enumerate(rows):
         sheet_row = start_row + offset
-        row[8] = f'=IF(H{sheet_row}=TRUE;"❤";"")'
+        row[8] = f'=IF(H{sheet_row}=TRUE;"❤️";"")'
         row[10] = f'=IF(J{sheet_row}=TRUE;"✅";"")'
     return rows
 
@@ -185,9 +201,22 @@ def sync_games_safe() -> None:
     values = sheet.get_all_values()
     data_rows = values[8:] if len(values) > 8 else []
 
+    existing = {}
+    for row in data_rows:
+        normalized_row = _normalize_row(row, 12)
+        game_name = normalized_row[2]
+        if game_name:
+            existing[game_name] = normalized_row
+
+    _sync_game_manual_fields_from_sheet(session, existing)
+
     final_rows = []
     for game, stats, rank in _build_games_dataset(session):
-        final_rows.append(_build_game_row(game, stats, rank))
+        manual_columns = None
+        if game.name in existing:
+            old_row = existing[game.name]
+            manual_columns = [old_row[8], old_row[9], old_row[10]]
+        final_rows.append(_build_game_row(game, stats, rank, manual_columns=manual_columns))
     _finalize_game_row_formulas(final_rows)
 
     current_rows = [_game_comparable_row(row) for row in data_rows]
@@ -202,6 +231,7 @@ def sync_games_safe() -> None:
     else:
         print("Games already in sync")
 
+    session.commit()
     session.close()
 
 

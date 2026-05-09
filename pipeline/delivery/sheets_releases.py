@@ -17,6 +17,7 @@ from pipeline.delivery.sheets_utils import (
     get_client,
     get_or_create_worksheet as _get_or_create_worksheet,
 )
+from pipeline.transform.sheets_transform import normalize_row as _normalize_row, parse_sheet_bool
 from services.recommendations_service import STATUS_UPCOMING, refresh_recommendation_lifecycle
 
 
@@ -117,6 +118,35 @@ def _format_release_delta(recommendation):
     return f"{days} д."
 
 
+def _sync_release_manual_fields_from_sheet(session, existing_rows):
+    for recommendation_name, row in existing_rows.items():
+        recommendation = session.query(RecommendedGame).filter_by(title=recommendation_name).first()
+        if not recommendation:
+            continue
+
+        normalized_row = _normalize_row(row, 12)
+        sheet_value = parse_sheet_bool(normalized_row[5])
+        if sheet_value is True:
+            recommendation.streamer_interested = True
+        elif sheet_value is False and recommendation.streamer_interested is False:
+            recommendation.streamer_interested = False
+
+    session.flush()
+
+
+def _release_comparable_row(row):
+    normalized_row = _normalize_row(row, 12)
+    comparable = []
+    for value in normalized_row:
+        if value is True:
+            comparable.append("TRUE")
+        elif value is False:
+            comparable.append("FALSE")
+        else:
+            comparable.append(str(value))
+    return comparable
+
+
 def _build_release_row(recommendation):
     steam = build_hyperlink_formula(recommendation.steam_url)
     return [
@@ -145,6 +175,15 @@ def sync_releases_safe() -> None:
     values = sheet.get_all_values()
     data_rows = values[8:] if len(values) > 8 else []
 
+    existing = {}
+    for row in data_rows:
+        normalized_row = _normalize_row(row, 12)
+        title = normalized_row[2]
+        if title:
+            existing[title] = normalized_row
+
+    _sync_release_manual_fields_from_sheet(session, existing)
+
     recommendations = (
         session.query(RecommendedGame)
         .filter((RecommendedGame.status == STATUS_UPCOMING) | (RecommendedGame.release_date.is_(None)))
@@ -162,8 +201,8 @@ def sync_releases_safe() -> None:
         row[6] = f'=IF(F{offset}=TRUE;"👍";"")'
         rows.append(row)
 
-    current_rows = [comparable_row(row, 12) for row in data_rows]
-    comparable_final_rows = [comparable_row(row, 12) for row in rows]
+    current_rows = [_release_comparable_row(row) for row in data_rows]
+    comparable_final_rows = [_release_comparable_row(row) for row in rows]
 
     if current_rows != comparable_final_rows:
         sheet.batch_clear(["A9:L1000"])
@@ -172,6 +211,8 @@ def sync_releases_safe() -> None:
             sheet.update("A9", rows, value_input_option="USER_ENTERED")
 
     print(f"Releases synced: {len(rows)}")
+
+    session.commit()
     session.close()
 
 
