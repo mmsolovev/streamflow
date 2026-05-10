@@ -96,6 +96,48 @@ def _format_releases_sheet(sheet, row_count):
         {"horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"},
     )
 
+    sheet.format(f"E{start_row}:E{end_row}", {
+        "textFormat": {
+            "fontFamily": "Orbitron",
+            "fontSize": 14,
+            "bold": True,
+            "foregroundColor": {"red": 102 / 255, "green": 192 / 255, "blue": 244 / 255},
+        },
+        "horizontalAlignment": "CENTER",
+        "verticalAlignment": "MIDDLE",
+    })
+
+    sheet.format(f"F{start_row}:F{end_row}", {
+        "horizontalAlignment": "CENTER",
+        "verticalAlignment": "MIDDLE",
+    })
+
+    sheet.format(f"G{start_row}:J{end_row}", {
+        "horizontalAlignment": "CENTER",
+        "verticalAlignment": "MIDDLE",
+    })
+
+    sheet.format(f"D{start_row}:D{end_row}", {
+        "textFormat": {
+            "fontFamily": "Montserrat",
+            "fontSize": 12,
+            "foregroundColor": {"red": 229 / 255, "green": 231 / 255, "blue": 235 / 255}, },
+    })
+
+    sheet.format(f"K{start_row}:K{end_row}", {
+        "textFormat": {
+            "fontFamily": "Montserrat",
+            "fontSize": 10,
+            "foregroundColor": {"red": 229 / 255, "green": 231 / 255, "blue": 235 / 255}, },
+    })
+
+    sheet.format(f"L{start_row}:L{end_row}", {
+        "textFormat": {
+            "fontFamily": "Montserrat",
+            "fontSize": 12,
+            "foregroundColor": {"red": 229 / 255, "green": 231 / 255, "blue": 235 / 255}, },
+    })
+
 
 def _format_release_value(recommendation):
     if not recommendation.release_date:
