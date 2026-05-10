@@ -53,6 +53,38 @@ def _format_recommendations_sheet(sheet, row_count):
         },
     )
 
+    sheet.format(f"D{start_row}:D{end_row}", {
+        "textFormat": {
+            "fontFamily": "Orbitron",
+            "fontSize": 14,
+            "bold": True,
+            "foregroundColor": {"red": 102 / 255, "green": 192 / 255, "blue": 244 / 255},
+        },
+        "horizontalAlignment": "CENTER",
+        "verticalAlignment": "MIDDLE",
+    })
+
+    sheet.format(f"E{start_row}:E{end_row}", {
+        "textFormat": {
+            "fontFamily": "Montserrat",
+            "fontSize": 11,
+            "foregroundColor": {"red": 229 / 255, "green": 231 / 255, "blue": 235 / 255}, },
+    })
+
+    sheet.format(f"F{start_row}:F{end_row}", {
+        "textFormat": {
+            "fontFamily": "Montserrat",
+            "fontSize": 10,
+            "foregroundColor": {"red": 229 / 255, "green": 231 / 255, "blue": 235 / 255}, },
+    })
+
+    sheet.format(f"I{start_row}:I{end_row}", {
+        "textFormat": {
+            "fontFamily": "Montserrat",
+            "fontSize": 12,
+            "foregroundColor": {"red": 229 / 255, "green": 231 / 255, "blue": 235 / 255}, },
+    })
+
 
 def _build_recommendation_row(recommendation):
     steam = build_hyperlink_formula(recommendation.steam_url)

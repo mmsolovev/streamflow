@@ -26,7 +26,6 @@ from pipeline.load.load_recommendations import (
     sync_recommendation_matches as _db_sync_recommendation_matches,
 )
 from pipeline.transform.recommendations_transform import (
-    determine_recommendation_status as _tx_determine_recommendation_status,
     normalize_recommendation_name as _tx_normalize_recommendation_name,
     normalize_user_login as _tx_normalize_user_login,
 )
@@ -65,21 +64,6 @@ class RecommendationActionResult:
     recommendation: RecommendationSummary | None
     message: str
     accepted: bool = False
-
-
-def _has_special_source(recommendation):
-    for vote in recommendation.votes:
-        login = (vote.user_login or "").casefold()
-        if login in {"tabula", "igdb"}:
-            return True
-    return False
-
-
-def _is_igdb(recommendation):
-    return any(
-        (vote.user_login or "").casefold() == "igdb"
-        for vote in recommendation.votes
-    )
 
 
 def _normalize_user_login(value: str) -> str:
@@ -161,31 +145,8 @@ def create_recommendation(
     )
 
 
-def determine_recommendation_status(
-    *,
-    release_date: datetime | None,
-    matched_game: Game | None = None,
-    streamer_interested: bool = False,
-) -> str:
-    return _tx_determine_recommendation_status(
-        release_date=release_date,
-        matched_game=matched_game,
-        streamer_interested=streamer_interested,
-    )
-
-
 def sync_recommendation_matches(session) -> int:
     return _db_sync_recommendation_matches(session)
-
-
-def _has_special_source(recommendation):
-    for vote in recommendation.votes:
-        login = (vote.user_login or "").casefold()
-
-        if login in {"tabula", "igdb"}:
-            return True
-
-    return False
 
 
 def refresh_recommendation_lifecycle() -> int:

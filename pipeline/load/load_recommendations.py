@@ -16,6 +16,7 @@ from pipeline.transform.recommendations_transform import (
     STATUS_RELEASED,
     STATUS_STREAMED,
     STATUS_UPCOMING,
+    STATUS_DELETABLE_IGDB,
     determine_recommendation_status,
     normalize_recommendation_name,
     normalize_user_login,
@@ -109,7 +110,7 @@ def create_recommendation(
         query_name=(query_name or title).strip(),
         normalized_name=normalized_name,
         title=title.strip(),
-        status=status or determine_recommendation_status(release_date=release_date),
+        status=status or determine_recommendation_status(release_date=release_date, source_name=source_name),
         release_date=release_date,
         release_precision=release_precision,
         description_short=description_short,
@@ -182,24 +183,27 @@ def add_igdb_vote(session: Session, *, recommended_game_id: int, now: datetime) 
     session.add(vote)
 
 
-def _has_special_source(recommendation: RecommendedGame) -> bool:
-    for vote in recommendation.votes:
-        login = (vote.user_login or "").casefold()
-        if login in {"tabula", "igdb"}:
-            return True
-    return False
+def _get_source_votes(recommendation: RecommendedGame, source_name: str) -> list[RecommendedGameVote]:
+    return [vote for vote in recommendation.votes if (vote.user_login or "").casefold() == source_name.casefold()]
 
-
-def _is_igdb(recommendation: RecommendedGame) -> bool:
-    return any((vote.user_login or "").casefold() == "igdb" for vote in recommendation.votes)
-
+def _get_dominant_source(recommendation: RecommendedGame) -> str | None:
+    has_igdb_vote = any((v.user_login or "").casefold() == "igdb" for v in recommendation.votes)
+    if has_igdb_vote:
+        return "igdb"
+    
+    has_tabula_vote = any((v.user_login or "").casefold() == "tabula" for v in recommendation.votes)
+    if has_tabula_vote:
+        return "tabula"
+        
+    return None
 
 def sync_recommendation_matches(session: Session) -> int:
     updated_count = 0
 
     recommendations = (
         session.query(RecommendedGame)
-        .filter(RecommendedGame.status.in_([STATUS_UPCOMING, STATUS_RELEASED, STATUS_STREAMED]))
+        .options(joinedload(RecommendedGame.votes))
+        .filter(RecommendedGame.status.in_([STATUS_UPCOMING, STATUS_RELEASED, STATUS_STREAMED, STATUS_DELETABLE_IGDB]))
         .all()
     )
 
@@ -210,32 +214,59 @@ def sync_recommendation_matches(session: Session) -> int:
     }
 
     for recommendation in recommendations:
-        real_matched_game = games_by_name.get(recommendation.normalized_name)
+        original_status = recommendation.status
+        changed = False
 
-        if _has_special_source(recommendation):
+        # --- Deletion Phase ---
+        # First, check if an IGDB vote should be deleted without changing the status yet.
+        source_for_deletion_check = _get_dominant_source(recommendation)
+        status_for_deletion_check = determine_recommendation_status(
+            release_date=recommendation.release_date,
+            matched_game=None,  # Check for deletion independently of streamed status
+            streamer_interested=bool(recommendation.streamer_interested),
+            source_name=source_for_deletion_check,
+        )
+
+        if status_for_deletion_check == STATUS_DELETABLE_IGDB and source_for_deletion_check == "igdb":
+            igdb_votes = _get_source_votes(recommendation, "igdb")
+            if igdb_votes and len(recommendation.votes) == len(igdb_votes):
+                session.delete(recommendation)
+                updated_count += 1
+                continue  # Skip to the next recommendation as this one is gone
+            elif igdb_votes:
+                for vote in igdb_votes:
+                    session.delete(vote)
+                # The recommendation object in memory now has its `votes` collection updated.
+                # We can now proceed to re-evaluate its status based on remaining votes.
+                changed = True
+
+        # --- Status Update Phase ---
+        # Now, determine the final status based on the *current* state of votes.
+        final_source_name = _get_dominant_source(recommendation)
+        
+        if final_source_name:
             matched_game = None
         else:
-            matched_game = real_matched_game
-
-        previous_matched_game_id = recommendation.matched_game_id
-        previous_status = recommendation.status
-
+            matched_game = games_by_name.get(recommendation.normalized_name)
+        
         recommendation.matched_game = matched_game
 
-        if _is_igdb(recommendation):
-            recommendation.status = STATUS_UPCOMING
-        else:
-            recommendation.status = determine_recommendation_status(
-                release_date=recommendation.release_date,
-                matched_game=matched_game,
-                streamer_interested=bool(recommendation.streamer_interested),
-            )
+        final_status = determine_recommendation_status(
+            release_date=recommendation.release_date,
+            matched_game=matched_game,
+            streamer_interested=bool(recommendation.streamer_interested),
+            source_name=final_source_name,
+        )
 
-        if recommendation.matched_game_id != previous_matched_game_id or recommendation.status != previous_status:
+        if original_status != final_status:
+            recommendation.status = final_status
+            changed = True
+
+        if changed:
             recommendation.updated_at = datetime.utcnow()
             updated_count += 1
 
-    if updated_count:
+    if updated_count > 0:
         session.flush()
 
     return updated_count
@@ -386,4 +417,3 @@ __all__ = [
     "set_game_short_description",
     "sync_recommendation_matches",
 ]
-
