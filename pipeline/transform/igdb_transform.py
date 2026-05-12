@@ -66,6 +66,23 @@ def join_names(values: list[dict] | None) -> str | None:
     return ", ".join(out) if out else None
 
 
+def normalize_genres_text(genres: list[dict] | None) -> str | None:
+    if not genres:
+        return None
+    
+    names = []
+    for item in genres:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if name == "Role-playing (RPG)":
+            name = "RPG"
+        if name:
+            names.append(name)
+            
+    return ", ".join(names) if names else None
+
+
 def build_platforms_text(platforms: list[dict] | None) -> str | None:
     if not platforms:
         return None
@@ -121,6 +138,7 @@ __all__ = [
     "extract_steam_url",
     "join_names",
     "normalize_cover_url",
+    "normalize_genres_text",
     "parse_release_date",
     "pick_best_match",
     "truncate_text",

@@ -20,8 +20,8 @@ from pipeline.transform.igdb_transform import (
     build_platforms_text,
     build_rating_text,
     extract_steam_url,
-    join_names,
     normalize_cover_url,
+    normalize_genres_text,
     parse_release_date,
     pick_best_match,
     truncate_text,
@@ -189,7 +189,7 @@ async def fetch_recommendation_metadata(search_query: str) -> RecommendationMeta
                 steam_url=steam_url,
                 rating_text=build_rating_text(best_match),
                 platforms_text=build_platforms_text(best_match.get("platforms")),
-                genres_text=join_names(best_match.get("genres")),
+                genres_text=normalize_genres_text(best_match.get("genres")),
                 cover_url=cover_url or None,
                 source_name="igdb",
                 source_game_id=str(game_id),
@@ -230,7 +230,8 @@ async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetada
         where
             first_release_date != null &
             first_release_date >= {now} &
-            first_release_date <= {month_later};
+            first_release_date <= {month_later} &
+            platforms.name = ("PC (Microsoft Windows)", "PlayStation 5", "PlayStation 4");
         sort hypes desc;
         limit 50;
         """
@@ -248,6 +249,10 @@ async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetada
             if release_ts < now or release_ts > month_later:
                 continue
 
+            platforms_text = build_platforms_text(game.get("platforms"))
+            if not platforms_text:
+                continue
+
             release_date, release_precision = parse_release_date(release_ts)
             cover_url = normalize_cover_url(game.get("cover"))
             steam_url = extract_steam_url(game.get("websites"))
@@ -260,8 +265,8 @@ async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetada
                     release_precision=release_precision,
                     steam_url=steam_url,
                     rating_text=build_rating_text(game),
-                    platforms_text=build_platforms_text(game.get("platforms")),
-                    genres_text=join_names(game.get("genres")),
+                    platforms_text=platforms_text,
+                    genres_text=normalize_genres_text(game.get("genres")),
                     cover_url=cover_url or None,
                     source_name="igdb",
                     source_game_id=str(game.get("id")),
@@ -295,4 +300,3 @@ __all__ = [
     "ingest_recommendation_metadata",
     "ingest_top_upcoming_games",
 ]
-
