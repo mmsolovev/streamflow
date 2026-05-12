@@ -1,6 +1,6 @@
 ﻿aiohttp==3.13.3
 beautifulsoup4==4.14.3
-g4f==7.2.5
+g4f
 gspread==6.2.1
 howlongtobeatpy==1.0.21
 oauth2client==4.1.3
