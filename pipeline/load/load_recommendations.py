@@ -395,6 +395,37 @@ def apply_releases_manual_fields(session: Session, rows_by_title: dict[str, list
     return updated
 
 
+def get_upcoming_igdb_games(session: Session) -> list[RecommendedGame]:
+    """
+    Returns all upcoming games that were sourced from IGDB and have a source_game_id.
+    """
+    return (
+        session.query(RecommendedGame)
+        .filter(
+            RecommendedGame.status == STATUS_UPCOMING,
+            RecommendedGame.source_name == "igdb",
+            RecommendedGame.source_game_id.isnot(None),
+        )
+        .all()
+    )
+
+
+def update_release_dates(session: Session, games_to_update: list[RecommendedGame]) -> int:
+    """
+    Updates the release_date for a list of games.
+    """
+    if not games_to_update:
+        return 0
+
+    now = datetime.utcnow()
+    for game in games_to_update:
+        game.updated_at = now
+        session.add(game)
+
+    session.flush()
+    return len(games_to_update)
+
+
 __all__ = [
     "ACTIVE_RECOMMENDATION_STATUSES",
     "STATUS_RELEASED",
@@ -411,9 +442,11 @@ __all__ = [
     "find_recommendation_by_normalized_name",
     "find_recommendation_by_query",
     "find_user_vote_for_recommendation",
+    "get_upcoming_igdb_games",
     "iter_games_missing_short_description",
     "load_user_active_votes",
     "remove_vote",
     "set_game_short_description",
     "sync_recommendation_matches",
+    "update_release_dates",
 ]

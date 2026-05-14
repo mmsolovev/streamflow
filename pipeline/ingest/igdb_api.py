@@ -280,6 +280,26 @@ async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetada
         return output
 
 
+async def fetch_games_by_ids(game_ids: list[str]) -> list[dict]:
+    """
+    Fetches game data from IGDB for a given list of game IDs.
+    """
+    if not game_ids:
+        return []
+
+    state = _get_state()
+    timeout = aiohttp.ClientTimeout(total=15)
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        # IGDB allows up to 500 IDs per request
+        body = f"""
+            fields id, name, first_release_date;
+            where id = ({",".join(game_ids)});
+            limit 500;
+        """
+        return await _igdb_query(state, session, body)
+
+
 async def fetch_igdb_metadata(game_name: str) -> RecommendationMetadata | None:
     return await fetch_recommendation_metadata(game_name)
 
@@ -294,6 +314,7 @@ async def ingest_recommendation_metadata(game_name: str) -> RecommendationMetada
 
 __all__ = [
     "RecommendationMetadata",
+    "fetch_games_by_ids",
     "fetch_igdb_metadata",
     "fetch_recommendation_metadata",
     "fetch_top_upcoming_games",
