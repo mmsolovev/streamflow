@@ -9,7 +9,7 @@ from twitchio.http import Route
 from config.settings import BOT_ID, GAMES_SHEET_URL, TWITCH_ACCESS_TOKEN, TWITCH_PRIMARY_CHANNEL, TWITCH_NICK
 from services.games_service import find_game_lookup
 from services.hltb_service import get_hltb_summary
-from services.runtime_stream_collector import RuntimeStreamCollector
+from runtime.collector import RuntimeStreamCollector
 from utils.logger import get_logger
 
 

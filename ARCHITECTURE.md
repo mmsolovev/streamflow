@@ -153,42 +153,23 @@ bot.py ───── точка входа
     └── registry.py                # Загрузка всех команд (импорт + bot.add_command)
 
 commands/                          # Обработчики чат-команд
-  ├── help.py                      #   !команды (справочная)
-  ├── info.py                      #   !инфо (локальная справка)
-  ├── games.py                     #   !игры (статистика по игре)
-  ├── streams.py                   #   !стримы (статистика стрима)
-  ├── hltb.py                      #   !hltb (время прохождения)
-  ├── holiday.py                   #   !праздник
-  ├── gpt.py                       #   !gpt (GPT-ответ)
-  ├── recommendations.py           #   !рек (предложить/проголосовать)
-  ├── r.py                         #   !r (смена раскладки)
-  ├── timer.py                     #   !таймер
-  ├── time_runtime.py              #   !время (продолжительность стрима)
-  ├── admin.py                     #   !отбой / !старт
-  └── movies.py                    #   !фильмы
+  ├── ... (все команды)
 
-services/                          # Бизнес-логика runtime
+services/                          # Бизнес-логика, вызываемая из команд и EventSub
   ├── command_registry.py           # Реестр команд (COMMANDS_INFO, нормализация доступа)
   ├── deferred_service.py           # RecommendationSheetsSyncScheduler (debounced sync)
   ├── eventsub_service.py           # EventSub WebSocket: raid, shoutout, channel.update
-  ├── runtime_stream_collector.py   # **Live-метрики**: viewer samples, follower tracking,
-  │                                 #   game segments, 10-min buckets (TwitchTracker-like)
   ├── runtime.py                    # BOT_ENABLED flag (kill-switch)
   ├── chat_service.py               # Логика чата (сообщения о смене игры)
-  ├── games_service.py              # Поиск игры по названию
-  ├── streams_service.py            # Поиск стрима по дате
-  ├── recommendations_service.py    # Логика голосования и статусов рекомендаций
-  ├── gpt_service.py                # GPT-генерация (g4f)
-  ├── hltb_service.py               # HowLongToBeat (обёртка для команд)
-  ├── holiday_service.py            # Праздники (Calendarific API)
-  ├── igdb_service.py               # IGDB auth (build_igdb_auth_headers)
-  ├── sheets_service.py             # Google Sheets client (get_client)
-  ├── twitch_service.py             # Twitch API helpers (runtime)
-  ├── info_service.py               # !инфо (info.json lookup)
-  ├── reply_layout_service.py       # !r (смена раскладки клавиатуры)
-  ├── lost_movie_service.py         # !фильмы
-  ├── openrouter_service.py         # Альтернативный GPT-клиент
-  └── timer_service.py              # !таймер (обратный отсчёт)
+  ├── ... (остальные сервисы)
+
+runtime/                           # Сбор live-метрик стрима
+  ├── collector.py                 # Оркестратор: жизненный цикл сессии, обработка событий
+  ├── session.py                   # Структуры данных (TypedDict) для сессии
+  ├── sampler.py                   # Сбор данных (Twitch API: live stream, followers)
+  ├── metrics.py                   # Вычисление метрик (viewer count, HLTB, etc.)
+  ├── storage.py                   # Чтение/запись JSON-файлов сессий
+  └── utils.py                     # Вспомогательные чистые функции (даты, etc.)
 ```
 
 ---
@@ -250,36 +231,30 @@ Twitch EventSub WebSocket
        │
        ├── channel.update ──────────────────────────► eventsub_service
        │     (смена игры/тайтла)                         │
-       │                                                ├──► RuntimeStreamCollector.handle_channel_update()
+       │                                                ├──► runtime.Collector.handle_channel_update()
        │                                                │     (game_segments, title_history)
        │                                                └──► announce_game_change() (чат)
        │
        ├── stream.online ─────────────────────────────► eventsub_service
        │     (стрим начался)                              │
-       │                                                ├──► RuntimeStreamCollector.start_session()
-       │                                                └──► capture_runtime_sample()
+       │                                                └──► runtime.Collector.start_session()
        │
        ├── stream.offline ────────────────────────────► eventsub_service
-       │                                                └──► RuntimeStreamCollector.finalize_session()
-       │
-       ├── channel.raid ──────────────────────────────► eventsub_service
-       │                                                └──► maybe_send_raid_shoutout()
+       │                                                └──► runtime.Collector.finalize_session()
        │
        ├── channel.follow.v2 ─────────────────────────► eventsub_service
-       │                                                └──► RuntimeStreamCollector.handle_follow()
+       │                                                └──► runtime.Collector.handle_follow()
        │
-       └── channel.shoutout.create/receive ──────────► eventsub_service
-                                                        (cooldown tracking)
+       └── ... (raid, shoutout)
 
-RuntimeStreamCollector
-  ├── sampling_loop()              каждые N секунд (STREAM_RUNTIME_SAMPLE_SECONDS)
-  │    ├── fetch_live_stream()     Twitch API (viewers, title, game)
-  │    ├── fetch_followers_count() Twitch API (total followers)
-  │    └── _recalculate_metrics()  avg_viewers, max_viewers, hours_watched
-  │                                viewer_buckets_10m (аналог TwitchTracker)
+runtime.Collector
+  ├── sampling_loop()              каждые N секунд
+  │    ├── runtime.Sampler.fetch_live_stream()     Twitch API (viewers, title, game)
+  │    ├── runtime.Sampler.fetch_followers_count() Twitch API (total followers)
+  │    └── runtime.Metrics.recalculate_all_metrics()
   │
-  ├── active session              active_stream_session.json (in-memory + JSON)
-  └── completed sessions          completed_stream_sessions.json (история)
+  ├── active session (in-memory)   ► runtime.Storage.save_active_session()
+  └── completed sessions           ► runtime.Storage.append_completed_session()
 ```
 
 ---
@@ -294,7 +269,7 @@ RuntimeStreamCollector
 | **Debounced sheets sync** | `RecommendationSheetsSyncScheduler` (15s debounce после `!рек`) |
 | **Kill-switch** | `runtime.BOT_ENABLED` — блокирует все команды кроме `!старт` |
 | **VOD matching** | `streams_transform.py` — по дате ±1 день + пересечение title |
-| **Game segments** | `RuntimeStreamCollector` — сегменты игр внутри стрима с метриками |
+| **Game segments** | `runtime.Collector` — сегменты игр внутри стрима с метриками |
 
 ---
 
@@ -304,7 +279,6 @@ RuntimeStreamCollector
 Проблема                              Где                    План
 ──────────────────────────────────────────────────────────────────────────
 Циркулярные зависимости               pipeline ↔ services    Выделить shared/core
-RuntimeStreamCollector — God class    ~1000 строк            Разделить на sampler/storage/calculator
 Нет абстракции БД (Repository)        Прямой SQLAlchemy      Репозитории в shared/
 Конфиг — плоские глобальные переменные config/settings.py    pydantic-settings
 Нет тестов                            Весь проект            После выделения shared/
