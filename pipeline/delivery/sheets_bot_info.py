@@ -10,7 +10,7 @@ from config.settings import BOT_INFO_SHEET_NAME
 from pipeline.delivery.sheets_utils import get_client, get_or_create_worksheet as _get_or_create_worksheet
 
 
-CHAT_COMMANDS_PATH = Path(__file__).resolve().parents[2] / "CHAT_COMMANDS.txt"
+CHAT_COMMANDS_PATH = Path(__file__).resolve().parents[2] / "docs" / "CHAT_COMMANDS.txt"
 
 
 def sync_bot_info() -> None:
