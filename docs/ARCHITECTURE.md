@@ -96,7 +96,7 @@ pipeline/
 │   ├── sheets_streams.py            #   Лист СТРИМЫ
 │   ├── sheets_releases.py           #   Лист РЕЛИЗЫ (с обратным отсчётом)
 │   ├── sheets_recommendations.py    #   Лист СОВЕТЫ
-│   ├── sheets_bot_info.py           #   Лист БОТ (CHAT_COMMANDS.txt)
+│   ├── sheets_bot_info.py           #   Лист БОТ (docs/CHAT_COMMANDS.txt)
 │   └── json_twitchtracker.py        #   JSON legacy-формат (storage/streams.json, games.json)
 │
 └── orchestrator/                    # Оркестрация — CLI-сборки слоёв в рабочие скрипты
