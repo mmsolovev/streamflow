@@ -4,21 +4,25 @@ from config.settings import STREAM_RUNTIME_SAMPLE_SECONDS
 
 COLLECTOR_STATE_VERSION = 2
 
+
 class Event(TypedDict):
     type: str
     timestamp: str
     payload: dict
+
 
 class TitleHistory(TypedDict):
     title: str
     changed_at: str
     source: str
 
+
 class CategoryHistory(TypedDict):
     category_id: str
     category_name: str
     changed_at: str
     source: str
+
 
 class GameSegment(TypedDict):
     category_id: str
@@ -29,15 +33,18 @@ class GameSegment(TypedDict):
     followers_gained: NotRequired[int]
     followers_per_hour: NotRequired[float]
 
+
 class ViewerSample(TypedDict):
     viewer_count: int
     sampled_at: str
     source: str
 
+
 class FollowerSample(TypedDict):
     followers_total: int
     sampled_at: str
     source: str
+
 
 class FollowEvent(TypedDict):
     user_id: str
@@ -45,12 +52,14 @@ class FollowEvent(TypedDict):
     followed_at: str
     source: str
 
+
 class ViewerBucket(TypedDict):
     bucket_at: str
     duration_hours: float
     avg_viewers: float | None
     max_viewers: int | None
     hours_watched: float
+
 
 class GameSummary(TypedDict):
     category_id: str
@@ -61,6 +70,13 @@ class GameSummary(TypedDict):
     hours_watched: float
     followers_gained: int
     followers_per_hour: float
+
+
+class TTCompat(TypedDict):
+    avg_viewers_tt: int | None
+    max_viewers_tt: int | None
+    hours_watched_tt: float | None
+
 
 class Metrics(TypedDict):
     sample_interval_seconds: int
@@ -79,6 +95,8 @@ class Metrics(TypedDict):
     followers_delta: int | None
     followers_delta_exact: int | None
     followers_per_hour_exact: float | None
+    tt_compat: NotRequired[TTCompat]
+
 
 class CollectorInfo(TypedDict):
     created_at: str
@@ -86,6 +104,7 @@ class CollectorInfo(TypedDict):
     source: str
     completed_at: NotRequired[str]
     completion_reason: NotRequired[str]
+
 
 class StreamSession(TypedDict):
     version: int
@@ -110,6 +129,7 @@ class StreamSession(TypedDict):
     metrics: Metrics
     collector: CollectorInfo
 
+
 def create_new_session(
     *,
     stream_id: str,
@@ -126,7 +146,7 @@ def create_new_session(
     session: StreamSession = {
         "version": COLLECTOR_STATE_VERSION,
         "status": "active",
-        "channel_login": "mishgan", # Assuming TWITCH_PRIMARY_CHANNEL
+        "channel_login": "mishgan",  # Assuming TWITCH_PRIMARY_CHANNEL
         "broadcaster_id": broadcaster_id,
         "stream_id": stream_id,
         "started_at": started_at,
@@ -160,6 +180,7 @@ def create_new_session(
             "followers_delta": None,
             "followers_delta_exact": None,
             "followers_per_hour_exact": None,
+            "tt_compat": {},
         },
         "collector": {
             "created_at": now,
@@ -193,6 +214,7 @@ def create_new_session(
         )
     return session
 
+
 def ensure_session_shape(session: StreamSession | None):
     from runtime.utils import now_iso
     if not session:
@@ -219,9 +241,11 @@ def ensure_session_shape(session: StreamSession | None):
         "viewer_buckets_10m": [], "avg_viewers_10m": None, "max_viewers_10m": None, "hours_watched_10m": None,
         "followers_start": None, "followers_end": None, "followers_delta": None,
         "followers_delta_exact": None, "followers_per_hour_exact": None,
+        "tt_compat": {},
     })
     metrics.setdefault("sample_interval_seconds", STREAM_RUNTIME_SAMPLE_SECONDS)
     metrics.setdefault("viewer_samples", [])
     metrics.setdefault("follower_samples", [])
     metrics.setdefault("follow_events", [])
     metrics.setdefault("viewer_buckets_10m", [])
+    metrics.setdefault("tt_compat", {})

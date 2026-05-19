@@ -76,3 +76,21 @@ def floor_to_10min(dt: datetime) -> datetime:
     dt = dt.replace(second=0, microsecond=0)
     minute = dt.minute - (dt.minute % TT_BUCKET_MINUTES)
     return dt.replace(minute=minute)
+
+
+def floor_to_10min_utc(dt: datetime) -> datetime:
+    """Округляет время до ближайшей 10-минутной границы UTC вниз."""
+    dt_utc = dt.astimezone(timezone.utc)
+    dt_utc = dt_utc.replace(second=0, microsecond=0)
+    minute = dt_utc.minute - (dt_utc.minute % 10)
+    return dt_utc.replace(minute=minute)
+
+
+def ceil_to_10min_utc(dt: datetime) -> datetime:
+    """Округляет время до ближайшей 10-минутной границы UTC вверх."""
+    dt_utc = dt.astimezone(timezone.utc)
+    dt_utc = dt_utc.replace(second=0, microsecond=0)
+    add = (10 - (dt_utc.minute % 10)) % 10
+    if add == 0:
+        return dt_utc
+    return dt_utc + timedelta(minutes=add)
