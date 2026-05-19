@@ -1,5 +1,5 @@
 from bisect import bisect_right
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from runtime.session import StreamSession
 from runtime.utils import (
@@ -8,6 +8,8 @@ from runtime.utils import (
     TT_BUCKET_MINUTES,
     ceil_to_10min,
     floor_to_10min,
+    floor_to_10min_utc,
+    ceil_to_10min_utc,
 )
 
 
@@ -40,6 +42,9 @@ def recalculate_all_metrics(session: StreamSession):
             )
             max_v = [b["max_viewers"] for b in buckets if b.get("max_viewers") is not None]
             metrics["max_viewers_10m"] = max(max_v) if max_v else None
+
+        _compute_tt_compat(session)
+
     elif viewer_samples:
         viewer_counts = [sample["viewer_count"] for sample in viewer_samples]
         metrics["avg_viewers"] = round(sum(viewer_counts) / len(viewer_counts), 2)
@@ -108,7 +113,7 @@ def _populate_games_summary(session: StreamSession):
         return
 
     metrics = session["metrics"]
-    points = _viewer_points(metrics.get("viewer_samples", []))
+    viewer_samples = metrics.get("viewer_samples", [])
     follow_events = metrics.get("follow_events", []) or []
     segments = session.get("game_segments", []) or []
 
@@ -146,8 +151,21 @@ def _populate_games_summary(session: StreamSession):
             order.append(k)
 
         duration_minutes = (seg_end - seg_start).total_seconds() / 60.0
-        hours_watched = _integrate_viewers(points, seg_start, seg_end) / 3600.0
-        peak = _max_viewers_in_range(points, seg_start, seg_end)
+        
+        segment_samples = [
+            s for s in viewer_samples if seg_start <= parse_iso(s["sampled_at"]) < seg_end
+        ]
+        
+        avg_viewers = None
+        if segment_samples:
+            viewer_counts = [s["viewer_count"] for s in segment_samples]
+            avg_viewers = sum(viewer_counts) / len(viewer_counts)
+
+        hours_watched = 0.0
+        if avg_viewers is not None:
+            hours_watched = avg_viewers * (duration_minutes / 60.0)
+
+        peak = _max_viewers_in_range(_viewer_points(segment_samples), seg_start, seg_end)
 
         per_game[k]["duration_minutes"] += duration_minutes
         per_game[k]["hours_watched"] += hours_watched
@@ -312,6 +330,112 @@ def _build_tt_buckets(
             }
         )
     return buckets
+
+
+def _build_tt_buckets_utc(
+    viewer_samples: list[dict],
+    started_at: datetime,
+    ended_at: datetime,
+) -> list[dict]:
+    if ended_at <= started_at or not viewer_samples:
+        return []
+
+    samples_in_time: list[tuple[datetime, int]] = []
+    for sample in viewer_samples:
+        ts = parse_iso(sample.get("sampled_at"))
+        if ts is None:
+            continue
+        try:
+            val = int(sample.get("viewer_count"))
+            samples_in_time.append((ts, val))
+        except (TypeError, ValueError):
+            continue
+
+    if not samples_in_time:
+        return []
+
+    samples_in_time.sort(key=lambda p: p[0])
+
+    bucket_start = floor_to_10min_utc(started_at)
+    boundaries: list[datetime] = []
+    t = bucket_start
+    while t < ended_at:
+        boundaries.append(t)
+        t += timedelta(minutes=10)
+
+    if not boundaries:
+        return []
+
+    buckets = []
+    for i, b_start in enumerate(boundaries):
+        b_end = b_start + timedelta(minutes=10)
+
+        actual_start = max(b_start, started_at)
+        actual_end = min(b_end, ended_at)
+
+        if actual_end <= actual_start:
+            continue
+
+        bucket_samples = [
+            s for s in samples_in_time if b_start <= s[0] < b_end
+        ]
+
+        if not bucket_samples:
+            continue
+
+        viewer_counts = [s[1] for s in bucket_samples]
+        avg_viewers = sum(viewer_counts) / len(viewer_counts)
+        max_viewers = max(viewer_counts)
+
+        bucket_duration_hours = (actual_end - actual_start).total_seconds() / 3600.0
+        hours_watched = avg_viewers * bucket_duration_hours
+
+        buckets.append({
+            "bucket_at": b_start.isoformat(),
+            "duration_hours": round(bucket_duration_hours, 4),
+            "avg_viewers": round(avg_viewers, 2),
+            "max_viewers": max_viewers,
+            "hours_watched": round(hours_watched, 4),
+        })
+
+    return buckets
+
+
+def _compute_tt_compat(session: StreamSession):
+    metrics = session["metrics"]
+    viewer_samples = metrics.get("viewer_samples", [])
+
+    started_at = parse_iso(session.get("started_at"))
+    ended_at = parse_iso(session.get("ended_at"))
+
+    if not (started_at and ended_at and ended_at > started_at and viewer_samples):
+        metrics["tt_compat"] = {
+            "avg_viewers_tt": None,
+            "max_viewers_tt": None,
+            "hours_watched_tt": None,
+        }
+        return
+
+    tt_buckets = _build_tt_buckets_utc(viewer_samples, started_at, ended_at)
+
+    if not tt_buckets:
+        metrics["tt_compat"] = {
+            "avg_viewers_tt": None,
+            "max_viewers_tt": None,
+            "hours_watched_tt": None,
+        }
+        return
+
+    hours_watched_tt = sum(b["hours_watched"] for b in tt_buckets)
+    total_duration_hours = (ended_at - started_at).total_seconds() / 3600.0
+    avg_viewers_tt = round(hours_watched_tt / total_duration_hours) if total_duration_hours > 0 else 0
+    max_viewers_tt = max(b["max_viewers"] for b in tt_buckets)
+
+    metrics["tt_compat"] = {
+        "avg_viewers_tt": avg_viewers_tt,
+        "max_viewers_tt": max_viewers_tt,
+        "hours_watched_tt": round(hours_watched_tt, 2),
+    }
 
 
 def ensure_session_shape_for_metrics(session: StreamSession):
