@@ -286,13 +286,13 @@ def _build_tt_buckets(
     label0 = start_local.replace(second=0, microsecond=0)
     next_boundary = ceil_to_10min(label0)
     if next_boundary <= label0:
-        next_boundary = next_boundary + datetime.timedelta(minutes=TT_BUCKET_MINUTES)
+        next_boundary = next_boundary + timedelta(minutes=TT_BUCKET_MINUTES)
 
     boundaries: list[datetime] = [next_boundary]
     last_boundary = floor_to_10min(end_local)
     t = next_boundary
     while t < last_boundary:
-        t = t + datetime.timedelta(minutes=TT_BUCKET_MINUTES)
+        t = t + timedelta(minutes=TT_BUCKET_MINUTES)
         boundaries.append(t)
 
     intervals: list[tuple[datetime, datetime, datetime]] = []
@@ -312,8 +312,8 @@ def _build_tt_buckets(
     for label_start, interval_start_local, interval_end_local in intervals:
         if interval_end_local <= interval_start_local:
             continue
-        interval_start = interval_start_local.astimezone(datetime.timezone.utc)
-        interval_end = interval_end_local.astimezone(datetime.timezone.utc)
+        interval_start = interval_start_local.astimezone(timezone.utc)
+        interval_end = interval_end_local.astimezone(timezone.utc)
         duration_hours = (interval_end - interval_start).total_seconds() / 3600.0
         if duration_hours <= 0:
             continue
