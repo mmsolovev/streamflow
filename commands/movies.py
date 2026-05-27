@@ -9,6 +9,7 @@ from services.lost_movie_service import (
     format_current_episode_for_chat,
     increment_episode,
     set_current_episode,
+    set_online_status,
     set_started_time,
 )
 from utils.cooldowns import check_cooldown
@@ -24,6 +25,7 @@ ALIASES = [
     "начало",
     "сезон",
     "lost",
+    "лост"
 ]
 
 
@@ -73,6 +75,7 @@ def setup(bot):
         op = str(args[0]).casefold()
 
         if op == "+":
+            set_online_status(True)
             # "!фильм +" → следующая серия
             # "!фильм + 2-4" → конкретная серия
             if len(args) >= 2:
@@ -91,7 +94,7 @@ def setup(bot):
             return
 
         if op == "-":
-            # "!фильм -" → удалить серию и время
+            # "!фильм -" → выставить "online": False
             # "!фильм - time" → удалить только время
             if len(args) >= 2 and str(args[1]).casefold() == "time":
                 clear_time_only()
