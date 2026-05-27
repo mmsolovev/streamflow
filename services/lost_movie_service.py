@@ -83,6 +83,11 @@ def get_started_at_msk() -> str | None:
     return str(started_at)
 
 
+def get_online_status() -> bool:
+    state = load_lost_state()
+    return state.get("online", False)
+
+
 def _find_episode(data: dict[str, Any], ref: LostEpisodeRef) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
     series = data.get("series") if isinstance(data, dict) else None
     if not isinstance(series, dict):
@@ -163,6 +168,9 @@ def _next_ref(data: dict[str, Any], ref: LostEpisodeRef) -> LostEpisodeRef | Non
 
 
 def format_current_episode_for_chat() -> str | None:
+    if not get_online_status():
+        return format_next_episode_for_chat()
+
     ref = get_current_ref()
     if not ref:
         return None
@@ -199,10 +207,19 @@ def format_current_episode_for_chat() -> str | None:
     return msg
 
 
+def format_next_episode_for_chat() -> str | None:
+    ref = get_current_ref()
+    if not ref:
+        return None
+
+    return f"MrDestructoid Последняя просмотренная серия Lost: {ref.season} сезон, {ref.episode} серия."
+
+
 def set_current_episode(ref: LostEpisodeRef, *, set_started_time_now: bool = True) -> None:
     state = load_lost_state()
     state["season"] = int(ref.season)
     state["episode"] = int(ref.episode)
+    state["online"] = True
     if set_started_time_now:
         state["started_at_msk"] = _now_msk_hhmm()
     save_lost_state(state)
@@ -257,9 +274,14 @@ def set_started_time(value: str | None) -> bool:
     return True
 
 
+def set_online_status(online: bool) -> None:
+    state = load_lost_state()
+    state["online"] = online
+    save_lost_state(state)
+
+
 def clear_all() -> None:
-    # Сохраняем файл, чтобы его можно было руками править и он существовал.
-    save_lost_state({"season": None, "episode": None, "started_at_msk": None})
+    set_online_status(False)
 
 
 def clear_time_only() -> None:

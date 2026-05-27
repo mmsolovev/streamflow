@@ -1,5 +1,6 @@
 {
   "season": 1,
   "episode": 1,
-  "started_at_msk": "20:00"
+  "started_at_msk": "20:00",
+  "online": true
 }
