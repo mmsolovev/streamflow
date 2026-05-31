@@ -18,7 +18,7 @@ from services.gpt_service import generate_short_description
 from utils.logger import get_logger
 
 # To avoid overwhelming the GPT service, limit concurrent requests.
-CONCURRENT_GPT_REQUESTS = 3
+CONCURRENT_GPT_REQUESTS = 1
 
 
 async def _process_game(session: Session, game: RecommendedGame, semaphore: asyncio.Semaphore) -> bool:
@@ -42,6 +42,11 @@ async def _process_game(session: Session, game: RecommendedGame, semaphore: asyn
 
         # Skip if summary is too short or non-existent to be useful.
         if not summary or not isinstance(summary, str) or len(summary.strip()) < 50:
+            logger.warning(
+                "Summary too short (%d chars) for: %s",
+                len(summary.strip()) if isinstance(summary, str) else 0,
+                game.title,
+            )
             return False
 
         # 2. Call GPT service to generate a short description.
@@ -53,10 +58,15 @@ async def _process_game(session: Session, game: RecommendedGame, semaphore: asyn
             return False
 
         # 3. Save the new description to the session.
-        if short_description:
-            if set_game_short_description(session, game, short_description):
-                logger.info(f"Successfully generated and set description for: {game.title}")
-                return True
+        if not short_description:
+            logger.warning("GPT returned no description for: %s", game.title)
+            return False
+
+        if set_game_short_description(session, game, short_description):
+            logger.info(f"Successfully generated and set description for: {game.title}")
+            return True
+
+        logger.warning("set_game_short_description returned False for: %s", game.title)
 
     return False
 
