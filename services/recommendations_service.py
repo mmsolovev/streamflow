@@ -14,8 +14,9 @@ from config.settings import (
     RECOMMENDATIONS_STREAMER_LOGIN,
 )
 from database.db import AsyncSessionLocal
-from database.models import Game, GameMetadataIGDB, User, game_recommendations, streamer_games
+from database.models import Game, GameMetadataIGDB, User, UserProfile, game_recommendations, streamer_games
 from services.games_service import build_game_response, find_game_lookup
+from services.user_service import find_user_by_login
 from pipeline.ingest.igdb_api import fetch_recommendation_metadata
 from pipeline.load.load_recommendations import (
     add_recommendation as _db_add_recommendation,
@@ -89,9 +90,13 @@ def normalize_recommendation_name(value: str) -> str:
 
 async def _get_game_recommenders(session: AsyncSession, game_id: int) -> list[str]:
     result = await session.execute(
-        select(User.login)
+        select(UserProfile.login)
+        .join(User, User.id == UserProfile.user_id)
         .join(game_recommendations, game_recommendations.c.user_id == User.id)
-        .where(game_recommendations.c.game_id == game_id)
+        .where(
+            game_recommendations.c.game_id == game_id,
+            UserProfile.is_current.is_(True),
+        )
     )
     return [row[0] for row in result.all()]
 
@@ -430,8 +435,9 @@ async def admin_delete_recommendations(target_user: str, query: str | None, acto
 
 
 async def _get_user(session: AsyncSession, login: str) -> User | None:
-    result = await session.execute(select(User).where(User.login == _normalize_user_login(login)))
-    return result.scalar_one_or_none()
+    if not login:
+        return None
+    return await find_user_by_login(session, _normalize_user_login(login))
 
 
 async def refresh_recommendation_lifecycle() -> int:

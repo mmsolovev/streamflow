@@ -6,7 +6,7 @@ Google Sheets delivery: Streams worksheet sync.
 
 from database.db import AsyncSessionLocal
 from database.models import (
-    Stream, StreamGame, User, StreamRecording, Genre, game_genres, streamers_on_stream,
+    Stream, StreamGame, User, UserProfile, StreamRecording, Genre, game_genres, streamers_on_stream,
 )
 from config.settings import SPREADSHEET_NAME, STREAMS_SHEET_NAME
 from pipeline.delivery.sheets_utils import build_hyperlink_formula, get_client
@@ -25,9 +25,13 @@ async def _build_stream_row(session: AsyncSession, stream: Stream) -> list:
     games = " -> ".join(game.name for game in stream_games)
 
     result = await session.execute(
-        select(User.display_name)
+        select(UserProfile.display_name)
+        .join(User, User.id == UserProfile.user_id)
         .join(streamers_on_stream, streamers_on_stream.c.streamer_id == User.id)
-        .where(streamers_on_stream.c.stream_id == stream.id)
+        .where(
+            streamers_on_stream.c.stream_id == stream.id,
+            UserProfile.is_current.is_(True),
+        )
     )
     participant_names = [row[0] for row in result.all() if row[0]]
     participants = " ".join(participant_names)

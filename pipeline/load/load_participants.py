@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import User, Stream, streamers_on_stream
+from database.models import User, UserProfile, Stream, streamers_on_stream
 from pipeline.load.load_stream_games import unique_in_order
 from services.user_service import get_or_create_user_by_login
 
@@ -26,11 +26,16 @@ async def sync_stream_participants_from_title(session: AsyncSession, stream: Str
     changed = False
 
     result = await session.execute(
-        select(User).join(streamers_on_stream, streamers_on_stream.c.streamer_id == User.id)
-        .where(streamers_on_stream.c.stream_id == stream.id)
+        select(User, UserProfile)
+        .join(UserProfile, UserProfile.user_id == User.id)
+        .join(streamers_on_stream, streamers_on_stream.c.streamer_id == User.id)
+        .where(
+            streamers_on_stream.c.stream_id == stream.id,
+            UserProfile.is_current.is_(True),
+        )
     )
-    current_users = result.scalars().all()
-    current_by_login = {u.login: u for u in current_users}
+    current_pairs = result.all()
+    current_by_login = {profile.login: user for user, profile in current_pairs}
 
     for login, user in list(current_by_login.items()):
         if login not in desired_set:
@@ -42,7 +47,7 @@ async def sync_stream_participants_from_title(session: AsyncSession, stream: Str
             )
             changed = True
 
-    existing_logins = {u.login for u in current_users if u.login in desired_set}
+    existing_logins = set(current_by_login)
     for name in desired_names:
         if name in existing_logins:
             continue

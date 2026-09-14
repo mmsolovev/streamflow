@@ -6,7 +6,8 @@ from sqlalchemy import func, select
 
 from config.settings import GAMES_SHEET_URL, RECOMMENDATIONS_STREAMER_LOGIN
 from database.db import AsyncSessionLocal
-from database.models import Game, GameStats, StreamGame, User, streamer_games
+from database.models import Game, GameStats, StreamGame, streamer_games
+from services.user_service import find_user_by_login
 from utils.time_format import format_hours_minutes
 
 
@@ -105,10 +106,7 @@ async def _load_ranked_games() -> list[GameLookupResult]:
 
         streamer_user = None
         if RECOMMENDATIONS_STREAMER_LOGIN:
-            user_result = await session.execute(
-                select(User).where(User.login == RECOMMENDATIONS_STREAMER_LOGIN)
-            )
-            streamer_user = user_result.scalar_one_or_none()
+            streamer_user = await find_user_by_login(session, RECOMMENDATIONS_STREAMER_LOGIN)
 
         streamer_likes: dict[int, tuple[bool | None, bool | None]] = {}
         if streamer_user:

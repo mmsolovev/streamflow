@@ -7,10 +7,7 @@ from twitchio.ext.commands.exceptions import CommandNotFound
 from core.context import SafeContext
 from core.registry import load_commands
 
-from sqlalchemy import select
-
 from database.db import AsyncSessionLocal
-from database.models import User
 from services.command_usage_service import ensure_bot_commands, log_command_usage
 from services.deferred_service import RecommendationSheetsSyncScheduler
 from services.eventsub_service import EventSubService
@@ -92,12 +89,7 @@ class Bot(commands.Bot):
             async with AsyncSessionLocal() as session:
                 user = await get_or_create_user(session, context.author)
 
-                result = await session.execute(
-                    select(User).where(User.login == context.channel.name)
-                )
-                streamer = result.scalar_one_or_none()
-                if streamer is None:
-                    streamer = await get_or_create_user_by_login(session, context.channel.name)
+                streamer = await get_or_create_user_by_login(session, context.channel.name)
 
                 await log_command_usage(session, user, streamer, context.command.name)
                 await session.commit()

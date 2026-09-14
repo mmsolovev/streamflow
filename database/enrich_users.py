@@ -2,30 +2,35 @@
 One-time script: enrich existing users with data from the Twitch API.
 
 Fills twitch_user_id, profile_image_url, display_name, twitch_url, and is_streamer
-for users that currently only have login + display_name.
+for users that currently only have login + display_name (in user_profiles).
 
 Usage:
     python database/enrich_users.py
 
 Requirements:
-    - PostgreSQL running with users table populated
+    - PostgreSQL running with users/user_profiles tables populated
     - CLIENT_ID and TWITCH_ACCESS_TOKEN configured in .env
 """
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 import aiohttp
 from sqlalchemy import select, or_
 
 from database.db import AsyncSessionLocal
-from database.models import User
+from database.models import User, UserProfile
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 TWITCH_API = "https://api.twitch.tv/helix"
 BATCH_SIZE = 100  # Twitch /users accepts up to 100 logins per request
+
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def enrich_users():
@@ -42,29 +47,32 @@ async def enrich_users():
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(User).where(
+            select(User, UserProfile)
+            .join(UserProfile, UserProfile.user_id == User.id)
+            .where(
+                UserProfile.is_current.is_(True),
                 or_(
                     User.twitch_user_id.is_(None),
-                    User.profile_image_url.is_(None),
-                    User.twitch_url.is_(None),
-                )
+                    UserProfile.profile_image_url.is_(None),
+                    UserProfile.twitch_url.is_(None),
+                ),
             )
         )
-        users = list(result.scalars().all())
+        pairs = result.all()
 
-    if not users:
+    if not pairs:
         log.info("No users need enrichment")
         return
 
-    log.info("Found %d users to enrich", len(users))
+    log.info("Found %d users to enrich", len(pairs))
 
     enriched = 0
     not_found = 0
 
     async with aiohttp.ClientSession() as http:
-        for i in range(0, len(users), BATCH_SIZE):
-            batch = users[i : i + BATCH_SIZE]
-            logins = [u.login for u in batch]
+        for i in range(0, len(pairs), BATCH_SIZE):
+            batch = pairs[i : i + BATCH_SIZE]
+            logins = [profile.login for _, profile in batch]
 
             async with http.get(
                 f"{TWITCH_API}/users",
@@ -79,25 +87,28 @@ async def enrich_users():
             api_users = {row["login"].lower(): row for row in data.get("data") or []}
 
             async with AsyncSessionLocal() as session:
-                for user in batch:
-                    row = api_users.get(user.login.lower())
+                for user, profile in batch:
+                    row = api_users.get(profile.login.lower())
                     if row is None:
                         not_found += 1
-                        log.warning("User %s not found on Twitch (deleted?)", user.login)
+                        log.warning("User %s not found on Twitch (deleted?)", profile.login)
                         continue
 
-                    user.twitch_user_id = str(row["id"])
-                    user.display_name = row["display_name"]
-                    user.profile_image_url = row.get("profile_image_url")
-                    user.twitch_url = f"https://www.twitch.tv/{user.login}"
+                    user.twitch_user_id = user.twitch_user_id or str(row["id"])
                     user.is_streamer = row.get("broadcaster_type") in ("partner", "affiliate")
+                    profile.login = row["login"].lower()
+                    profile.display_name = row["display_name"]
+                    profile.profile_image_url = row.get("profile_image_url")
+                    profile.twitch_url = f"https://www.twitch.tv/{profile.login}"
+                    profile.updated_at = _utcnow()
 
                     session.add(user)
+                    session.add(profile)
                     enriched += 1
 
                 await session.commit()
 
-            log.info("Processed batch %d–%d", i + 1, min(i + BATCH_SIZE, len(users)))
+            log.info("Processed batch %d–%d", i + 1, min(i + BATCH_SIZE, len(pairs)))
 
     log.info("Done: enriched=%d, not_found=%d", enriched, not_found)
 

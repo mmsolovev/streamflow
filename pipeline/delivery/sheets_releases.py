@@ -13,6 +13,7 @@ from database.models import (
     Genre,
     Platform,
     User,
+    UserProfile,
     game_genres,
     game_platforms,
     game_recommendations,
@@ -227,9 +228,13 @@ async def _get_game_tags(session, game_id: int) -> tuple[str, str]:
 
 async def _get_game_recommenders(session, game_id: int) -> list[dict]:
     result = await session.execute(
-        select(User.login, User.display_name)
+        select(UserProfile.login, UserProfile.display_name)
+        .join(User, User.id == UserProfile.user_id)
         .join(game_recommendations, game_recommendations.c.user_id == User.id)
-        .where(game_recommendations.c.game_id == game_id)
+        .where(
+            game_recommendations.c.game_id == game_id,
+            UserProfile.is_current.is_(True),
+        )
     )
     return [{"user_login": row[0], "display_name": row[1]} for row in result.all()]
 
