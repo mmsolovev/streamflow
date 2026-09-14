@@ -27,6 +27,7 @@ from sqlalchemy import select
 
 from database.db import AsyncSessionLocal
 from database.models import Clip, Game, GameAlias, Stream, User
+from services.user_service import get_or_create_user_by_twitch_id
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -188,27 +189,12 @@ async def _fetch_games(http, headers, twitch_game_ids: set[str], *, client_id: s
 
 
 async def _get_or_create_user(session, *, twitch_user_id: str, login: str, display_name: str) -> User:
-    result = await session.execute(select(User).where(User.twitch_user_id == twitch_user_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        result = await session.execute(select(User).where(User.login == login))
-        user = result.scalar_one_or_none()
-    if user is not None:
-        if user.twitch_user_id is None:
-            user.twitch_user_id = twitch_user_id
-        if user.display_name is None:
-            user.display_name = display_name
-        return user
-
-    user = User(
+    return await get_or_create_user_by_twitch_id(
+        session,
         twitch_user_id=twitch_user_id,
         login=login,
         display_name=display_name,
-        twitch_url=f"https://www.twitch.tv/{login}",
     )
-    session.add(user)
-    await session.flush()
-    return user
 
 
 async def _get_or_create_game(session, twitch_game_id: str, game_name: str) -> int | None:

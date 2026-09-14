@@ -298,7 +298,7 @@ class RuntimeStreamCollector:
         if self.sampling_task and not self.sampling_task.done():
             return
 
-        self.sampling_task = self.bot.loop.create_task(self._sampling_loop())
+        self.sampling_task = asyncio.get_running_loop().create_task(self._sampling_loop())
         self.logger.info("Started runtime sampling loop with interval %ss", self.sample_interval_seconds)
 
     async def _sampling_loop(self):

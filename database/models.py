@@ -12,6 +12,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -84,9 +85,6 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     twitch_user_id = Column(Text, unique=True)
-    login = Column(Text, unique=True)
-    display_name = Column(Text)
-    profile_image_url = Column(Text)
     birthday_calendar_day_id = Column(Integer, ForeignKey("calendar_days.id"))
     birthday_set_at = Column(DateTime)
     birthday_changed_at = Column(DateTime)
@@ -97,9 +95,34 @@ class User(Base):
     duels_win = Column(Integer)
     duels_lose = Column(Integer)
     duels_draw = Column(Integer)
-    twitch_url = Column(Text)
-    last_seen_at = Column(DateTime)
     created_at = Column(DateTime)
+
+    profiles = relationship("UserProfile", back_populates="user")
+
+    @property
+    def current_profile(self):
+        return next((p for p in self.profiles if p.is_current), None)
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    login = Column(Text)
+    display_name = Column(Text)
+    profile_image_url = Column(Text)
+    twitch_url = Column(Text)
+    first_seen_at = Column(DateTime)
+    last_seen_at = Column(DateTime)
+    is_current = Column(Boolean, default=True)
+    updated_at = Column(DateTime)
+    __table_args__ = (
+        Index("ix_user_profiles_login", "login"),
+        Index("ix_user_profiles_current_unique", "user_id", unique=True, postgresql_where=text("is_current")),
+    )
+
+    user = relationship("User", back_populates="profiles")
 
 
 class Duels(Base):

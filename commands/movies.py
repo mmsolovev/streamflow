@@ -62,7 +62,7 @@ def setup(bot):
             return
 
         await human_delay()
-        await ctx.send("MrDestructoid Сериал Lost полностью просмотрен")
+        await ctx.send("Фильм не установлен")
         return
 
     bot.add_command(movie_command)

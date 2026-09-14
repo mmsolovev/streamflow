@@ -332,7 +332,7 @@ class EventSubService:
         )
 
         try:
-            await self.bot._http.request(route, paginate=False)
+            await self.bot._http.request(route)
         except Exception as exc:
             raise RuntimeError(
                 f"Helix shoutout request failed for {to_broadcaster_login}. "
