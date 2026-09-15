@@ -18,6 +18,7 @@ from database.models import (
     game_recommendations,
     streamer_games,
 )
+from pipeline.load.load_games import make_unique_slug
 from pipeline.transform.recommendations_transform import normalize_recommendation_name, normalize_user_login
 from services.user_service import get_or_create_user_by_login
 
@@ -107,7 +108,7 @@ async def create_game(
 
     now = datetime.utcnow()
     if not slug:
-        slug = name.lower().replace(" ", "-")
+        slug = await make_unique_slug(session, name)
 
     game = Game(name=name.strip(), slug=slug, created_at=now, updated_at=now)
     session.add(game)
@@ -144,7 +145,7 @@ async def create_game_with_igdb(
         raise ValueError("Game name is empty")
 
     now = datetime.utcnow()
-    slug = name.lower().replace(" ", "-")
+    slug = await make_unique_slug(session, name)
 
     game = Game(name=name.strip(), slug=slug, created_at=now, updated_at=now)
     session.add(game)

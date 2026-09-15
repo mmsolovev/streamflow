@@ -29,6 +29,7 @@ from pipeline.load.load_recommendations import (
     set_streamer_interested as _db_set_streamer_interested,
     add_igdb_note as _db_add_igdb_note,
 )
+from pipeline.load.load_games import adopt_game_name as _db_adopt_game_name
 from pipeline.transform.recommendations_transform import (
     normalize_recommendation_name as _tx_normalize_recommendation_name,
     normalize_user_login as _tx_normalize_user_login,
@@ -272,6 +273,7 @@ async def recommend_game(query: str, user_login: str, user_display_name: str) ->
 
         existing = await _db_find_game_by_query(session, metadata.title)
         if existing:
+            await _db_adopt_game_name(session, existing, metadata.title, source="igdb")
             user_rec = await _db_find_user_recommendation(session, existing.id, user_login)
             if user_rec:
                 return _make_result("duplicate_vote", f"Уже рекомендована «{existing.name}».")

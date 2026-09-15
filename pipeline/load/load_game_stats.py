@@ -34,7 +34,7 @@ async def sync_game_stats(
     desired_game_ids: set[int] = set()
 
     for data in games_data:
-        game = await get_or_create_game(session, game_cache, data.name)
+        game = await get_or_create_game(session, game_cache, data.name, source="twitchtracker")
         desired_game_ids.add(int(game.id))
 
         result = await session.execute(select(GameStats).where(GameStats.game_id == game.id))
@@ -50,7 +50,7 @@ async def sync_game_stats(
         changed = created
 
         field_map = {
-            "streamed_hours": data.hours_streamed,
+            "duration_minutes": int(round(data.hours_streamed * 60)),
             "avg_viewers": data.avg_viewers,
             "max_viewers": data.max_viewers,
             "followers_per_hour": data.followers_per_hour,

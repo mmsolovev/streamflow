@@ -122,7 +122,7 @@ async def _load_ranked_games() -> list[GameLookupResult]:
             items.append((game, stats, streams_count, liked, completed))
 
         items.sort(key=lambda item: (
-            -(item[1].streamed_hours or 0) if item[1] else 0,
+            -(item[1].duration_minutes or 0) if item[1] else 0,
             _normalize_text(item[0].name),
         ))
 
@@ -133,7 +133,7 @@ async def _load_ranked_games() -> list[GameLookupResult]:
                     name=game.name,
                     streams_count=int(streams_count or 0),
                     last_stream=stats.last_stream if stats else None,
-                    hours_streamed=stats.streamed_hours if stats and stats.streamed_hours else 0,
+                    hours_streamed=stats.duration_minutes / 60 if stats and stats.duration_minutes else 0,
                     rank=rank,
                     liked=liked,
                     completed=completed,

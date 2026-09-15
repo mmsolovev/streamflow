@@ -41,7 +41,7 @@ async def sync_stream_games(session: AsyncSession, stream: Stream, game_names: l
     existing_by_name = {sg.game.name: sg for sg in stream.stream_games if sg.game.name in desired_set}
 
     for position, game_name in enumerate(desired_names):
-        game = await get_or_create_game(session, game_cache, game_name)
+        game = await get_or_create_game(session, game_cache, game_name, source="twitchtracker")
         stream_game = existing_by_name.get(game_name)
         if stream_game is None:
             session.add(StreamGame(stream_id=stream.id, game_id=game.id, position=position))
