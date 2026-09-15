@@ -23,6 +23,7 @@ from pipeline.load.load_recommendations import (
     find_game_by_query,
     add_igdb_note,
 )
+from pipeline.load.load_games import adopt_game_name
 from utils.logger import get_logger
 
 WISHLIST_HTML_PATH = Path(__file__).resolve().parent.parent.parent / "storage" / "pages" / "steam_wishlist.html"
@@ -101,6 +102,7 @@ async def _process_single_game(
 
     existing = await find_game_by_query(session, metadata.title)
     if existing:
+        await adopt_game_name(session, existing, metadata.title, source="igdb")
         logger.info("[%d/%d] Game already exists: %s", index, total, metadata.title)
         return "skipped (already exists)"
 

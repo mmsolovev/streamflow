@@ -26,7 +26,8 @@ import aiohttp
 from sqlalchemy import select
 
 from database.db import AsyncSessionLocal
-from database.models import Clip, Game, GameAlias, Stream, User
+from database.models import Clip, Game, Stream, User
+from pipeline.load.load_games import get_or_create_game
 from services.user_service import get_or_create_user_by_twitch_id
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -197,30 +198,13 @@ async def _get_or_create_user(session, *, twitch_user_id: str, login: str, displ
     )
 
 
+_game_cache: dict[str, Game] = {}
+
+
 async def _get_or_create_game(session, twitch_game_id: str, game_name: str) -> int | None:
     if not game_name:
         return None
-
-    result = await session.execute(select(Game).where(Game.name == game_name))
-    game = result.scalar_one_or_none()
-    if game is not None:
-        return game.id
-
-    normalized = game_name.lower().strip()
-    game = Game(name=game_name, slug=normalized.replace(" ", "-"))
-    session.add(game)
-    await session.flush()
-
-    session.add(
-        GameAlias(
-            game_id=game.id,
-            alias=game_name,
-            normalized_alias=normalized,
-            is_primary=True,
-            source="twitch_api",
-        )
-    )
-    await session.flush()
+    game = await get_or_create_game(session, _game_cache, game_name, source="twitch_api")
     return game.id
 
 

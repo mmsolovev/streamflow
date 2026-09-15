@@ -79,7 +79,7 @@ async def _get_game_last_stream(session, game_id: int):
 
 
 def _build_games_dataset(rows):
-    rows.sort(key=lambda r: (-(r["streamed_hours"] or 0), r["name"].casefold()))
+    rows.sort(key=lambda r: (-(r["duration_minutes"] or 0), r["name"].casefold()))
 
     ranked = []
     for rank, row in enumerate(rows, start=1):
@@ -126,7 +126,7 @@ def _build_game_row(data, manual_columns=None):
         int(data["streams_count"] or 0),
         data["name"],
         data["rank"],
-        data["streamed_hours"] or 0,
+        round((data["duration_minutes"] or 0) / 60, 1),
         data["hltb_all_styles"] if data["hltb_all_styles"] else "",
         steam,
         data["liked"],
@@ -263,7 +263,7 @@ async def sync_games() -> None:
                 "name": game.name,
                 "last_stream": last_stream,
                 "streams_count": stats.streams_count,
-                "streamed_hours": stats.streamed_hours,
+                "duration_minutes": stats.duration_minutes,
                 "hltb_all_styles": hltb.hltb_all_styles if hltb else None,
                 "steam_url": igdb.steam_url if igdb else None,
                 "liked": flags["liked"],
@@ -333,7 +333,7 @@ async def sync_games_safe() -> None:
                 "name": game.name,
                 "last_stream": last_stream,
                 "streams_count": stats.streams_count,
-                "streamed_hours": stats.streamed_hours,
+                "duration_minutes": stats.duration_minutes,
                 "hltb_all_styles": hltb.hltb_all_styles if hltb else None,
                 "steam_url": igdb.steam_url if igdb else None,
                 "liked": flags["liked"],

@@ -604,7 +604,7 @@ class GameStats(Base):
     __tablename__ = "game_stats"
 
     game_id = Column(Integer, ForeignKey("games.id"), primary_key=True)
-    streamed_hours = Column(Float)
+    duration_minutes = Column(Integer)
     avg_viewers = Column(Integer)
     max_viewers = Column(Integer)
     followers_per_hour = Column(Float)

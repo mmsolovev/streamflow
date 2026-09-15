@@ -12,6 +12,7 @@ from pipeline.load.load_recommendations import (
     add_igdb_note,
     find_game_by_normalized_name,
 )
+from pipeline.load.load_games import adopt_game_name
 from pipeline.transform.recommendations_transform import normalize_recommendation_name
 from utils.logger import get_logger
 
@@ -36,6 +37,7 @@ async def _run():
 
             existing = await find_game_by_normalized_name(session, normalized)
             if existing:
+                await adopt_game_name(session, existing, meta.title, source="igdb")
                 continue
 
             game = await create_game_with_igdb(

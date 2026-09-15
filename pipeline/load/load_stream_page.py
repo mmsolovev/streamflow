@@ -167,7 +167,7 @@ async def upsert_stream_games_from_page(
 
     changed = 0
     for i, entry in enumerate(page.games):
-        game = await get_or_create_game(session, game_cache, entry.name)
+        game = await get_or_create_game(session, game_cache, entry.name, source="twitchtracker")
         sg = existing_by_game_name.get(entry.name)
 
         if sg is None:
@@ -195,23 +195,23 @@ async def upsert_stream_games_from_page(
     return changed
 
 
-async def increment_game_stats_hours(
+async def increment_game_stats_minutes(
     session: AsyncSession,
     page: StreamPageData,
     game_cache: dict[str, Game],
-) -> list[tuple[str, float]]:
+) -> list[tuple[str, int]]:
     """
-    Increment GameStats.streamed_hours and update last_stream for each game played.
-    Returns list of (game_name, hours_added).
+    Increment GameStats.duration_minutes and update last_stream for each game played.
+    Returns list of (game_name, minutes_added).
     """
     if not page.games:
         return []
 
     stream_date = page.started_at or page.date
 
-    results: list[tuple[str, float]] = []
+    results: list[tuple[str, int]] = []
     for entry in page.games:
-        game = await get_or_create_game(session, game_cache, entry.name)
+        game = await get_or_create_game(session, game_cache, entry.name, source="twitchtracker")
 
         result = await session.execute(select(GameStats).where(GameStats.game_id == game.id))
         gs = result.scalar_one_or_none()
@@ -220,16 +220,15 @@ async def increment_game_stats_hours(
             gs = GameStats(game_id=game.id)
             session.add(gs)
 
-        hours = entry.duration_minutes / 60.0 if entry.duration_minutes else 0
-        old_hours = gs.streamed_hours or 0
-        gs.streamed_hours = old_hours + hours
+        minutes = entry.duration_minutes or 0
+        gs.duration_minutes = (gs.duration_minutes or 0) + minutes
         gs.synced_at = datetime.utcnow()
 
         # Update last_stream if this stream is newer
         if stream_date and (gs.last_stream is None or stream_date > gs.last_stream):
             gs.last_stream = stream_date
 
-        results.append((entry.name, hours))
+        results.append((entry.name, minutes))
 
     return results
 
@@ -272,7 +271,7 @@ async def update_streams_count(
 
 
 __all__ = [
-    "increment_game_stats_hours",
+    "increment_game_stats_minutes",
     "upsert_stream_from_page",
     "upsert_stream_games_from_page",
     "upsert_stream_titles",

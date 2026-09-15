@@ -10,7 +10,7 @@ Pipeline:
    a. Upsert stream (find by date, update metrics, write external_id)
    b. Upsert title changes into stream_titles
    c. Upsert stream_games with per-game metrics
-   d. Increment game_stats.streamed_hours for each game
+   d. Increment game_stats.duration_minutes for each game
 4. Recompute GameStats.streams_count
 5. Enrich new games with IGDB + HLTB (immediate)
 """
@@ -32,7 +32,7 @@ from pipeline.transform.streams_transform import (
 )
 from pipeline.transform.stream_page_transform import resolve_external_id
 from pipeline.load.load_stream_page import (
-    increment_game_stats_hours,
+    increment_game_stats_minutes,
     upsert_stream_from_page,
     upsert_stream_games_from_page,
     upsert_stream_titles,
@@ -374,7 +374,7 @@ async def run() -> int:
         titles_added = 0
         stream_games_updated = 0
         processed_game_ids: set[int] = set()
-        all_hours: list[tuple[str, float]] = []
+        all_hours: list[tuple[str, int]] = []
         processed_streams: list[Stream] = []
 
         for page in parsed_pages:
@@ -393,7 +393,7 @@ async def run() -> int:
 
             stream_games_updated += await upsert_stream_games_from_page(session, stream, page, game_cache)
 
-            hours = await increment_game_stats_hours(session, page, game_cache)
+            hours = await increment_game_stats_minutes(session, page, game_cache)
             all_hours.extend(hours)
 
             for entry in page.games:
@@ -423,9 +423,9 @@ async def run() -> int:
         _log(f"  Stream games -> updated fields: {stream_games_updated}")
         _log(f"  VOD recordings -> added: {vod_recordings_added}")
         if all_hours:
-            _log("  Hours added:")
-            for name, hrs in all_hours:
-                _log(f"    {name}: +{hrs:.1f}h")
+            _log("  Minutes added:")
+            for name, mins in all_hours:
+                _log(f"    {name}: +{mins}m")
         if streams_count_updated:
             _log("  streams_count updated:")
             for name, old, new in streams_count_updated:
