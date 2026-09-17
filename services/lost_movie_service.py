@@ -8,6 +8,7 @@ from typing import Any
 STORAGE_DIR = Path("storage") / "movies"
 LOST_DATA_PATH = STORAGE_DIR / "lost.json"
 LOST_STATE_PATH = STORAGE_DIR / "lost_state.json"
+MOVIE_STATE_PATH = STORAGE_DIR / "movie_state.json"
 
 # Фиксированный MSK (UTC+03:00), чтобы время было стабильным независимо от хоста.
 MSK_TZ = timezone(timedelta(hours=3))
@@ -307,3 +308,72 @@ def clear_time_only() -> None:
     state = load_lost_state()
     state["started_at_msk"] = None
     save_lost_state(state)
+
+
+# --- Generic current-movie tracking -----------------------------------------
+
+
+def _load_movie_state() -> dict[str, Any]:
+    return _load_json(MOVIE_STATE_PATH)
+
+
+def _save_movie_state(state: dict[str, Any]) -> None:
+    _save_json(MOVIE_STATE_PATH, state)
+
+
+def set_movie(name: str) -> str | None:
+    """Set the current movie name and mark the viewing start time (now, MSK).
+
+    Returns the start time string (HH:MM) or None for an empty name.
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+    state = _load_movie_state()
+    state["name"] = name
+    state["started_at_msk"] = _now_msk_hhmm()
+    _save_movie_state(state)
+    return str(state["started_at_msk"])
+
+
+def clear_movie() -> None:
+    """Reset the current movie state (name and start time)."""
+    if MOVIE_STATE_PATH.exists():
+        MOVIE_STATE_PATH.unlink()
+
+
+def set_movie_started_time(value: str | None) -> str | None:
+    """Set the current movie start time (None → now, else HH:MM).
+
+    Returns the resulting start time string (HH:MM), or None if the
+    provided value is not a valid HH:MM.
+    """
+    state = _load_movie_state()
+    if value is None:
+        result = _now_msk_hhmm()
+    else:
+        result = _normalize_hhmm(value)
+        if not result:
+            return None
+    state["started_at_msk"] = result
+    _save_movie_state(state)
+    return result
+
+
+def clear_movie_time() -> None:
+    """Remove the movie start time, keeping the movie name."""
+    state = _load_movie_state()
+    state["started_at_msk"] = None
+    _save_movie_state(state)
+
+
+def format_movie_for_chat() -> str | None:
+    """Format the current movie for chat: ``Фильм <name> [| Начали <HH:MM>]``."""
+    state = _load_movie_state()
+    name = state.get("name")
+    if not name:
+        return None
+    started_at = state.get("started_at_msk")
+    if started_at:
+        return f"Фильм {name} | Начали {started_at}"
+    return f"Фильм {name}"

@@ -10,7 +10,15 @@ from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from database.models import Game, GameMetadataIGDB, GameMetadataHLTB
+from database.models import (
+    Game,
+    GameMetadataIGDB,
+    GameMetadataHLTB,
+    Genre,
+    Platform,
+    game_genres,
+    game_platforms,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +91,12 @@ async def apply_igdb_patch(session: AsyncSession, *, game_id: int, igdb_id: str 
 
     changed = created
     for k, v in patch.items():
+        if k == "raw_payload" and isinstance(v, str):
+            import json as _json
+            try:
+                v = _json.loads(v)
+            except (ValueError, TypeError):
+                v = None
         if hasattr(row, k) and getattr(row, k) != v:
             setattr(row, k, v)
             changed = True
@@ -120,9 +134,58 @@ async def apply_hltb_patch(session: AsyncSession, *, game_id: int, patch: dict) 
     return changed
 
 
+async def link_igdb_genres_and_platforms(
+    session: AsyncSession,
+    *,
+    game_id: int,
+    payload: dict,
+) -> None:
+    """
+    Link genres/platforms from an IGDB raw_payload dict (GameMetadataIGDB.raw_payload)
+    into game_genres / game_platforms. Only links rows whose target already exists in
+    the genres/platforms tables; never inserts new targets.
+    """
+    if not isinstance(payload, dict):
+        return
+    specs = (
+        ("genres", game_genres, "genre_id", Genre),
+        ("platforms", game_platforms, "platform_id", Platform),
+    )
+    for payload_key, link_table, fk_column, model in specs:
+        for entry in payload.get(payload_key) or []:
+            if not isinstance(entry, dict):
+                continue
+            name = (entry.get("name") or "").strip()
+            if not name:
+                continue
+            target = (
+                await session.execute(
+                    select(model.id).where(model.name == name).limit(1)
+                )
+            ).first()
+            if target is None:
+                continue
+            target_id = int(target[0])
+            exists = (
+                await session.execute(
+                    select(link_table.c.game_id)
+                    .where(
+                        link_table.c.game_id == game_id,
+                        link_table.c[fk_column] == target_id,
+                    )
+                    .limit(1)
+                )
+            ).first()
+            if not exists:
+                await session.execute(
+                    link_table.insert().values(game_id=game_id, **{fk_column: target_id})
+                )
+
+
 __all__ = [
     "EnrichmentCandidate",
     "apply_hltb_patch",
     "apply_igdb_patch",
+    "link_igdb_genres_and_platforms",
     "select_igdb_enrichment_candidates",
 ]
