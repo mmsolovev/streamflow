@@ -3,29 +3,84 @@ from __future__ import annotations
 """
 Load layer: writes stream-page data to DB (streams, stream_titles,
 stream_games per-game metrics, game_stats aggregation).
+
+A stream is identified by Twitch external_id or by its started_at, so
+multiple streams on the same calendar day stay separate rows.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Game, GameStats, Stream, StreamGame, StreamTitle
-from pipeline.ingest.twitchtracker_parser import StreamGameEntry, StreamPageData
+from pipeline.ingest.twitchtracker_parser import StreamPageData
 from pipeline.load.load_games import get_or_create_game
+
+_STARTED_AT_TOLERANCE_MINUTES = 30
 
 
 def _log(message: str) -> None:
     print(message, flush=True)
 
 
-async def _find_stream_by_date(session: AsyncSession, dt: datetime) -> Stream | None:
-    """Find existing stream by date (matching on started_at date part)."""
-    from sqlalchemy import cast, Date
+async def _find_existing_stream(
+    session: AsyncSession,
+    page: StreamPageData,
+    external_id: str | None,
+) -> Stream | None:
+    """Find the DB stream this page refers to.
+
+    Identity priority (supports several streams per calendar day):
+    1. external_id — Twitch stream id resolved from a VOD.
+    2. started_at — exact, then nearest within a small tolerance.
+    3. Legacy date-only fallback — only when the page has no start time
+       and there is exactly one stream on that date.
+    """
+    if external_id:
+        result = await session.execute(
+            select(Stream).where(Stream.external_id == external_id)
+        )
+        stream = result.scalars().first()
+        if stream is not None:
+            return stream
+
+    if not page.started_at:
+        from sqlalchemy import cast, Date
+
+        result = await session.execute(
+            select(Stream).where(cast(Stream.started_at, Date) == page.date.date())
+        )
+        same_day = result.scalars().all()
+        if len(same_day) == 1:
+            return same_day[0]
+        return None
+
     result = await session.execute(
-        select(Stream).where(cast(Stream.started_at, Date) == dt.date())
+        select(Stream).where(Stream.started_at == page.started_at)
     )
-    return result.scalars().first()
+    stream = result.scalars().first()
+    if stream is not None:
+        return stream
+
+    tolerance = timedelta(minutes=_STARTED_AT_TOLERANCE_MINUTES)
+    result = await session.execute(
+        select(Stream).where(
+            Stream.started_at.between(
+                page.started_at - tolerance,
+                page.started_at + tolerance,
+            )
+        )
+    )
+    candidates = result.scalars().all()
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        return min(
+            candidates,
+            key=lambda s: abs((s.started_at - page.started_at).total_seconds()),
+        )
+    return None
 
 
 async def upsert_stream_from_page(
@@ -39,12 +94,12 @@ async def upsert_stream_from_page(
     Returns (stream, created).
     If external_id is provided and the stream doesn't have one, writes it.
     """
-    stream = await _find_stream_by_date(session, page.date)
+    stream = await _find_existing_stream(session, page, external_id)
     created = False
 
     if stream is None:
         stream = Stream(
-            external_id=external_id or page.date.date().isoformat(),
+            external_id=external_id,
             started_at=page.started_at,
             ended_at=page.ended_at,
             created_at=datetime.utcnow(),

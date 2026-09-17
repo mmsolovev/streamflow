@@ -63,6 +63,8 @@ async def sync_streams(
             session.add(stream)
             await session.flush()
             created = True
+            existing_by_external_id[external_id] = stream
+            existing_by_date[data.date] = stream
 
         changed = created
 

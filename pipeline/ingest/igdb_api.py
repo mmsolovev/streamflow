@@ -187,7 +187,7 @@ async def fetch_recommendation_metadata(search_query: str) -> RecommendationMeta
 
             meta = RecommendationMetadata(
                 title=best_match.get("name") or search_query,
-                description_short=None,
+                description_short=truncate_text(best_match.get("summary")),
                 release_date=release_date,
                 release_precision=release_precision,
                 steam_url=steam_url,

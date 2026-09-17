@@ -7,7 +7,7 @@ Pipeline:
 1. Parse HTML stream pages from storage/pages/
 2. Fetch VODs from Twitch API for stream_id matching
 3. For each stream page:
-   a. Upsert stream (find by date, update metrics, write external_id)
+   a. Upsert stream (find by Twitch id / start time, update metrics, write external_id)
    b. Upsert title changes into stream_titles
    c. Upsert stream_games with per-game metrics
    d. Increment game_stats.duration_minutes for each game
@@ -16,6 +16,7 @@ Pipeline:
 """
 
 import asyncio
+import json
 import time
 from pathlib import Path
 
@@ -38,7 +39,12 @@ from pipeline.load.load_stream_page import (
     upsert_stream_titles,
     update_streams_count,
 )
-from pipeline.load.load_game_meta import apply_igdb_patch, apply_hltb_patch, select_igdb_enrichment_candidates
+from pipeline.load.load_game_meta import (
+    apply_igdb_patch,
+    apply_hltb_patch,
+    link_igdb_genres_and_platforms,
+    select_igdb_enrichment_candidates,
+)
 from pipeline.ingest.hltb_client import search_best
 from pipeline.ingest.igdb_api import fetch_igdb_metadata
 from sqlalchemy import select
@@ -290,6 +296,7 @@ async def _enrich_new_games(
                 igdb_patch = {k: v for k, v in {
                     "steam_url": getattr(meta, "steam_url", None),
                     "description_en": getattr(meta, "description_short", None),
+                    "raw_payload": getattr(meta, "source_payload", None),
                 }.items() if v}
 
         if hltb_patch:
@@ -300,6 +307,19 @@ async def _enrich_new_games(
             if await apply_igdb_patch(db_session, game_id=row.game_id, patch=igdb_patch):
                 updated_games += 1
                 updated_fields += len(igdb_patch)
+            # Link genres/platforms from the stored raw_payload (e.g. game_genres).
+            raw = getattr(meta, "source_payload", None)
+            if raw:
+                try:
+                    payload = json.loads(raw)
+                except (ValueError, TypeError):
+                    payload = None
+                if payload:
+                    await link_igdb_genres_and_platforms(
+                        db_session,
+                        game_id=row.game_id,
+                        payload=payload,
+                    )
 
     return (updated_games, updated_fields, hltb_calls, igdb_calls)
 
