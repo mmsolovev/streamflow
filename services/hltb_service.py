@@ -74,6 +74,30 @@ _ROMAN_TO_ARABIC = {
     "x": "10",
 }
 
+_NUMBER_WORDS = {
+    "zero": "0",
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "eleven": "11",
+    "twelve": "12",
+    "thirteen": "13",
+    "fourteen": "14",
+    "fifteen": "15",
+    "sixteen": "16",
+    "seventeen": "17",
+    "eighteen": "18",
+    "nineteen": "19",
+    "twenty": "20",
+}
+
 
 def is_non_game_category(name: str | None) -> bool:
     if not name:
@@ -252,12 +276,16 @@ def _format_times(meta: GameMetadataHLTB) -> str:
 
 
 def _canonicalize(value: str | None) -> str:
-    """Normalize name like games lookup does: roman numerals to arabic."""
+    """Normalize name like games lookup does: roman numerals and number
+    words to arabic digits ("Unravel Two" == "UNRAVEL 2")."""
     if not value:
         return ""
     normalized = " ".join(value.casefold().split())
     normalized = re.sub(r"[^\w\s]", " ", normalized)
-    tokens = [_ROMAN_TO_ARABIC.get(token, token) for token in normalized.split()]
+    tokens = []
+    for token in normalized.split():
+        canonical = _ROMAN_TO_ARABIC.get(token, token)
+        tokens.append(_NUMBER_WORDS.get(canonical, canonical))
     return " ".join(tokens)
 
 
@@ -295,12 +323,16 @@ async def _find_game(query: str) -> Game | None:
 
 
 async def _resolve_game(
-    session, query: str, entry: HowLongToBeatEntry, existing_game
-) -> Game:
+    session, query: str, entry: HowLongToBeatEntry, existing_game, *, allow_create: bool
+) -> Game | None:
     """
     Pick the Game row to enrich: reuse the DB row that already owns the HLTB
     entry (avoids duplicates when the user typed another name for the same
     game, e.g. "Gothic Remake" vs "Gothic 1 Remake").
+
+    A new row is only created for authoritative names (Twitch category).
+    Chat-typed queries must never add rows to `games` — otherwise
+    "!hltb UNRAVEL 2" would create a junk game next to "Unravel Two".
     """
     if existing_game is not None:
         return await session.get(Game, existing_game.id)
@@ -317,18 +349,25 @@ async def _resolve_game(
         if held is not None:
             return held
 
+    if not allow_create:
+        return None
+
     from pipeline.load.load_recommendations import create_game
 
     return await create_game(session, name=query)
 
 
-async def _store_and_return(query: str, existing_game=None) -> tuple[str | None, str | None]:
+async def _store_and_return(
+    query: str, existing_game=None, *, allow_create: bool = False
+) -> tuple[str | None, str | None]:
     """
     Fetch HLTB (+IGDB enrichment) for a game, write everything to the DB,
     and return (success_message, error_message).
 
     existing_game - the Game row already present in our DB (may have empty
-    HLTB metadata); otherwise the game is created in the DB first.
+    HLTB metadata); otherwise the game is created in the DB first, but only
+    when allow_create is True. Without allow_create an unmatched query is
+    answered without touching the DB.
     """
     entry, service_ok = await _search_hltb_with_retries(query)
     if entry is None:
@@ -338,13 +377,22 @@ async def _store_and_return(query: str, existing_game=None) -> tuple[str | None,
 
     patch = _build_hltb_patch(entry)
 
-    try:
-        igdb_meta = await fetch_igdb_metadata(query)
-    except Exception:
-        igdb_meta = None
-
     async with AsyncSessionLocal() as session:
-        game = await _resolve_game(session, query, entry, existing_game)
+        game = await _resolve_game(
+            session, query, entry, existing_game, allow_create=allow_create
+        )
+        if game is None:
+            meta = GameMetadataHLTB(**patch)
+            message = _build_message(meta.hltb_name or query, meta)
+            if message is None:
+                return None, f"Не удалось найти информацию по игре «{query.strip()}»"
+            return message, None
+
+        try:
+            igdb_meta = await fetch_igdb_metadata(query)
+        except Exception:
+            igdb_meta = None
+
         game_id = int(game.id)
         await apply_hltb_patch(session, game_id=game_id, patch=patch)
 
@@ -405,8 +453,13 @@ def clean_user_query(game: str) -> str:
     return game.strip().strip('"').strip("«»").strip()
 
 
-async def get_hltb_info(game: str | None) -> str:
-    """Full response message for the !hltb command."""
+async def get_hltb_info(game: str | None, *, allow_create: bool = False) -> str:
+    """Full response message for the !hltb command.
+
+    allow_create=True lets an unmatched name create a `games` row. It must
+    only be used for authoritative names (Twitch category); a name typed in
+    chat must never be persisted.
+    """
     if not game:
         game = await get_current_game()
         if not game:
@@ -414,6 +467,7 @@ async def get_hltb_info(game: str | None) -> str:
 
         if is_non_game_category(game):
             return HLTB_COMMAND_DESCRIPTION
+        allow_create = True
     else:
         game = clean_user_query(game)
 
@@ -423,7 +477,7 @@ async def get_hltb_info(game: str | None) -> str:
         if message is not None:
             return message
 
-    message, error = await _store_and_return(game, existing_game=row)
+    message, error = await _store_and_return(game, existing_game=row, allow_create=allow_create)
     if message:
         return message
     return error or "Нет данных по игре"
@@ -437,7 +491,9 @@ async def get_hltb_summary(game: str | None) -> str | None:
     if is_non_game_category(game):
         return None
 
-    message = await get_hltb_info(game)
+    # `game` always comes from the Twitch category here — an authoritative
+    # name, so it is allowed to create the `games` row.
+    message = await get_hltb_info(game, allow_create=True)
 
     summary = message.removeprefix("MrDestructoid ")
     first_block = summary.split(" | ", 1)[0]

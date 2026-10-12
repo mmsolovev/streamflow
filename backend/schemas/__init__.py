@@ -1,0 +1,1 @@
+"""Pydantic schemas (DTOs) for the backend layer."""

@@ -162,12 +162,21 @@ async def create_game_with_igdb(
     session.add(alias)
 
     import json as _json
+    # Round igdb_score to one decimal place if provided
+    rounded_score = None
+    if igdb_score is not None:
+        try:
+            rounded_score = round(float(igdb_score), 1)
+        except (TypeError, ValueError):
+            rounded_score = None
+
     igdb_meta = GameMetadataIGDB(
         game_id=game.id,
         igdb_id=igdb_id or f"pending-{game.id}",
         release_date=release_date,
         steam_url=steam_url,
-        igdb_score=igdb_score,
+        igdb_score=rounded_score,
+        igdb_name=name,
         description_en=description_en,
         description_ru=description_ru,
         cover_url=cover_url,

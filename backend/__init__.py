@@ -1,0 +1,1 @@
+"""FastAPI backend layer (see docs/WEB_BACKEND_FASTAPI_ANALYSIS.md)."""

@@ -275,6 +275,13 @@ game_stats                       │ alias        │
 - `0001_initial_schema` — полная начальная схема
 - `0002_add_genre_platform_abbreviation` — аббревиатуры жанров/платформ
 - `0003_update_hltb_metadata` — расширенные поля HLTB
+- `0004_add_stream_titles` — заголовки стримов
+- `0005_add_bot_commands_flags` — флаги команд бота
+- `0006_user_profiles` — `user_profiles`, перенос изменяемых данных пользователя
+- `0007_game_stats_duration_minutes_merge_duplicate_games` — минуты в статистике игр, слияние дубликатов
+- `0008_add_telegram_announcements` — Telegram-анонсы
+- `0009_add_telegram_custom_emoji_id` — кастомные emoji в анонсах
+- `0010_add_telegram_announcement_link_urls` — ссылки на VOD в анонсах
 
 ```bash
 # Применить все миграции
@@ -346,5 +353,37 @@ runtime.Collector
 Циркулярные зависимости               pipeline ↔ services    Выделить shared/core
 Конфиг — плоские глобальные переменные config/settings.py    pydantic-settings
 Нет тестов                            Весь проект            После выделения shared/
-Нет API для веба/телеграма            Нет                    FastAPI отдельным приложением
+Ручной ввод данных только в Sheets    Sheets UI              Веб-бэкенд backend/ (в работе)
 ```
+
+---
+
+## 8. Веб-бэкенд (FastAPI)
+
+Отдельное приложение `FastAPI` в пакете `backend/`, которое постепенно заменяет
+`Google Sheets` как UI. Работает с той же `PostgreSQL`, не зависит от
+`pipeline/delivery` (читает данные своими репозиториями).
+
+```
+backend/
+├── main.py            точка входа: uvicorn backend.main:app
+├── app.py             create_app(): CORS, обработчики ошибок, routers, lifespan
+├── config.py          BackendSettings (pydantic-settings, префикс BACKEND_*)
+├── deps.py            get_session, get_current_user, роли, CSRF
+├── schemas/           Pydantic DTO (in/out)
+├── repositories/      read-слой (games/streams/releases/recommendations)
+├── routers/           health, games, streams, releases, recommendations, meta, auth
+└── security/          Twitch OAuth, cookie-сессии, CSRF, ротация токенов, cleanup
+```
+
+- API под префиксом `/api/v1`; документация — `/docs`.
+- Авторизация: Twitch OAuth (Authorization Code) → cookie-сессия в
+  `web_sessions`; CSRF через double-submit (`backend_csrf_token` +
+  `X-CSRF-Token`).
+- Write-путь рекомендаций переиспользует `services/recommendations_service.py`.
+- Фоновая задача в `lifespan` чистит истёкшие `web_sessions`.
+- Деплой: сервис `backend` в `docker-compose.yml` (порт 8001, healthcheck,
+  `alembic upgrade head` при старте).
+
+Интеграция фронтенда: [WEB_API.md](WEB_API.md). План и решения:
+[WEB_BACKEND_FASTAPI_ANALYSIS.md](WEB_BACKEND_FASTAPI_ANALYSIS.md).

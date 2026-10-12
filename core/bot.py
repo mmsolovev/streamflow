@@ -12,6 +12,7 @@ from services.command_usage_service import ensure_bot_commands, log_command_usag
 from services.deferred_service import RecommendationSheetsSyncScheduler
 from services.eventsub_service import EventSubService
 from services.user_service import get_or_create_user, get_or_create_user_by_login
+from telegram.service import TelegramService
 
 
 class Bot(commands.Bot):
@@ -27,6 +28,14 @@ class Bot(commands.Bot):
         self.commands_loaded = False
         self.eventsub_service = EventSubService(self)
         self.recommendation_sheets_sync_scheduler = RecommendationSheetsSyncScheduler()
+        self.telegram_service = TelegramService()
+
+        # Правка анонсов вешается на финализацию runtime-сессии, а не на
+        # stream.offline: так покрываются ещё и superseded/recovered-сценарии
+        # после краша трансляции, где отдельного события окончания не было.
+        self.eventsub_service.collector.add_finalize_listener(
+            self.telegram_service.on_stream_ended
+        )
 
         # ID собственных исходящих сообщений. Ловим эхо своих сообщений через EventSub,
         # чтобы не обрабатывать их как команды (в twitchio 3.x встроенный фильтр по
@@ -58,6 +67,11 @@ class Bot(commands.Bot):
                 await self.eventsub_service.setup()
             except Exception as exc:
                 print(f"[EventSub] setup failed: {exc}")
+
+        try:
+            await self.telegram_service.start()
+        except Exception as exc:
+            print(f"[Telegram] start failed: {exc}")
 
         print(f"Bot connected as {self.bot_id} to {settings.TWITCH_CHANNELS or [settings.TWITCH_PRIMARY_CHANNEL]}")
         print(f"Commands loaded: {list(self.commands.keys())}")

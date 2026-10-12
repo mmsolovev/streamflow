@@ -107,10 +107,18 @@ async def _get_game_tags(session, game_id: int) -> tuple[str, str]:
     )
     genres_text = ", ".join(row[0] for row in genres_result.all())
 
+    from sqlalchemy import or_
     platforms_result = await session.execute(
         select(func.coalesce(Platform.abbreviation, Platform.name))
         .join(game_platforms, game_platforms.c.platform_id == Platform.id)
-        .where(game_platforms.c.game_id == game_id)
+        .where(
+            game_platforms.c.game_id == game_id,
+            or_(
+                Platform.name.in_({"PC (Microsoft Windows)", "PlayStation 4", "PlayStation 5"}),
+                Platform.abbreviation.in_({"PC", "PS4", "PS5"}),
+            ),
+        )
+        .order_by(Platform.name)
     )
     platforms_text = ", ".join(row[0] for row in platforms_result.all())
 

@@ -491,9 +491,33 @@ def _parse_stream_games(soup: BeautifulSoup) -> list[StreamGameEntry]:
     return games
 
 
+def _validate_single_stream_page(soup: BeautifulSoup) -> None:
+    """Reject files containing more than one TwitchTracker stream block.
+
+    Concatenated pages (two saved pages glued into one file) silently mix
+    two streams: games come from the first block while titles come from
+    another, and one of the streams never gets created.
+    """
+    markers = (
+        ("section#stream-games", soup.find_all("section", id="stream-games")),
+        ("#main-col", soup.find_all(id="main-col")),
+        (".stream-timestamps", soup.find_all("div", class_="stream-timestamps")),
+        ("date header", soup.find_all("span", attrs={"data-date-format": True})),
+    )
+    duplicated = [label for label, found in markers if len(found) > 1]
+    if duplicated:
+        raise ValueError(
+            "stream page contains several stream blocks ("
+            + ", ".join(duplicated)
+            + ") — looks like several TwitchTracker pages were saved into one file; "
+            "split it into separate stream_*.html files"
+        )
+
+
 def parse_stream_page_html(path: Path) -> StreamPageData | None:
     """Parse a single TwitchTracker stream detail page into StreamPageData."""
     soup = _load_soup(path)
+    _validate_single_stream_page(soup)
     summary = _parse_stream_page_summary(soup)
 
     date = summary.get("date")

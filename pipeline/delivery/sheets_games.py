@@ -4,6 +4,8 @@ from __future__ import annotations
 Google Sheets delivery: Games worksheet sync.
 """
 
+from datetime import datetime
+
 from database.db import AsyncSessionLocal
 from database.models import (
     Game,
@@ -27,6 +29,7 @@ from pipeline.delivery.sheets_utils import (
 )
 from pipeline.transform.sheets_transform import normalize_row as _normalize_row, parse_sheet_bool
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 
 async def _build_tags_text(session, game_id: int) -> str:
@@ -106,14 +109,25 @@ async def _sync_game_manual_fields_from_sheet(session, existing_rows):
             continue
 
         normalized_row = _normalize_row(row, 12)
-        liked = parse_sheet_bool(normalized_row[7])
-        completed = parse_sheet_bool(normalized_row[9])
+        liked = parse_sheet_bool(normalized_row[7]) or False
+        completed = parse_sheet_bool(normalized_row[9]) or False
 
-        await session.execute(
-            streamer_games.update()
-            .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == SHEETS_STREAMER_ID)
-            .values(liked=liked, completed=completed)
+        stmt = pg_insert(streamer_games).values(
+            streamer_id=SHEETS_STREAMER_ID,
+            game_id=game.id,
+            liked=liked,
+            completed=completed,
+            updated_at=datetime.utcnow(),
         )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[streamer_games.c.streamer_id, streamer_games.c.game_id],
+            set_={
+                "liked": stmt.excluded.liked,
+                "completed": stmt.excluded.completed,
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
+        await session.execute(stmt)
 
     await session.flush()
 

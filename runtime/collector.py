@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -28,8 +29,33 @@ class RuntimeStreamCollector:
         self.sample_interval_seconds = settings.STREAM_RUNTIME_SAMPLE_SECONDS
         self.sampling_task: asyncio.Task | None = None
         self.followers_sampling_enabled = True
+        self.finalize_listeners: list = []
 
         storage.prepare_storage_dir()
+
+    def add_finalize_listener(self, listener):
+        """Подписывает колбэк на финализацию runtime-сессии.
+
+        Единая точка для потребителей конца трансляции. Отдельный хук в
+        EventSub не делается сознательно: stream.offline покрывает не всё
+        (crash/recover проходят через superseded_by_new_stream_online и
+        recovered_* на bootstrap), а этот вызов — все сценарии разом.
+        """
+        if listener not in self.finalize_listeners:
+            self.finalize_listeners.append(listener)
+
+    async def _notify_finalize_listeners(self, session):
+        for listener in self.finalize_listeners:
+            try:
+                result = listener(session)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                self.logger.exception(
+                    "Finalize listener %s failed for session %s",
+                    getattr(listener, "__name__", listener),
+                    session.get("stream_id"),
+                )
 
     async def bootstrap(self, broadcaster_id: int):
         self.broadcaster_id = int(broadcaster_id)
@@ -285,8 +311,12 @@ class RuntimeStreamCollector:
             reason,
         )
 
+        # active_session уже очищен: колбэки не должны увидеть сессию, которую
+        # ещё можно продолжить (superseded-сценарий стартует новую сразу после).
         self.active_session = None
         self._save_active_session()
+
+        await self._notify_finalize_listeners(session)
 
     async def ensure_sampling_started(self, initial_stream=None):
         if not self.active_session:

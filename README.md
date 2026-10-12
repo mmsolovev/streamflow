@@ -1,11 +1,12 @@
 # streamflow
 
-Twitch-бот для стримерского чата, локальной автоматизации и сбора статистики по стримам.
+Twitch-бот для стримерского чата, локальной автоматизации, сбора статистики по стримам и веб-интерфейса (HTTP API).
 
-Проект совмещает три части:
+Проект совмещает четыре части:
 - чат-бота на `TwitchIO` с командами для пользователей чата Twitch;
 - локальный пайплайн сбора и хранения статистики по стримам и играм;
-- табличный UI в `Google Sheets`, где удобно смотреть, дополнять и править данные.
+- табличный UI в `Google Sheets`, где удобно смотреть, дополнять и править данные;
+- веб-бэкенд на `FastAPI` ([backend/](backend)) — API для будущего веб-интерфейса, с авторизацией через Twitch OAuth.
 
 ## Что умеет
 
@@ -15,8 +16,10 @@ Twitch-бот для стримерского чата, локальной ав�
 - автоматически делает `shoutout` при рейде с заданными условиями;
 - собирает и хранит статистику стримов, игр и рекомендаций в `PostgreSQL`;
 - выдает и принимает информацию о стримах, играх и рекомендациях по запросу в чате Twitch;
-- синхронизирует данные в `Google Sheets`, где таблица используется как UI для просмотра и ручных пометок.
-- Собирает live-метрики стримов (Runtime Stream Collector).
+- синхронизирует данные в `Google Sheets`, где таблица используется как UI для просмотра и ручных пометок;
+- собирает live-метрики стримов (Runtime Stream Collector);
+- отдаёт данные по HTTP API для веб-интерфейса ([backend/](backend)) с авторизацией через Twitch OAuth;
+- после окончания стрима сам правит Telegram-анонс, подставляя ссылку на запись (VOD).
 
 ## Команды чата
 
@@ -72,6 +75,10 @@ Twitch-бот для стримерского чата, локальной ав�
  [Google Sheets]
 ```
 
+Помимо ETL, в проекте есть потребители данных из `PostgreSQL`: Twitch-бот,
+EventSub/`runtime`-сборщик live-метрик и веб-бэкенд [backend/](backend)
+(`FastAPI`, HTTP API для веб-интерфейса).
+
 ### 1. Ingest (Сбор)
 - **Что делает:** Собирает "сырые" данные из внешних источников.
 - **Источники:** Twitch API (информация о стримах, играх), EventSub (live-метрики), IGDB (данные о релизах).
@@ -123,18 +130,61 @@ Twitch-бот для стримерского чата, локальной ав�
 
 Для синхронизации нужен service account файл [config/credentials.json](config/credentials.json). В репозитории есть шаблон [config/credentials.example.json](config/credentials.example.json).
 
+`Google Sheets` остаётся рабочим UI; постепенно его заменяет веб-интерфейс на базе [backend/](backend) (см. раздел ниже).
+
 Пример таблицы: https://bit.ly/4bGaXC0
+
+## Telegram-анонсы
+
+Бот следит за Telegram-каналом и после завершения стрима находит соответствующий
+анонс, после чего правит подпись на сообщение со ссылкой на запись (VOD).
+Кастомный эмодзи стримера из анонса переиспользуется при правке.
+
+- управляется переменными `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`,
+  `TELEGRAM_CHANNEL_ID` (по умолчанию `TELEGRAM_ENABLED=false` — код есть, но
+  ничего не опрашивает);
+- ссылка на канал выводится из основного канала, отдельно задавать не нужно;
+- пошаговый план и детали — [docs/TELEGRAM_ANNOUNCEMENT_VOD_LINK.md](docs/TELEGRAM_ANNOUNCEMENT_VOD_LINK.md).
+
+## Веб-бэкенд (FastAPI)
+
+Пакет [backend/](backend) — отдельное `FastAPI`-приложение, которое постепенно
+заменяет `Google Sheets` как UI. Читает и пишет те же данные в `PostgreSQL`
+(общая схема), используя доменную логику проекта. Авторизация — Twitch OAuth +
+cookie-сессии.
+
+- точка входа: `backend.main:app`;
+- API под префиксом `/api/v1`, документация — `/docs`;
+- запуск локально:
+
+  ```bash
+  .venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
+  ```
+
+- запуск в Docker: сервис `backend` в `docker-compose.yml`
+  (`docker compose up -d --build backend`);
+- интеграция для фронтенда: [docs/WEB_API.md](docs/WEB_API.md);
+- план и решения: [docs/WEB_BACKEND_FASTAPI_ANALYSIS.md](docs/WEB_BACKEND_FASTAPI_ANALYSIS.md).
+
+Для веб-входа задайте в `.env` `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`,
+`TWITCH_REDIRECT_URI`, а также `BACKEND_CORS_ORIGINS`/`BACKEND_FRONTEND_URL`
+(см. [.env.example](.env.example)). Миграции применяются автоматически при
+старте сервиса `backend` (`alembic upgrade head`).
 
 ## Структура проекта
 
-- [bot.py](bot.py) — точка входа.
+- [bot.py](bot.py) — точка входа бота.
 - [core](core) — инициализация бота и загрузка команд.
 - [commands](commands) — обработчики чат-команд.
 - [services](services) — бизнес-логика, GPT, HLTB, Sheets и прочие интеграции.
+- [runtime](runtime) — сбор live-метрик стрима (Runtime Stream Collector).
+- [telegram](telegram) — правка Telegram-анонсов после стрима.
+- [backend](backend) — веб-бэкенд на `FastAPI` (`backend.main:app`).
 - [database](database) — модели и работа с `PostgreSQL` (SQLAlchemy async + Alembic).
 - [pipeline](pipeline) — ETL-пайплайн для сбора и обработки данных.
 - [storage](storage) — локальные данные, кэш, база и runtime-файлы.
 - [config](config) — конфигурация и credentials.
+- [docs](docs) — документация: архитектура, чат-команды, Web API, планы.
 
 ## Конфигурация
 
@@ -143,7 +193,10 @@ Twitch-бот для стримерского чата, локальной ав�
 - `CLIENT_ID`, `CLIENT_SECRET` для Twitch API;
 - `DATABASE_URL` для подключения к PostgreSQL;
 - `RAWG_API_KEY` для игровых интеграций;
-- `GAMES_SHEET_URL` для публичной ссылки на таблицу в ответах `!игры` и `!стримы`.
+- `GAMES_SHEET_URL` для публичной ссылки на таблицу в ответах `!игры` и `!стримы`;
+- `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`, `TWITCH_SCOPE` для веб-входа (OAuth);
+- `BACKEND_*` (`BACKEND_HOST`, `BACKEND_PORT`, `BACKEND_CORS_ORIGINS`, `BACKEND_FRONTEND_URL`, cookie/CSRF) для веб-бэкенда;
+- `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID` для Telegram-анонсов.
 
 Примеры:
 - [.env.example](.env.example)
@@ -163,14 +216,32 @@ Twitch-бот для стримерского чата, локальной ав�
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+
+# бот
 python bot.py
+
+# веб-бэкенд (API + OAuth)
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
 ```
 
 Через Docker:
 
 ```bash
+# весь проект (db + bot + backend)
 docker compose up -d --build
+
+# только веб-бэкенд
+docker compose up -d --build backend
 ```
+
+Веб-бэкенд доступен на `http://localhost:8001` (`/docs` — документация).
+При старте сервиса `backend` автоматически применяются миграции
+(`alembic upgrade head`).
+
+> Внутри Docker-сети `DATABASE_URL` должен указывать на `db:5432`, а не на
+> `localhost` (например,
+> `postgresql+asyncpg://postgres:postgres@db:5432/mishgan_bot`). Значение из
+> локального `.env` с `localhost` подходит только для запуска вне контейнеров.
 
 Перед запуском нужно подготовить:
 - `.env` на основе [.env.example](.env.example);
@@ -184,6 +255,9 @@ docker compose up -d --build
 - Некоторые команды доступны только модераторам или списку разрешённых пользователей.
 - Без `Google Sheets` интеграции бот продолжит работать, но ответы `!игры` и `!стримы` будут без полезной ссылки на таблицу.
 - Без `storage/info.json` команда `!инфо` использует пример из репозитория.
+- Веб-бэкенд требует настроенного Twitch OAuth (`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`); иначе `/api/v1/auth/login` отвечает `503`.
+- Telegram-анонсы по умолчанию выключены (`TELEGRAM_ENABLED=false`).
+- В Docker сервисы `bot` и `backend` поднимаются с `restart: unless-stopped`, миграции применяются при старте `backend`.
 
 ## Зависимости
 
@@ -192,6 +266,9 @@ docker compose up -d --build
 - `SQLAlchemy[asyncio]`
 - `asyncpg`
 - `alembic`
+- `fastapi`
+- `uvicorn[standard]`
+- `pydantic-settings`
 - `gspread`
 - `oauth2client`
 - `howlongtobeatpy`
@@ -205,5 +282,5 @@ docker compose up -d --build
 ## Планы развития
 
 - расширение списка команд и функций бота;
-- перевод UI на полноценный веб;
+- полноценный веб-интерфейс на базе `backend/` (API готов, фронтенд в разработке);
 - инструменты для аналитики и прогнозирования.

@@ -53,12 +53,19 @@ async def _build_stream_row(session: AsyncSession, stream: Stream) -> list:
 
     game_names = {game.name for game in stream_games}
     stream_tags = []
-    if game_names == {"Just Chatting"}:
+    has_just_chatting = "Just Chatting" in game_names
+    has_other_games = len(game_names) > 0 and not (len(game_names) == 1 and has_just_chatting)
+    if has_just_chatting and not has_other_games:
         stream_tags.append("Общение")
     if genre_names:
+        # If Just Chatting is present together with other games - don't add "Общение" tag
+        if has_just_chatting and has_other_games:
+            # Filter out "Just Chatting" genre if somehow added? But we get from game_genres
+            # In that case - just don't add special tag
+            pass
         stream_tags.append(", ".join(genre_names))
     if participant_names:
-        stream_tags.append("Кооп")
+        stream_tags.append("Участники")
     if "IRL" in (stream.title or "") or "IRL" in game_names:
         stream_tags.append("IRL")
 
