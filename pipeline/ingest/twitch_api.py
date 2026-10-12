@@ -55,15 +55,20 @@ async def fetch_vods(
     access_token: str,
     user_id: str,
     first: int = 100,
+    max_items: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Получает все записи стримов (VOD archive) канала.
 
+    max_items ограничивает обход постраничным листом. Нужен горячему пути
+    (поиск VOD одного только что завершившегося стрима): архив канала может
+    занимать десятки страниц, а нужна верхняя. Без него выборка остаётся
+    прежней — весь архив до конца.
     """
     vods: list[dict[str, Any]] = []
     cursor: str | None = None
 
-    while True:
+    while max_items is None or len(vods) < max_items:
         params: dict[str, Any] = {
             "user_id": user_id,
             "type": "archive",
@@ -82,6 +87,9 @@ async def fetch_vods(
             data: dict[str, Any] = await resp.json()
 
         vods.extend(list(data.get("data") or []))
+        if max_items is not None:
+            vods = vods[:max_items]
+
         cursor = (data.get("pagination") or {}).get("cursor") or None
         if not cursor:
             break

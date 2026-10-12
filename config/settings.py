@@ -24,6 +24,18 @@ def _parse_channels(value: str | None) -> list[str]:
     return channels
 
 
+def _parse_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [token.strip() for token in value.split(",") if token.strip()]
+
+
+def _parse_bool(value: str | None, default: bool = False) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().casefold() in {"1", "true", "yes", "on", "y"}
+
+
 # Можно подключаться сразу к нескольким каналам (IRC). Первый в списке — основной:
 # для EventSub/статистики/анонсов. Второй и далее — только чат/команды.
 _channels_from_env = _parse_channels(os.getenv("TWITCH_CHANNELS"))
@@ -69,3 +81,44 @@ STREAMS_SHEET_NAME = "СТРИМЫ"
 RELEASES_SHEET_NAME = "РЕЛИЗЫ"
 RECOMMENDATIONS_SHEET_NAME = "СОВЕТЫ"
 BOT_INFO_SHEET_NAME = "БОТ"
+
+
+# =====================================================
+# TELEGRAM: правка анонсов стримов при появлении записи
+# =====================================================
+# Пакет telegram/ читает эти переменные напрямую, импортируя модуль
+# (config.settings), а не отдельный telegram.settings, — так же, как это
+# делают services/* и runtime/*.
+
+# Главный переключатель. Пока выключен — ни long-poll, ни правки постов.
+TELEGRAM_ENABLED = _parse_bool(os.getenv("TELEGRAM_ENABLED"), default=False)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+# Один канал: @username или -100xxxxxxxxxx. Несколько — фаза 2.
+TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+
+# Через сколько секунд после окончания стрима проверять наличие VOD.
+TELEGRAM_VOD_CHECK_DELAY_SECONDS = int(os.getenv("TELEGRAM_VOD_CHECK_DELAY_SECONDS", "660"))
+
+# Как часто поллер опрашивает БД на предмет задач с check_at <= now().
+TELEGRAM_VOD_POLL_INTERVAL_SECONDS = int(os.getenv("TELEGRAM_VOD_POLL_INTERVAL_SECONDS", "60"))
+
+# Повторы при ошибках инфраструктуры (сеть, 5xx), не при отсутствии VOD.
+TELEGRAM_VOD_MAX_ATTEMPTS = int(os.getenv("TELEGRAM_VOD_MAX_ATTEMPTS", "5"))
+
+# Окно, в котором ищем анонс относительно стрима.
+TELEGRAM_MATCH_WINDOW_BEFORE_HOURS = int(os.getenv("TELEGRAM_MATCH_WINDOW_BEFORE_HOURS", "12"))
+TELEGRAM_MATCH_WINDOW_AFTER_MINUTES = int(os.getenv("TELEGRAM_MATCH_WINDOW_AFTER_MINUTES", "60"))
+
+# Если трансляция падала и broadcast перезапускался — насколько поздно
+# предыдущий стрим ещё считается частью того же анонса.
+TELEGRAM_REBIND_WINDOW_MINUTES = int(os.getenv("TELEGRAM_REBIND_WINDOW_MINUTES", "180"))
+
+# Домены, на которые смотрим в тексте поста при поиске анонса.
+TELEGRAM_LINK_DOMAINS = _parse_csv(os.getenv("TELEGRAM_LINK_DOMAINS")) or ["twitch.tv"]
+
+# Ссылка на канал выводится из TWITCH_PRIMARY_CHANNEL, чтобы не дублировать
+# её в .env и не разъехаться с фактическим каналом стримов.
+TELEGRAM_CHANNEL_URL = (
+    f"https://twitch.tv/{TWITCH_PRIMARY_CHANNEL.casefold()}" if TWITCH_PRIMARY_CHANNEL else None
+)

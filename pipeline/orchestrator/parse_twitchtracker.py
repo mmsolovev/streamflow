@@ -346,17 +346,28 @@ async def run() -> int:
 
     # Parse all pages
     parsed_pages = []
+    rejected_pages = []
     for path in page_files:
-        page = parse_stream_page_html(path)
+        try:
+            page = parse_stream_page_html(path)
+        except ValueError as exc:
+            _log(f"ERROR: skipping {path.name}: {exc}")
+            rejected_pages.append(path.name)
+            continue
         if page is not None:
             parsed_pages.append(page)
         else:
             _log(f"Skipping {path.name}: failed to parse")
 
     _log(f"Successfully parsed {len(parsed_pages)} page(s)")
+    if rejected_pages:
+        _log(
+            f"Rejected {len(rejected_pages)} page file(s): {', '.join(rejected_pages)} "
+            "— fix them and re-run"
+        )
 
     if not parsed_pages:
-        return 0
+        return 1 if rejected_pages else 0
 
     # Fetch VODs from Twitch API
     vods_by_date: dict = {}
@@ -452,7 +463,7 @@ async def run() -> int:
                 _log(f"    {name}: {old} -> {new}")
         _log(f"  Games enriched: {games_enriched} ({hltb_calls} HLTB, {igdb_calls} IGDB calls)")
         _log("Done!")
-        return 0
+        return 1 if rejected_pages else 0
 
 
 def main() -> None:

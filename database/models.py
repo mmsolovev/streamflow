@@ -667,3 +667,90 @@ class StreamRuntimeBucket(Base):
     __table_args__ = (
         Index("ix_stream_runtime_buckets_stream_start", "stream_id", "bucket_start"),
     )
+
+
+# =====================================================
+# TELEGRAM ANNOUNCEMENTS
+# =====================================================
+# Анонс стрима в Telegram-канале + задачи «найти VOD для стрима».
+# Один пост может получить несколько VOD: после краша трансляции стример
+# перезапускает broadcast, это новый Twitch stream_id со своим VOD,
+# а новый анонс он не публикует.
+
+
+class TelegramAnnouncement(Base):
+    __tablename__ = "telegram_announcements"
+
+    id = Column(Integer, primary_key=True)
+    chat_id = Column(BigInteger, nullable=False)
+    message_id = Column(Integer, nullable=False)
+    # 'photo' или NULL — определяет метод правки: editMessageCaption или editMessageText
+    media_kind = Column(String(20))
+    media_group_id = Column(Text)
+    is_forward = Column(Boolean, default=False)
+    # Текст/подпись на момент получения апдейта: нужны для разбора и диагностики
+    text_snapshot = Column(Text)
+    caption_snapshot = Column(Text)
+    posted_at = Column(DateTime, nullable=False)
+    # observed | edited | skipped
+    status = Column(String(20), nullable=False, default="observed")
+    # Текст, который записал бот: защита от обработки эха собственной правки
+    edited_text = Column(Text)
+    # Пост правили не мы — бот больше не трогает
+    manually_edited = Column(Boolean, default=False)
+    # Кастомный эмодзи из набора стикеров, найденный в анонсе. Нужен, чтобы
+    # в подписи на запись поставить тот же эмодзи, а не Unicode-аналог:
+    # без entities кастомный эмодзи Telegram не отобразит.
+    # Строка, а не int: Bot API отдаёт custom_emoji_id строкой и в tg://emoji?id=
+    # его нужно передавать ровно как пришло.
+    custom_emoji_id = Column(String(64))
+    # Адреса ссылок из entities поста, JSON-массивом. Стример пишет ссылку на
+    # канал скрытой подписью («💬TWITCH~»), и в тексте URL нет вообще — без
+    # этой колонки разбор текста не нашёл бы канал и анонс не привязался бы
+    # к стриму. Nullable: у постов без ссылок значения нет.
+    link_urls = Column(Text)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    __table_args__ = (
+        UniqueConstraint("chat_id", "message_id", name="uq_telegram_announcements_chat_message"),
+        Index("ix_telegram_announcements_status", "status"),
+        Index("ix_telegram_announcements_posted_at", "posted_at"),
+    )
+
+    vods = relationship(
+        "TelegramAnnouncementVod",
+        back_populates="announcement",
+        cascade="all, delete-orphan",
+        order_by="TelegramAnnouncementVod.stream_started_at",
+    )
+
+
+class TelegramAnnouncementVod(Base):
+    __tablename__ = "telegram_announcement_vods"
+
+    id = Column(Integer, primary_key=True)
+    announcement_id = Column(Integer, ForeignKey("telegram_announcements.id"), nullable=False)
+    # Twitch stream_id, а не streams.id: строки streams может ещё не быть
+    stream_id = Column(Text, nullable=False)
+    stream_started_at = Column(DateTime, nullable=False)
+    stream_ended_at = Column(DateTime)
+    # waiting | resolved | no_vod | failed
+    status = Column(String(20), nullable=False, default="waiting")
+    vod_url = Column(Text)
+    duration_minutes = Column(Integer)
+    recorded_at = Column(DateTime)
+    check_at = Column(DateTime)
+    attempts = Column(Integer, default=0)
+    last_error = Column(Text)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    __table_args__ = (
+        UniqueConstraint(
+            "announcement_id", "stream_id",
+            name="uq_telegram_announcement_vods_announcement_stream",
+        ),
+        Index("ix_telegram_announcement_vods_status_check_at", "status", "check_at"),
+        Index("ix_telegram_announcement_vods_stream_id", "stream_id"),
+    )
+
+    announcement = relationship("TelegramAnnouncement", back_populates="vods")

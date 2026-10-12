@@ -3,9 +3,17 @@ Orchestrates the import of upcoming game releases from IGDB into recommendations
 """
 
 import asyncio
+import sys
+from pathlib import Path
 from datetime import datetime, timezone
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
 from database.db import AsyncSessionLocal
+from database.models import Game
 from pipeline.ingest.igdb_api import ingest_top_upcoming_games
 from pipeline.load.load_recommendations import (
     create_game_with_igdb,
@@ -13,6 +21,7 @@ from pipeline.load.load_recommendations import (
     find_game_by_normalized_name,
 )
 from pipeline.load.load_games import adopt_game_name
+from pipeline.load.load_game_meta import link_igdb_genres_and_platforms
 from pipeline.transform.recommendations_transform import normalize_recommendation_name
 from utils.logger import get_logger
 
@@ -29,6 +38,7 @@ async def _run():
 
     async with AsyncSessionLocal() as session:
         added_count = 0
+        updated_count = 0
 
         for meta in games_meta:
             normalized = normalize_recommendation_name(meta.title)
@@ -36,28 +46,84 @@ async def _run():
                 continue
 
             existing = await find_game_by_normalized_name(session, normalized)
+            if not existing:
+                # Fallback: try to find by normalized game name
+                res = await session.execute(
+                    select(Game).where(Game.name == meta.title)
+                )
+                existing = res.scalar_one_or_none()
+                if not existing:
+                    res = await session.execute(
+                        select(Game).where(Game.name.ilike(meta.title))
+                    )
+                    existing = res.scalar_one_or_none()
+
             if existing:
-                await adopt_game_name(session, existing, meta.title, source="igdb")
-                continue
+                try:
+                    await adopt_game_name(session, existing, meta.title, source="igdb")
+                    updated_count += 1
+                    continue
+                except Exception as e:
+                    logger.warning(f"Failed to adopt name for existing game {existing.name}: {e}")
+                    updated_count += 1
+                    continue
 
-            game = await create_game_with_igdb(
-                session,
-                name=meta.title,
-                igdb_id=meta.source_game_id,
-                release_date=meta.release_date,
-                steam_url=meta.steam_url,
-                igdb_score=_parse_igdb_score(meta.rating_text),
-                description_en=meta.description_short,
-                cover_url=meta.cover_url,
-                raw_payload=meta.source_payload,
-            )
+            try:
+                game = await create_game_with_igdb(
+                    session,
+                    name=meta.title,
+                    igdb_id=meta.source_game_id,
+                    release_date=meta.release_date,
+                    steam_url=meta.steam_url,
+                    igdb_score=_parse_igdb_score(meta.rating_text),
+                    description_en=meta.description_short,
+                    cover_url=meta.cover_url,
+                    raw_payload=meta.source_payload,
+                )
 
-            await add_igdb_note(session, game.id, user_login="igdb")
-            added_count += 1
+                # Link genres and platforms from raw payload
+                try:
+                    import json as _json
+                    payload = _json.loads(meta.source_payload) if meta.source_payload else None
+                    if payload:
+                        await link_igdb_genres_and_platforms(
+                            session,
+                            game_id=game.id,
+                            payload=payload,
+                        )
+                except Exception as ex:
+                    logger.warning(f"Failed to link genres/platforms for {meta.title}: {ex}")
 
-        if added_count > 0:
+                await add_igdb_note(session, game.id, user_login="igdb")
+                added_count += 1
+            except IntegrityError as e:
+                logger.warning(f"Integrity error creating game '{meta.title}', trying to find existing: {e}")
+                await session.rollback()
+                # Try to find again after rollback
+                existing = await find_game_by_normalized_name(session, normalized)
+                if not existing:
+                    res = await session.execute(select(Game).where(Game.name == meta.title))
+                    existing = res.scalar_one_or_none()
+                if existing:
+                    try:
+                        await adopt_game_name(session, existing, meta.title, source="igdb")
+                        updated_count += 1
+                    except Exception as ex:
+                        logger.warning(f"Failed to adopt after rollback: {ex}")
+                        updated_count += 1
+                    continue
+                else:
+                    logger.error(f"Cannot create or find game for '{meta.title}': {e}")
+                    continue
+
+        if added_count > 0 or updated_count > 0:
             await session.commit()
-            logger.info(f"Successfully imported {added_count} new upcoming games from IGDB.")
+            if added_count > 0 and updated_count > 0:
+                logger.info(f"Successfully imported {added_count} new upcoming games from IGDB and updated {updated_count} existing ones.")
+            elif added_count > 0:
+                logger.info(f"Successfully imported {added_count} new upcoming games from IGDB.")
+            else:
+                logger.info(f"Updated {updated_count} existing upcoming games from IGDB.")
         else:
             logger.info("No new upcoming games to import from IGDB.")
 

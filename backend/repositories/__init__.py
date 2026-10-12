@@ -1,0 +1,1 @@
+"""Web repository package (query layer, independent of pipeline.delivery)."""

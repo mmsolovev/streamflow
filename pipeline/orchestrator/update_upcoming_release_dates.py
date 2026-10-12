@@ -5,6 +5,11 @@ Orchestrator to update release dates for upcoming games.
 """
 
 import asyncio
+import sys
+from pathlib import Path
+from datetime import datetime, timezone
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from database.db import AsyncSessionLocal
 from pipeline.ingest.igdb_api import fetch_games_by_ids
@@ -12,6 +17,7 @@ from pipeline.load.load_recommendations import (
     get_upcoming_games,
     update_release_dates,
 )
+from pipeline.transform.igdb_transform import parse_release_date
 from utils.logger import get_logger
 
 
@@ -38,17 +44,25 @@ async def _run():
         igdb_games_by_id = {str(g.get("id")): g for g in igdb_games}
 
         games_to_update = []
-        from datetime import datetime, timezone
         for game in local_games:
             if not game.igdb_metadata or not game.igdb_metadata.igdb_id:
                 continue
-            igdb_game = igdb_games_by_id.get(game.igdb_metadata.igdb_id)
+            igdb_id = str(game.igdb_metadata.igdb_id)
+            igdb_game = igdb_games_by_id.get(igdb_id)
             if not igdb_game:
+                logger.warning(f"IGDB game not found by id {igdb_id} (game: {game.name})")
                 continue
-            from pipeline.transform.igdb_transform import parse_release_date
             igdb_release_date, _ = parse_release_date(igdb_game.get("first_release_date"))
+            changed = False
             if igdb_release_date and game.igdb_metadata.release_date != igdb_release_date:
                 game.igdb_metadata.release_date = igdb_release_date
+                changed = True
+            # Fill igdb_name if missing
+            igdb_name = igdb_game.get("name")
+            if igdb_name and not game.igdb_metadata.igdb_name:
+                game.igdb_metadata.igdb_name = igdb_name
+                changed = True
+            if changed:
                 games_to_update.append(game)
 
         if games_to_update:
