@@ -314,6 +314,27 @@ class TwitchAuthorization(Base):
     updated_at = Column(DateTime)
 
 
+class TwitchStreamerAuthorization(Base):
+    """«Стримерский» токен с расширенными scopes (отдельно от обычного логина).
+
+    Токен обычного веб-логина живёт в `twitch_authorizations` (ключ = user_id) и
+    перезаписывается при каждом входе. Стримерский токен нужен с другими
+    scopes, поэтому хранится в отдельной таблице, чтобы вход не затирал его.
+    """
+
+    __tablename__ = "twitch_streamer_authorizations"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    twitch_login = Column(Text, nullable=False)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=False)
+    scopes = Column(Text)
+    expires_at = Column(DateTime)
+    last_refresh_at = Column(DateTime)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+
+
 class WebSession(Base):
     __tablename__ = "web_sessions"
 

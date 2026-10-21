@@ -25,9 +25,15 @@ def build_tags_text(platforms_text: str | None = None, genres_text: str | None =
     return " | ".join(part for part in parts if part)
 
 
+# Категория/псевдо-жанр «Just Chatting» в БД хранится как «Общение».
+# В теги не попадает: для стримов тег добавляется отдельной логикой, а для
+# игр/релизов/советов он дублировал бы само название игры.
+JUST_CHATTING_NAMES = {"Just Chatting", "Общение"}
+
+
 def build_recommenders_text(recommender_data: list[dict]) -> str:
     tabula_present = False
-    igdb_present = False
+    twitch_present = False
     users: list[str] = []
 
     for entry in recommender_data or []:
@@ -35,8 +41,8 @@ def build_recommenders_text(recommender_data: list[dict]) -> str:
         if login == "tabula":
             tabula_present = True
             continue
-        if login == "igdb":
-            igdb_present = True
+        if login == "twitch":
+            twitch_present = True
             continue
         display_name = entry.get("display_name")
         if display_name:
@@ -44,11 +50,32 @@ def build_recommenders_text(recommender_data: list[dict]) -> str:
 
     result: list[str] = []
     if tabula_present:
-        result.append("В желаемом")
-    if igdb_present:
-        result.append("Хайп")
+        result.append("Tabula")
+    if twitch_present:
+        result.append("Twitch")
     result.extend(users)
     return ", ".join(result)
+
+
+def build_recommenders_tooltip(recommender_data: list[dict]) -> str:
+    parts: list[str] = []
+    for entry in recommender_data or []:
+        login = (entry.get("user_login") or "").casefold()
+        display_name = entry.get("display_name") or entry.get("user_login") or ""
+        note = entry.get("recommendation_note") or ""
+        if login == "tabula":
+            name = "Tabula"
+        elif login == "twitch":
+            name = "Twitch"
+        else:
+            name = display_name
+        if note:
+            parts.append(f"{name}: {note}")
+        else:
+            parts.append(name)
+    if parts:
+        return "\n".join(parts)
+    return build_recommenders_text(recommender_data)
 
 
 def release_delta_days(release_date: datetime | None) -> int | None:
@@ -78,7 +105,9 @@ async def game_tags(session: AsyncSession, game_id: int) -> tuple[str, str]:
         .join(game_genres, game_genres.c.genre_id == Genre.id)
         .where(game_genres.c.game_id == game_id)
     )
-    genres_text = ", ".join(row[0] for row in genres_result.all())
+    genres_text = ", ".join(
+        row[0] for row in genres_result.all() if row[0] and row[0] not in JUST_CHATTING_NAMES
+    )
 
     platforms_result = await session.execute(
         select(func.coalesce(Platform.abbreviation, Platform.name))
@@ -98,7 +127,11 @@ async def game_tags(session: AsyncSession, game_id: int) -> tuple[str, str]:
 
 async def game_recommenders(session: AsyncSession, game_id: int) -> list[dict]:
     result = await session.execute(
-        select(UserProfile.login, UserProfile.display_name)
+        select(
+            UserProfile.login,
+            UserProfile.display_name,
+            game_recommendations.c.recommendation_note,
+        )
         .join(User, User.id == UserProfile.user_id)
         .join(game_recommendations, game_recommendations.c.user_id == User.id)
         .where(
@@ -106,4 +139,11 @@ async def game_recommenders(session: AsyncSession, game_id: int) -> list[dict]:
             UserProfile.is_current.is_(True),
         )
     )
-    return [{"user_login": row[0], "display_name": row[1]} for row in result.all()]
+    return [
+        {
+            "user_login": row[0],
+            "display_name": row[1],
+            "recommendation_note": row[2],
+        }
+        for row in result.all()
+    ]

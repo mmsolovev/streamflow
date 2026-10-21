@@ -53,7 +53,7 @@ async def _build_stream_row(session: AsyncSession, stream: Stream) -> list:
 
     game_names = {game.name for game in stream_games}
     stream_tags = []
-    has_just_chatting = "Just Chatting" in game_names
+    has_just_chatting = bool(game_names & {"Just Chatting", "Общение"})
     has_other_games = len(game_names) > 0 and not (len(game_names) == 1 and has_just_chatting)
     if has_just_chatting and not has_other_games:
         stream_tags.append("Общение")

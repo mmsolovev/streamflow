@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from backend.config import get_backend_settings
-from backend.routers import auth, games, health, meta, recommendations, releases, streams
+from backend.routers import auth, games, health, hltb, meta, recommendations, releases, streams, users
 from backend.security.maintenance import cleanup_expired_sessions_loop
 
 
@@ -74,11 +74,13 @@ def create_app() -> FastAPI:
     prefix = settings.backend_api_prefix.rstrip("/")
     app.include_router(health.router, prefix=prefix)
     app.include_router(games.router, prefix=prefix)
+    app.include_router(hltb.router, prefix=prefix)
     app.include_router(streams.router, prefix=prefix)
     app.include_router(releases.router, prefix=prefix)
     app.include_router(recommendations.router, prefix=prefix)
     app.include_router(meta.router, prefix=prefix)
     app.include_router(auth.router, prefix=prefix)
+    app.include_router(users.router, prefix=prefix)
 
     return app
 

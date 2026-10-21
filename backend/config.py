@@ -34,6 +34,19 @@ class BackendSettings(BaseSettings):
     )
     twitch_redirect_uri: str | None = None
     twitch_scope: str = "user:read:email"
+
+    # Scopes for the streamer "elevated" OAuth flow (/auth/streamer/*).
+    # Space-separated (Twitch wants a space-delimited list). Используется
+    # только для аккаунтов из STREAMER_LOGINS (config/settings.py). Меняй здесь
+    # или в .env (TWITCH_STREAMER_SCOPE), чтобы выбрать доп. права.
+    # Кандидаты для функционала канала:
+    #   channel:read:redemptions, channel:manage:redemptions
+    #   channel:read:subscriptions, channel:read:polls, channel:manage:polls
+    #   channel:read:predictions, channel:manage:predictions
+    #   channel:read:goals, channel:read:hype_train, channel:manage:broadcast
+    #   moderator:read:chatters, moderator:manage:banned_users
+    twitch_streamer_scope: str = "channel:read:redemptions channel:manage:redemptions"
+
     twitch_oauth_state_ttl_seconds: int = 600
     twitch_token_refresh_skew_seconds: int = 300
     backend_oauth_state_cookie_name: str = "backend_oauth_state"
@@ -50,6 +63,15 @@ class BackendSettings(BaseSettings):
 
     # API prefix (not used by routers directly, kept for docs/CLI).
     backend_api_prefix: str = "/api/v1"
+
+    @property
+    def twitch_streamer_scopes(self) -> list[str]:
+        """`twitch_streamer_scope` как список (переносит и запятые, и пробелы)."""
+        return [
+            scope
+            for scope in self.twitch_streamer_scope.replace(",", " ").split()
+            if scope
+        ]
 
 
 @lru_cache
