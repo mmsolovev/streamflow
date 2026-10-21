@@ -17,7 +17,7 @@ from database.models import Game
 from pipeline.ingest.igdb_api import ingest_top_upcoming_games
 from pipeline.load.load_recommendations import (
     create_game_with_igdb,
-    add_igdb_note,
+    add_upcoming_release_note,
     find_game_by_normalized_name,
 )
 from pipeline.load.load_games import adopt_game_name
@@ -94,7 +94,7 @@ async def _run():
                 except Exception as ex:
                     logger.warning(f"Failed to link genres/platforms for {meta.title}: {ex}")
 
-                await add_igdb_note(session, game.id, user_login="igdb")
+                await add_upcoming_release_note(session, game.id)
                 added_count += 1
             except IntegrityError as e:
                 logger.warning(f"Integrity error creating game '{meta.title}', trying to find existing: {e}")

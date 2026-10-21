@@ -1,7 +1,7 @@
 """Shared DTOs: pagination, error envelope."""
 from __future__ import annotations
 
-from typing import Annotated, Generic, TypeVar
+from typing import Annotated, Generic, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,6 +16,10 @@ class Page(BaseModel, Generic[T]):
     total: int
     limit: int
     offset: int
+    #: Число строк без учёта фильтров (для «Показано X из Y»).
+    total_all: Optional[int] = None
+    #: Агрегаты по всему разделу (для чисел в шапке).
+    aggregates: Optional[dict[str, int]] = None
 
 
 class ApiError(BaseModel):

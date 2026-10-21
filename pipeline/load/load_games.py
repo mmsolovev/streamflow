@@ -26,6 +26,7 @@ SOURCE_RANK = {
     "twitchtracker": 3,
     "stream": 3,
     "igdb": 2,
+    "twitch": 2,
     "manual": 1,
 }
 
@@ -123,7 +124,23 @@ async def get_or_create_game(
             select(Game).where(func.lower(Game.name) == name.lower()).order_by(Game.id)
         )
         candidates = list(result.scalars().all())
-        if not candidates:
+        if candidates:
+            game = candidates[0]
+            if SOURCE_RANK.get(source, 1) >= 2:
+                await adopt_game_name(session, game, name, source=source)
+        else:
+            # Fall back to aliases: canonical names may have been renamed
+            # (e.g. "Just Chatting" -> "Общение"), while external sources
+            # still report the old name.
+            alias_result = await session.execute(
+                select(Game)
+                .join(GameAlias, GameAlias.game_id == Game.id)
+                .where(GameAlias.normalized_alias == name.strip().lower())
+                .order_by(Game.id)
+                .limit(1)
+            )
+            game = alias_result.scalar_one_or_none()
+        if game is None:
             now = datetime.utcnow()
             slug = await make_unique_slug(session, name)
             game = Game(name=name, slug=slug, created_at=now, updated_at=now)
@@ -140,10 +157,6 @@ async def get_or_create_game(
             )
             session.add(alias)
             await session.flush()
-        else:
-            game = candidates[0]
-            if SOURCE_RANK.get(source, 1) >= 2:
-                await adopt_game_name(session, game, name, source=source)
 
     game_cache[name] = game
     return game

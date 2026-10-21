@@ -72,6 +72,13 @@ RECOMMENDATIONS_BANNED_USERS = {
 }
 RECOMMENDATIONS_STREAMER_LOGIN = os.getenv("RECOMMENDATIONS_STREAMER_LOGIN", "tabula")
 RECOMMENDATIONS_STREAMER_DISPLAY_NAME = os.getenv("RECOMMENDATIONS_STREAMER_DISPLAY_NAME", "Tabula")
+
+# Логины аккаунтов, которым разрешён расширенный OAuth-вход на сайте
+# (/auth/streamer/*) для получения «стримерского» токена с доп. scopes.
+# Чтобы добавить ещё стримеров — либо перечисли их через запятую в env
+# STREAMER_LOGINS, либо допиши логин в список ниже. Сравнение без учёта
+# регистра (casefold).
+STREAMER_LOGINS = _parse_csv(os.getenv("STREAMER_LOGINS")) or [RECOMMENDATIONS_STREAMER_LOGIN]
 SHEETS_STREAMER_ID = int(os.getenv("SHEETS_STREAMER_ID", "45"))
 RECOMMENDATION_SHEETS_SYNC_DEBOUNCE_SECONDS = int(os.getenv("RECOMMENDATION_SHEETS_SYNC_DEBOUNCE_SECONDS", "15"))
 

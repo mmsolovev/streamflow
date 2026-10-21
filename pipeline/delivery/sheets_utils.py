@@ -83,7 +83,7 @@ def build_tags_text(platforms_text: str = None, genres_text: str = None) -> str:
 def build_recommenders_text(recommender_data: list[dict]) -> str:
     """Build recommenders text from a list of dicts with 'user_login' and 'display_name' keys."""
     tabula_present = False
-    igdb_present = False
+    twitch_present = False
     users = []
 
     for entry in recommender_data or []:
@@ -91,8 +91,8 @@ def build_recommenders_text(recommender_data: list[dict]) -> str:
         if login == "tabula":
             tabula_present = True
             continue
-        if login == "igdb":
-            igdb_present = True
+        if login == "twitch":
+            twitch_present = True
             continue
         display_name = entry.get("display_name")
         if display_name:
@@ -100,9 +100,9 @@ def build_recommenders_text(recommender_data: list[dict]) -> str:
 
     result = []
     if tabula_present:
-        result.append("В желаемом")
-    if igdb_present:
-        result.append("Хайп")
+        result.append("Tabula")
+    if twitch_present:
+        result.append("Twitch")
     result.extend(users)
     return ", ".join(result)
 

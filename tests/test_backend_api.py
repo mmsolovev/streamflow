@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from backend.app import app
 from backend.deps import get_current_user, get_session
 from backend.repositories import games as games_repo
+from backend.repositories import hltb as hltb_repo
 from backend.repositories import recommendations as recs_repo
 from backend.repositories import releases as releases_repo
 from backend.repositories import streams as streams_repo
@@ -16,8 +17,12 @@ PREFIX = "/api/v1"
 
 
 class FakeResult:
+    def __init__(self, user=None, row=None):
+        self._user = user
+        self._row = row
+
     def scalar_one_or_none(self):
-        return None
+        return self._user
 
     def scalar_one(self):
         return 0
@@ -26,22 +31,45 @@ class FakeResult:
         return []
 
     def first(self):
-        return None
+        return self._row
 
 
 class FakeSession:
-    def __init__(self, game=None):
+    def __init__(self, game=None, user=None, row=None):
         self._game = game
+        self._user = user
+        self._row = row
         self.committed = False
+        self.executed = []
+        self.added = []
 
     async def get(self, model, pk):
         return self._game
 
     async def execute(self, *args, **kwargs):
-        return FakeResult()
+        self.executed.append(args[0] if args else None)
+        return FakeResult(user=self._user, row=self._row)
 
     async def commit(self):
         self.committed = True
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def flush(self):
+        pass
+
+    def executed_sql(self) -> str:
+        """Все выполненные SQL-запросы одной строкой — для проверок."""
+        parts = []
+        for stmt in self.executed:
+            if stmt is None:
+                continue
+            try:
+                parts.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            except Exception:  # noqa: BLE001 — не все объекты компилируются
+                parts.append(str(stmt))
+        return "\n".join(parts)
 
 
 ADMIN = SimpleNamespace(
@@ -49,6 +77,22 @@ ADMIN = SimpleNamespace(
     is_streamer=True,
     is_admin=True,
     current_profile=SimpleNamespace(login="mishgan_sol", display_name="Mishgan"),
+)
+
+# Стример без прав администратора.
+STREAMER_ONLY = SimpleNamespace(
+    id=2,
+    is_streamer=True,
+    is_admin=False,
+    current_profile=SimpleNamespace(login="tabula", display_name="Tabula"),
+)
+
+# Обычный авторизованный пользователь.
+REGULAR_USER = SimpleNamespace(
+    id=3,
+    is_streamer=False,
+    is_admin=False,
+    current_profile=SimpleNamespace(login="viewer", display_name="Viewer"),
 )
 
 
@@ -81,11 +125,16 @@ class WebApiTests(unittest.TestCase):
             "last_stream": None,
             "hltb_all_styles": 25.0,
             "steam_url": None,
+            "cover_url": None,
             "liked": True,
             "completed": False,
             "tags": "PC | Action",
         }]
-        with patch.object(games_repo, "list_games", AsyncMock(return_value=(items, 1))):
+        with patch.object(
+            games_repo,
+            "list_games",
+            AsyncMock(return_value=(items, 1, 1, {"liked": 0, "completed": 0})),
+        ):
             response = self.client.get(f"{PREFIX}/games")
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -113,10 +162,40 @@ class WebApiTests(unittest.TestCase):
             "avg_viewers": 10,
             "max_viewers": 20,
         }]
-        with patch.object(streams_repo, "list_streams", AsyncMock(return_value=(items, 1))):
+        with patch.object(
+            streams_repo,
+            "list_streams",
+            AsyncMock(return_value=(items, 1, 1, {"total": 1, "with_vod": 0, "total_minutes": 0})),
+        ):
             response = self.client.get(f"{PREFIX}/streams")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["duration_hours"], 2.0)
+
+    def test_list_hltb(self):
+        items = [{
+            "id": 7,
+            "name": "Hades",
+            "hltb_id": "12782",
+            "hltb_name": "Hades",
+            "all_styles": 22.5,
+            "main_story": 22.5,
+            "main_extra": None,
+            "completionist": 52.0,
+            "coop": None,
+            "multiplayer": None,
+            "review_score": 90,
+        }]
+        with patch.object(
+            hltb_repo,
+            "list_hltb",
+            AsyncMock(return_value=(items, 1, 1, {"total": 1, "with_time": 1})),
+        ):
+            response = self.client.get(f"{PREFIX}/hltb")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["items"][0]["hltb_id"], "12782")
+        self.assertEqual(body["items"][0]["all_styles"], 22.5)
 
     def test_list_releases(self):
         items = [{
@@ -126,11 +205,18 @@ class WebApiTests(unittest.TestCase):
             "release_delta_days": None,
             "steam_url": None,
             "description_ru": None,
+            "description_en": None,
+            "cover_url": None,
             "interested": False,
             "tags": "",
             "recommenders": "",
+            "recommenders_count": 0,
         }]
-        with patch.object(releases_repo, "list_releases", AsyncMock(return_value=(items, 1))):
+        with patch.object(
+            releases_repo,
+            "list_releases",
+            AsyncMock(return_value=(items, 1, 1, {"interested": 0, "released": 0})),
+        ):
             response = self.client.get(f"{PREFIX}/releases")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["name"], "Upcoming")
@@ -145,11 +231,17 @@ class WebApiTests(unittest.TestCase):
             "steam_url": None,
             "igdb_score": 88.0,
             "cover_url": None,
+            "description_ru": None,
+            "description_en": None,
             "votes_count": 2,
             "recommenders": "Tabula",
             "tags": "PC",
         }]
-        with patch.object(recs_repo, "list_recommendations", AsyncMock(return_value=(items, 1))):
+        with patch.object(
+            recs_repo,
+            "list_recommendations",
+            AsyncMock(return_value=(items, 1, 1, {"with_score": 0, "votes": 0})),
+        ):
             response = self.client.get(f"{PREFIX}/recommendations")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["votes_count"], 2)
@@ -172,6 +264,39 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"game_id": 5, "interested": True})
 
+    def test_mark_interested_creates_tabula_recommendation(self):
+        """Отметка «Интересно» создаёт рекомендацию Tabula с нужной пометкой."""
+        session = FakeSession(
+            game=SimpleNamespace(id=5),
+            user=SimpleNamespace(id=42),
+            row=None,
+        )
+        app.dependency_overrides[get_session] = _session_dep(session)
+        response = self.client.patch(
+            f"{PREFIX}/releases/5/interested",
+            json={"interested": True},
+        )
+        self.assertEqual(response.status_code, 200)
+        sql = session.executed_sql()
+        self.assertIn("game_recommendations", sql)
+        self.assertIn("Ожидаемая новинка по версии Tabula", sql)
+
+    def test_unmark_interested_removes_generated_recommendation(self):
+        """Снятие отметки удаляет только созданную этой механикой рекомендацию."""
+        session = FakeSession(
+            game=SimpleNamespace(id=5),
+            user=SimpleNamespace(id=42),
+            row=SimpleNamespace(recommendation_note="Ожидаемая новинка по версии Tabula"),
+        )
+        app.dependency_overrides[get_session] = _session_dep(session)
+        response = self.client.patch(
+            f"{PREFIX}/releases/5/interested",
+            json={"interested": False},
+        )
+        self.assertEqual(response.status_code, 200)
+        sql = session.executed_sql()
+        self.assertIn("DELETE FROM game_recommendations", sql)
+
     def test_write_requires_streamer_or_admin(self):
         app.dependency_overrides.pop(get_current_user)
         response = self.client.patch(
@@ -179,6 +304,36 @@ class WebApiTests(unittest.TestCase):
             json={"liked": True, "completed": False},
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_game_state_requires_admin(self):
+        """Отметки «Понравилось»/«Пройдено» доступны только администратору."""
+        app.dependency_overrides[get_current_user] = lambda: STREAMER_ONLY
+        app.dependency_overrides[get_session] = _session_dep(FakeSession(game=SimpleNamespace(id=5)))
+        response = self.client.patch(
+            f"{PREFIX}/games/5/streamer-state",
+            json={"liked": True, "completed": False},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_release_interested_requires_admin(self):
+        """Отметка «Интересно» доступна только администратору."""
+        app.dependency_overrides[get_current_user] = lambda: STREAMER_ONLY
+        app.dependency_overrides[get_session] = _session_dep(FakeSession(game=SimpleNamespace(id=5)))
+        response = self.client.patch(
+            f"{PREFIX}/releases/5/interested",
+            json={"interested": True},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_regular_user_cannot_change_flags(self):
+        """Обычный пользователь (не админ, не стример) — 403."""
+        app.dependency_overrides[get_current_user] = lambda: REGULAR_USER
+        app.dependency_overrides[get_session] = _session_dep(FakeSession(game=SimpleNamespace(id=5)))
+        response = self.client.patch(
+            f"{PREFIX}/games/5/streamer-state",
+            json={"liked": True, "completed": False},
+        )
+        self.assertEqual(response.status_code, 403)
 
     def test_add_recommendation(self):
         summary = SimpleNamespace(

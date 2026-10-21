@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from backend.deps import SessionDep
 from backend.repositories import streams as repo
+from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
 from backend.schemas.stream import StreamView
 
@@ -30,9 +31,19 @@ def _view(item: dict) -> StreamView:
     )
 
 
+@router.get("/filters", response_model=dict)
+async def streams_filter_options(session: SessionDep) -> dict:
+    """Доступные значения тегов — для меню фильтров раздела «Стримы»."""
+    return await repo.list_streams_filter_options(session)
+
+
 @router.get("", response_model=Page[StreamView])
 async def list_streams(
     session: SessionDep,
+    search: str | None = Query(None, max_length=64),
+    sort: str | None = Query(None, max_length=32),
+    direction: str | None = Query(None, pattern="^(asc|desc)$"),
+    filters: list[str] = Query(default=[]),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     date: datetime | None = Query(None, description="Фильтр по конкретному дню (ISO)"),
@@ -40,16 +51,26 @@ async def list_streams(
     to: datetime | None = Query(None, description="Конец окна (ISO, включительно)"),
 ) -> Page[StreamView]:
     date_from = date or from_
-    items, total = await repo.list_streams(
+    query = parse_list_query(
+        search=search,
+        sort=sort,
+        direction=direction,
+        filters=filters,
+        default_direction="desc",
+    )
+    items, total, total_all, aggregates = await repo.list_streams(
         session,
         limit=limit,
         offset=offset,
         date_from=date_from,
         date_to=to,
+        query=query,
     )
     return Page[StreamView](
         items=[_view(item) for item in items],
         total=total,
+        total_all=total_all,
+        aggregates=aggregates,
         limit=limit,
         offset=offset,
     )

@@ -13,13 +13,13 @@ TWITCH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate"
 TWITCH_USERS_URL = "https://api.twitch.tv/helix/users"
 
 
-def build_authorize_url(state: str) -> str:
+def build_authorize_url(state: str, scope: str | None = None) -> str:
     settings = get_backend_settings()
     params = {
         "client_id": settings.twitch_client_id or "",
         "redirect_uri": settings.twitch_redirect_uri or "",
         "response_type": "code",
-        "scope": settings.twitch_scope,
+        "scope": scope if scope is not None else settings.twitch_scope,
         "state": state,
     }
     return f"{TWITCH_AUTHORIZE_URL}?{urlencode(params)}"

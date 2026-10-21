@@ -30,9 +30,9 @@ def compute_stream_genres(
     title_tokens = {normalize_key(t) for t in token_list}
     tags: list[str] = []
 
-    # Rule: if the only game is Just Chatting -> "Общение"
+    # Rule: if the only game is Just Chatting / Общение -> "Общение"
     names_norm = [normalize_key(n) for n in game_names if n]
-    if len(names_norm) == 1 and names_norm[0] == "just chatting":
+    if len(names_norm) == 1 and names_norm[0] in {"just chatting", "общение"}:
         tags.append("Общение")
 
     # Rule: streams with participants -> "Кооп"

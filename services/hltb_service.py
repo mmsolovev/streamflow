@@ -357,6 +357,54 @@ async def _resolve_game(
     return await create_game(session, name=query)
 
 
+async def _apply_igdb_enrichment(session, game_id: int, query: str) -> None:
+    """Обновляет IGDB-метаданные игры (обложка, описание, оценка, дата)."""
+    try:
+        igdb_meta = await fetch_igdb_metadata(query)
+    except Exception:
+        igdb_meta = None
+    if igdb_meta is None:
+        return
+
+    igdb_id = str(igdb_meta.source_game_id)
+    holder_game_id = (
+        await session.execute(
+            select(GameMetadataIGDB.game_id).where(
+                GameMetadataIGDB.igdb_id == igdb_id,
+                GameMetadataIGDB.game_id != game_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    igdb_score = None
+    raw_payload_data = None
+    if igdb_meta.source_payload:
+        try:
+            raw_payload_data = json.loads(igdb_meta.source_payload)
+            payload_score = raw_payload_data.get("total_rating")
+            if payload_score is not None:
+                igdb_score = float(payload_score)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_payload_data = None
+            igdb_score = None
+
+    fields = {
+        "igdb_name": igdb_meta.title,
+        "release_date": igdb_meta.release_date,
+        "steam_url": igdb_meta.steam_url,
+        "igdb_score": igdb_score,
+        "description_en": igdb_meta.description_short,
+        "cover_url": igdb_meta.cover_url,
+        "raw_payload": raw_payload_data,
+        "synced_at": datetime.datetime.utcnow(),
+    }
+    if holder_game_id is None:
+        fields["igdb_id"] = igdb_id
+    igdb_patch = {key: value for key, value in fields.items() if value not in (None, "")}
+    if igdb_patch:
+        await apply_igdb_patch(session, game_id=game_id, patch=igdb_patch)
+
+
 async def _store_and_return(
     query: str, existing_game=None, *, allow_create: bool = False
 ) -> tuple[str | None, str | None]:
@@ -388,52 +436,9 @@ async def _store_and_return(
                 return None, f"Не удалось найти информацию по игре «{query.strip()}»"
             return message, None
 
-        try:
-            igdb_meta = await fetch_igdb_metadata(query)
-        except Exception:
-            igdb_meta = None
-
         game_id = int(game.id)
         await apply_hltb_patch(session, game_id=game_id, patch=patch)
-
-        if igdb_meta is not None:
-            igdb_id = str(igdb_meta.source_game_id)
-            holder_game_id = (
-                await session.execute(
-                    select(GameMetadataIGDB.game_id).where(
-                        GameMetadataIGDB.igdb_id == igdb_id,
-                        GameMetadataIGDB.game_id != game_id,
-                    )
-                )
-            ).scalar_one_or_none()
-
-            igdb_score = None
-            raw_payload_data = None
-            if igdb_meta.source_payload:
-                try:
-                    raw_payload_data = json.loads(igdb_meta.source_payload)
-                    payload_score = raw_payload_data.get("total_rating")
-                    if payload_score is not None:
-                        igdb_score = float(payload_score)
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    raw_payload_data = None
-                    igdb_score = None
-
-            fields = {
-                "igdb_name": igdb_meta.title,
-                "release_date": igdb_meta.release_date,
-                "steam_url": igdb_meta.steam_url,
-                "igdb_score": igdb_score,
-                "description_en": igdb_meta.description_short,
-                "cover_url": igdb_meta.cover_url,
-                "raw_payload": raw_payload_data,
-                "synced_at": datetime.datetime.utcnow(),
-            }
-            if holder_game_id is None:
-                fields["igdb_id"] = igdb_id
-            igdb_patch = {key: value for key, value in fields.items() if value not in (None, "")}
-            if igdb_patch:
-                await apply_igdb_patch(session, game_id=game_id, patch=igdb_patch)
+        await _apply_igdb_enrichment(session, game_id, query)
 
         await session.commit()
 
@@ -500,3 +505,148 @@ async def get_hltb_summary(game: str | None) -> str | None:
     if not first_block.startswith("Прохождение "):
         return None
     return first_block
+
+
+# --- Добавление игры по ссылке HowLongToBeat (веб-интерфейс) -------------- #
+
+_HLTB_URL_RE = re.compile(r"howlongtobeat\.com/game/(\d+)", re.IGNORECASE)
+
+
+def parse_hltb_id(value: str) -> int | None:
+    """Достаёт id игры из ссылки HLTB или из голого числа.
+
+    Поддерживаются ссылки вида ``https://howlongtobeat.com/game/84121``
+    (с любыми параметрами после id) и просто число ``84121``.
+    """
+    if not value:
+        return None
+    text = value.strip()
+    match = _HLTB_URL_RE.search(text)
+    if match:
+        return int(match.group(1))
+    if text.isdigit():
+        return int(text)
+    return None
+
+
+async def _fetch_hltb_entry_by_id(hltb_id: int) -> HowLongToBeatEntry | None:
+    """Получает запись HLTB по id (с ретраями, как при поиске по названию).
+
+    Сайт HLTB периодически рвёт соединение при частых запросах, поэтому
+    любая ошибка повторяется несколько раз.
+    """
+    for attempt in range(1, 4):
+        try:
+            client = HowLongToBeat()
+            entry = await asyncio.wait_for(
+                asyncio.to_thread(client.search_from_id, hltb_id),
+                timeout=HLTB_REQUEST_TIMEOUT_SECONDS,
+            )
+            if entry is not None:
+                return entry
+        except Exception:  # noqa: BLE001 — сайт бывает капризен к клиенту
+            pass
+        await asyncio.sleep(2.0 * attempt)
+    return None
+
+
+async def _find_game_by_hltb_id(session, hltb_id: str) -> Game | None:
+    """Игра, у которой в базе уже записан этот hltb_id."""
+    game_id = (
+        await session.execute(
+            select(GameMetadataHLTB.game_id).where(GameMetadataHLTB.hltb_id == hltb_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if game_id is None:
+        return None
+    return await session.get(Game, game_id)
+
+
+async def lookup_hltb_by_url(url: str) -> dict | None:
+    """Ищет игру по ссылке HLTB.
+
+    Возвращает данные HLTB и подходящую игру из базы (по ``hltb_id`` или по
+    названию), либо ``None``, если ссылка не разобрана или игра не найдена.
+    """
+    hltb_id = parse_hltb_id(url)
+    if hltb_id is None:
+        return None
+
+    entry = await _fetch_hltb_entry_by_id(hltb_id)
+    if entry is None:
+        return None
+
+    patch = _build_hltb_patch(entry)
+    name = (entry.game_name or "").strip()
+
+    async with AsyncSessionLocal() as session:
+        game = await _find_game_by_hltb_id(session, patch["hltb_id"])
+        if game is None and name:
+            game = await _find_game(name)
+        game_id = int(game.id) if game is not None else None
+        game_name = game.name if game is not None else name
+
+    return {
+        "hltb_id": patch["hltb_id"],
+        "hltb_name": name,
+        "all_styles": patch["hltb_all_styles"],
+        "main_story": patch["hltb_main_story"],
+        "main_extra": patch["hltb_main_extra"],
+        "completionist": patch["hltb_completionist"],
+        "coop": patch["hltb_coop"],
+        "multiplayer": patch["hltb_multiplayer"],
+        "review_score": patch["hltb_review_score"],
+        "game_id": game_id,
+        "game_name": game_name,
+        "already_added": game_id is not None,
+    }
+
+
+async def add_hltb_game_by_url(url: str, game_id: int | None = None) -> dict | None:
+    """Добавляет игру по ссылке HLTB: сохраняет данные HLTB и обновляет IGDB.
+
+    ``game_id`` — если задан, данные пишутся именно в эту игру (админ выбрал
+    её вручную). Иначе игра ищется по ``hltb_id``/названию, а при отсутствии
+    создаётся новая.
+    """
+    hltb_id = parse_hltb_id(url)
+    if hltb_id is None:
+        return None
+
+    entry = await _fetch_hltb_entry_by_id(hltb_id)
+    if entry is None:
+        return None
+
+    patch = _build_hltb_patch(entry)
+    name = (entry.game_name or "").strip()
+
+    async with AsyncSessionLocal() as session:
+        game: Game | None = None
+        if game_id is not None:
+            game = await session.get(Game, game_id)
+        if game is None:
+            game = await _find_game_by_hltb_id(session, patch["hltb_id"])
+        if game is None and name:
+            game = await _find_game(name)
+        if game is None and name:
+            from pipeline.load.load_recommendations import create_game
+
+            game = await create_game(session, name=name)
+
+        if game is None:
+            return None
+
+        resolved_id = int(game.id)
+        await apply_hltb_patch(session, game_id=resolved_id, patch=patch)
+        await _apply_igdb_enrichment(session, resolved_id, name or game.name)
+        await session.commit()
+
+        meta = await session.get(GameMetadataHLTB, resolved_id)
+
+    return {
+        "game_id": resolved_id,
+        "game_name": game.name,
+        "hltb_id": patch["hltb_id"],
+        "hltb_name": name,
+        "all_styles": meta.hltb_all_styles if meta else None,
+    }

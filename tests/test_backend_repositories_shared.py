@@ -19,10 +19,10 @@ class SharedHelperTests(unittest.TestCase):
     def test_build_recommenders_text_special_users(self):
         data = [
             {"user_login": "tabula", "display_name": "Tabula"},
-            {"user_login": "igdb", "display_name": "IGDB"},
+            {"user_login": "twitch", "display_name": "IGDB"},
             {"user_login": "someone", "display_name": "Someone"},
         ]
-        self.assertEqual(build_recommenders_text(data), "В желаемом, Хайп, Someone")
+        self.assertEqual(build_recommenders_text(data), "Tabula, Twitch, Someone")
 
     def test_build_recommenders_text_empty(self):
         self.assertEqual(build_recommenders_text([]), "")

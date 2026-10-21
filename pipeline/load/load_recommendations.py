@@ -18,12 +18,18 @@ from database.models import (
     game_recommendations,
     streamer_games,
 )
+from pipeline.load.load_game_meta import link_igdb_genres_and_platforms
 from pipeline.load.load_games import make_unique_slug
 from pipeline.transform.recommendations_transform import normalize_recommendation_name, normalize_user_login
 from services.user_service import get_or_create_user_by_login
 
 
 ACTIVE_RECOMMENDATION_STATUSES = {"upcoming", "released"}
+
+# Псевдо-пользователь «Twitch»: отметка игр, которые IGDB считает ожидаемыми новинками.
+# Ставится только скриптом import_igdb_releases.py.
+UPCOMING_RELEASE_LOGIN = "twitch"
+UPCOMING_RELEASE_NOTE = "Ожидаемая новинка по версии Twitch"
 
 
 async def existing_recommendation_titles(session: AsyncSession) -> set[str]:
@@ -90,7 +96,12 @@ async def add_recommendation(
         return False
 
     await session.execute(
-        game_recommendations.insert().values(user_id=user.id, game_id=game.id, recommendation_note=note)
+        game_recommendations.insert().values(
+            user_id=user.id,
+            game_id=game.id,
+            recommendation_note=note,
+            created_at=datetime.utcnow(),
+        )
     )
     await session.flush()
     return True
@@ -185,10 +196,22 @@ async def create_game_with_igdb(
     )
     session.add(igdb_meta)
     await session.flush()
+
+    # Теги (жанры/платформы) для списков — из того же IGDB-payload, что и метаданные.
+    if isinstance(igdb_meta.raw_payload, dict):
+        await link_igdb_genres_and_platforms(session, game_id=game.id, payload=igdb_meta.raw_payload)
+
     return game
 
 
-async def add_igdb_note(session: AsyncSession, game_id: int, user_login: str = "igdb") -> None:
+async def add_upcoming_release_note(
+    session: AsyncSession,
+    game_id: int,
+    *,
+    user_login: str = UPCOMING_RELEASE_LOGIN,
+    note: str = UPCOMING_RELEASE_NOTE,
+) -> None:
+    """Отметка «ожидаемая новинка по версии Twitch» (только import_igdb_releases.py)."""
     user = await get_or_create_user_by_login(session, user_login)
     existing = await session.execute(
         select(game_recommendations).where(
@@ -198,9 +221,82 @@ async def add_igdb_note(session: AsyncSession, game_id: int, user_login: str = "
     )
     if not existing.first():
         await session.execute(
-            game_recommendations.insert().values(user_id=user.id, game_id=game_id, recommendation_note="Игра популярна")
+            game_recommendations.insert().values(
+                user_id=user.id,
+                game_id=game_id,
+                recommendation_note=note,
+                created_at=datetime.utcnow(),
+            )
         )
         await session.flush()
+
+
+async def set_release_interest_recommendation(
+    session: AsyncSession,
+    game_id: int,
+    *,
+    user_login: str,
+    note: str,
+    interested: bool,
+) -> bool:
+    """Синхронизирует рекомендацию канала с отметкой «Интересно».
+
+    * ``interested=True`` — создаёт рекомендацию пользователя ``user_login`` с
+      пометкой ``note`` (если её ещё нет). Уже существующая рекомендация не
+      трогается: чужой комментарий не перезаписывается, а пустой — дополняется.
+    * ``interested=False`` — удаляет только ту рекомендацию, у которой заметка
+      совпадает с ``note`` (то есть созданную этой механикой).
+
+    Возвращает ``True``, если база изменилась.
+    """
+    user = await get_or_create_user_by_login(session, normalize_user_login(user_login))
+    result = await session.execute(
+        select(game_recommendations).where(
+            game_recommendations.c.user_id == user.id,
+            game_recommendations.c.game_id == game_id,
+        )
+    )
+    row = result.first()
+
+    if interested:
+        if row is None:
+            await session.execute(
+                game_recommendations.insert().values(
+                    user_id=user.id,
+                    game_id=game_id,
+                    recommendation_note=note,
+                    created_at=datetime.utcnow(),
+                )
+            )
+            await session.flush()
+            return True
+        existing_note = row.recommendation_note if hasattr(row, "recommendation_note") else None
+        if not existing_note:
+            await session.execute(
+                game_recommendations.update()
+                .where(
+                    game_recommendations.c.user_id == user.id,
+                    game_recommendations.c.game_id == game_id,
+                )
+                .values(recommendation_note=note)
+            )
+            await session.flush()
+            return True
+        return False
+
+    if row is None:
+        return False
+    existing_note = row.recommendation_note if hasattr(row, "recommendation_note") else None
+    if existing_note != note:
+        return False
+    await session.execute(
+        delete(game_recommendations).where(
+            game_recommendations.c.user_id == user.id,
+            game_recommendations.c.game_id == game_id,
+        )
+    )
+    await session.flush()
+    return True
 
 
 async def find_existing_game(
@@ -243,6 +339,7 @@ async def load_user_recommendations(session: AsyncSession, user_login: str) -> l
 
 
 async def remove_recommendation(session: AsyncSession, user_id: int, game_id: int) -> None:
+    """Снять рекомендацию пользователя. Игра при этом остаётся в БД."""
     await session.execute(
         delete(game_recommendations).where(
             game_recommendations.c.user_id == user_id,
@@ -250,15 +347,6 @@ async def remove_recommendation(session: AsyncSession, user_id: int, game_id: in
         )
     )
     await session.flush()
-
-    remaining = await session.execute(
-        select(game_recommendations).where(game_recommendations.c.game_id == game_id).limit(1)
-    )
-    if not remaining.first():
-        game = await session.get(Game, game_id)
-        if game:
-            await session.delete(game)
-            await session.flush()
 
 
 async def iter_games_missing_short_description(session: AsyncSession, *, limit: int = 0) -> list[Game]:
@@ -346,8 +434,10 @@ async def update_release_dates(session: AsyncSession, games_to_update: list[Game
 
 __all__ = [
     "ACTIVE_RECOMMENDATION_STATUSES",
-    "add_igdb_note",
+    "UPCOMING_RELEASE_LOGIN",
+    "UPCOMING_RELEASE_NOTE",
     "add_recommendation",
+    "add_upcoming_release_note",
     "create_game",
     "create_game_with_igdb",
     "existing_recommendation_titles",

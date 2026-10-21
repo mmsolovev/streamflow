@@ -21,7 +21,7 @@ from pipeline.load.load_recommendations import (
     create_game_with_igdb,
     add_recommendation,
     find_game_by_query,
-    add_igdb_note,
+    add_upcoming_release_note,
 )
 from pipeline.load.load_games import adopt_game_name
 from utils.logger import get_logger
@@ -120,7 +120,7 @@ async def _process_single_game(
 
     await add_recommendation(session, game, TABULA_LOGIN, note="В списке желаемого Steam")
     if metadata.source_name == "igdb":
-        await add_igdb_note(session, game.id, user_login="igdb")
+        await add_upcoming_release_note(session, game.id)
 
     logger.info(
         "[%d/%d] Added: '%s' (IGDB id=%s)",

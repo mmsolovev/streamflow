@@ -1,0 +1,106 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------ *
+ * Дизайн-токены.
+ * Палитра раздела переключается атрибутом data-section на обёртке.
+ * ------------------------------------------------------------------ */
+
+@theme {
+  --font-sans: 'Montserrat', system-ui, 'Segoe UI', sans-serif;
+  --font-social: 'Orbitron', system-ui, sans-serif;
+
+  --color-topbar: #282828;
+  --color-ink: #e8eaed;
+  --color-ink-muted: #9aa0a6;
+}
+
+/* Orbitron используется как акцентный шрифт — всегда полужирный. */
+.font-social {
+  font-weight: 600;
+}
+
+:root {
+  --topbar-bg: #282828;
+  --page-bg: #15161a;
+  --section-bg: #1b1c21;
+  --card-bg: #222329;
+  --accent: #9aa0a6;
+  --text: #e8eaed;
+  --text-muted: #9aa0a6;
+
+  /* Акценты разделов «Статистики» — для страницы игры (островки). */
+  --accent-games: #55c366;
+  --accent-streams: #9152f8;
+  --accent-releases: #eb9f35;
+  --accent-recommendations: #5bbdf4;
+  --accent-hltb: #bf1313;
+}
+
+[data-section='games'] {
+  --section-bg: #1a1f1d;
+  --card-bg: #222927;
+  --accent: #55c366;
+}
+
+[data-section='streams'] {
+  --section-bg: #1f1f23;
+  --card-bg: #26262c;
+  --accent: #9152f8;
+}
+
+[data-section='releases'] {
+  --section-bg: #1f1a17;
+  --card-bg: #2a231f;
+  --accent: #eb9f35;
+}
+
+[data-section='recommendations'] {
+  --section-bg: #171c22;
+  --card-bg: #1f262e;
+  --accent: #5bbdf4;
+}
+
+[data-section='admin'] {
+  --section-bg: #1a1c21;
+  --card-bg: #23262d;
+  --accent: #7f8ea3;
+}
+
+/* Раздел «HowLongToBeat». */
+[data-section='hltb'] {
+  --section-bg: #1c1b1b;
+  --card-bg: #292525;
+  --accent: #bf1313;
+}
+
+/* Раздел «Telegram» — своя палитра (синий Telegram). */
+[data-section='telegram'] {
+  --section-bg: #171d21;
+  --card-bg: #242d33;
+  --accent: #2aabee;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--text);
+    /* Запасной generic-шрифт — иначе инспектор ругается на отсутствие
+       «общего» семейства в font-family через переменную. */
+    font-family: var(--font-sans, system-ui, 'Segoe UI', sans-serif);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  a {
+    color: inherit;
+  }
+}

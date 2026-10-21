@@ -116,6 +116,24 @@ class RecommendationMetadata:
     source_payload: str | None
 
 
+def _metadata_from_payload(game: dict) -> RecommendationMetadata:
+    release_date, release_precision = parse_release_date(game.get("first_release_date"))
+    return RecommendationMetadata(
+        title=game.get("name") or "Unknown",
+        description_short=truncate_text(game.get("summary")),
+        release_date=release_date,
+        release_precision=release_precision,
+        steam_url=extract_steam_url(game.get("websites")),
+        rating_text=build_rating_text(game),
+        platforms_text=build_platforms_text(game.get("platforms")),
+        genres_text=normalize_genres_text(game.get("genres")),
+        cover_url=normalize_cover_url(game.get("cover")),
+        source_name="igdb",
+        source_game_id=str(game.get("id")),
+        source_payload=json.dumps(game, ensure_ascii=False),
+    )
+
+
 async def _igdb_query(state: _IGDBLoopState, session: aiohttp.ClientSession, body: str) -> list[dict]:
     await state.rate.acquire()
     async with state.inflight:
@@ -180,25 +198,7 @@ async def fetch_recommendation_metadata(search_query: str) -> RecommendationMeta
             if best_match is None:
                 return None
 
-            game_id = best_match.get("id")
-            release_date, release_precision = parse_release_date(best_match.get("first_release_date"))
-            steam_url = extract_steam_url(best_match.get("websites"))
-            cover_url = normalize_cover_url(best_match.get("cover"))
-
-            meta = RecommendationMetadata(
-                title=best_match.get("name") or search_query,
-                description_short=truncate_text(best_match.get("summary")),
-                release_date=release_date,
-                release_precision=release_precision,
-                steam_url=steam_url,
-                rating_text=build_rating_text(best_match),
-                platforms_text=build_platforms_text(best_match.get("platforms")),
-                genres_text=normalize_genres_text(best_match.get("genres")),
-                cover_url=cover_url or None,
-                source_name="igdb",
-                source_game_id=str(game_id),
-                source_payload=json.dumps(best_match, ensure_ascii=False),
-            )
+            return _metadata_from_payload(best_match)
             return meta
 
     task = asyncio.create_task(_do_fetch())
@@ -216,12 +216,40 @@ async def fetch_recommendation_metadata(search_query: str) -> RecommendationMeta
     return result
 
 
-async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetadata]:
-    now = int(_time.time())
-    month_later = now + 30 * 24 * 60 * 60
+async def search_recommendation_candidates(
+    search_query: str, limit: int = 8
+) -> list[RecommendationMetadata]:
+    """Несколько наиболее подходящих вариантов из IGDB (для окна «Предложить игру»).
 
+    В отличие от `fetch_recommendation_metadata` возвращает не один лучший
+    матч, а список — в порядке релевантности IGDB.
+    """
+    logger = get_logger("recommendations.search")
     state = _get_state()
+
+    key = " ".join((search_query or "").casefold().split())
+    if not key:
+        return []
+
     timeout = aiohttp.ClientTimeout(total=30)
+    safe_query = (search_query or "").replace('"', "")
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            body = f"""
+            fields id,name,summary,first_release_date,total_rating,total_rating_count,aggregated_rating,aggregated_rating_count,
+                   genres.name,platforms.name,websites.url,cover.url;
+            search "{safe_query}";
+            limit {int(limit)};
+            """
+            results = await _igdb_query(state, session, body)
+            return [_metadata_from_payload(item) for item in results]
+    except Exception:
+        logger.exception("IGDB search failed", extra={"query": search_query})
+        return []
+
+
+async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetadata]:
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         body = f"""
@@ -253,30 +281,10 @@ async def fetch_top_upcoming_games(limit: int = 15) -> list[RecommendationMetada
             if release_ts < now or release_ts > month_later:
                 continue
 
-            platforms_text = build_platforms_text(game.get("platforms"))
-            if not platforms_text:
+            if not build_platforms_text(game.get("platforms")):
                 continue
 
-            release_date, release_precision = parse_release_date(release_ts)
-            cover_url = normalize_cover_url(game.get("cover"))
-            steam_url = extract_steam_url(game.get("websites"))
-
-            output.append(
-                RecommendationMetadata(
-                    title=game.get("name") or "Unknown",
-                    description_short=truncate_text(game.get("summary")),
-                    release_date=release_date,
-                    release_precision=release_precision,
-                    steam_url=steam_url,
-                    rating_text=build_rating_text(game),
-                    platforms_text=platforms_text,
-                    genres_text=normalize_genres_text(game.get("genres")),
-                    cover_url=cover_url or None,
-                    source_name="igdb",
-                    source_game_id=str(game.get("id")),
-                    source_payload=json.dumps(game, ensure_ascii=False),
-                )
-            )
+            output.append(_metadata_from_payload(game))
 
             if len(output) >= limit:
                 break
@@ -308,6 +316,30 @@ async def fetch_igdb_metadata(game_name: str) -> RecommendationMetadata | None:
     return await fetch_recommendation_metadata(game_name)
 
 
+async def fetch_igdb_metadata_by_id(igdb_id: str | int) -> RecommendationMetadata | None:
+    """Fetch full IGDB metadata for a specific IGDB game id (no name search)."""
+    try:
+        numeric_id = int(igdb_id)
+    except (TypeError, ValueError):
+        return None
+
+    state = _get_state()
+    timeout = aiohttp.ClientTimeout(total=30)
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        body = f"""
+        fields id,name,summary,first_release_date,total_rating,total_rating_count,aggregated_rating,aggregated_rating_count,
+               genres.name,platforms.name,websites.url,cover.url;
+        where id = {numeric_id};
+        limit 1;
+        """
+        results = await _igdb_query(state, session, body)
+
+    if not results:
+        return None
+    return _metadata_from_payload(results[0])
+
+
 async def ingest_top_upcoming_games(limit: int = 15) -> list[RecommendationMetadata]:
     return await fetch_top_upcoming_games(limit=int(limit))
 
@@ -320,8 +352,10 @@ __all__ = [
     "RecommendationMetadata",
     "fetch_games_by_ids",
     "fetch_igdb_metadata",
+    "fetch_igdb_metadata_by_id",
     "fetch_recommendation_metadata",
     "fetch_top_upcoming_games",
     "ingest_recommendation_metadata",
     "ingest_top_upcoming_games",
+    "search_recommendation_candidates",
 ]

@@ -6,27 +6,17 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import TwitchAuthorization
+from database.models import TwitchAuthorization, TwitchStreamerAuthorization
 from backend.config import get_backend_settings
 from backend.security.twitch_oauth import refresh_access_token
 
 
-async def get_twitch_access_token(session: AsyncSession, user_id: int) -> str:
-    """Return a usable access token, rotating it shortly before expiry.
+async def _rotate(session: AsyncSession, authorization) -> str:
+    """Обновить пару токенов у строки авторизации и вернуть новый access token.
 
-    The row lock makes concurrent requests in multiple workers re-check the
-    newly stored expiry before making another refresh request.
+    Общая логика для обычного и «стримерского» токена: обе строки имеют
+    одинаковый набор полей (access_token/refresh_token/expires_at/...).
     """
-    authorization = (
-        await session.execute(
-            select(TwitchAuthorization)
-            .where(TwitchAuthorization.user_id == user_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if authorization is None:
-        raise LookupError("Twitch authorization not found")
-
     now = datetime.utcnow()
     settings = get_backend_settings()
     refresh_before = now + timedelta(seconds=settings.twitch_token_refresh_skew_seconds)
@@ -45,3 +35,39 @@ async def get_twitch_access_token(session: AsyncSession, user_id: int) -> str:
     authorization.updated_at = now
     await session.flush()
     return authorization.access_token
+
+
+async def get_twitch_access_token(session: AsyncSession, user_id: int) -> str:
+    """Return a usable access token, rotating it shortly before expiry.
+
+    The row lock makes concurrent requests in multiple workers re-check the
+    newly stored expiry before making another refresh request.
+    """
+    authorization = (
+        await session.execute(
+            select(TwitchAuthorization)
+            .where(TwitchAuthorization.user_id == user_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if authorization is None:
+        raise LookupError("Twitch authorization not found")
+    return await _rotate(session, authorization)
+
+
+async def get_streamer_access_token(session: AsyncSession, user_id: int) -> str:
+    """As `get_twitch_access_token`, but for the streamer (elevated) token.
+
+    Читает таблицу `twitch_streamer_authorizations`. Токен нужен боту для
+    операций, доступных только аккаунту стримера (например, баллы канала).
+    """
+    authorization = (
+        await session.execute(
+            select(TwitchStreamerAuthorization)
+            .where(TwitchStreamerAuthorization.user_id == user_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if authorization is None:
+        raise LookupError("Streamer Twitch authorization not found")
+    return await _rotate(session, authorization)

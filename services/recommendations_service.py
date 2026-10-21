@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from config.settings import (
     ADMINS,
@@ -17,8 +16,12 @@ from database.db import AsyncSessionLocal
 from database.models import Game, GameMetadataIGDB, User, UserProfile, game_recommendations, streamer_games
 from services.games_service import build_game_response, find_game_lookup
 from services.user_service import find_user_by_login
-from pipeline.ingest.igdb_api import fetch_recommendation_metadata
+from pipeline.ingest.igdb_api import (
+    fetch_igdb_metadata_by_id,
+    fetch_recommendation_metadata,
+)
 from pipeline.load.load_recommendations import (
+    UPCOMING_RELEASE_LOGIN,
     add_recommendation as _db_add_recommendation,
     create_game as _db_create_game,
     create_game_with_igdb as _db_create_game_with_igdb,
@@ -27,7 +30,6 @@ from pipeline.load.load_recommendations import (
     load_user_recommendations as _db_load_user_recommendations,
     remove_recommendation as _db_remove_recommendation,
     set_streamer_interested as _db_set_streamer_interested,
-    add_igdb_note as _db_add_igdb_note,
 )
 from pipeline.load.load_games import adopt_game_name as _db_adopt_game_name
 from pipeline.transform.recommendations_transform import (
@@ -109,26 +111,39 @@ async def _get_recommenders_count(session: AsyncSession, game_id: int) -> int:
     return len(result.all())
 
 
+async def _get_igdb_metadata(session: AsyncSession, game_id: int) -> GameMetadataIGDB | None:
+    # Явный запрос вместо game.igdb_metadata: ленивая загрузка relationship
+    # в async-сессии падает с MissingGreenlet.
+    result = await session.execute(
+        select(GameMetadataIGDB).where(GameMetadataIGDB.game_id == game_id)
+    )
+    return result.scalars().first()
+
+
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    """Даты в БД хранятся naive UTC — приводим к этому виду перед сравнением."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 async def build_recommendation_summary(session: AsyncSession, game: Game) -> RecommendationSummary:
     recommenders = await _get_game_recommenders(session, game.id)
     votes_count = await _get_recommenders_count(session, game.id)
 
-    release_date = None
-    steam_url = None
-    igdb_score = None
-    cover_url = None
-
-    if game.igdb_metadata:
-        release_date = game.igdb_metadata.release_date
-        steam_url = game.igdb_metadata.steam_url
-        igdb_score = game.igdb_metadata.igdb_score
-        cover_url = game.igdb_metadata.cover_url
+    meta = await _get_igdb_metadata(session, game.id)
+    release_date = _as_naive_utc(meta.release_date) if meta else None
+    steam_url = meta.steam_url if meta else None
+    igdb_score = meta.igdb_score if meta else None
+    cover_url = meta.cover_url if meta else None
 
     is_streamed = await _check_if_streamed(session, game.name)
 
     if is_streamed:
         status = STATUS_STREAMED
-    elif release_date and release_date > datetime.now(timezone.utc):
+    elif release_date and release_date > datetime.now(timezone.utc).replace(tzinfo=None):
         status = STATUS_UPCOMING
     else:
         status = STATUS_RELEASED
@@ -229,7 +244,13 @@ def _format_add_message(title: str, removed_title: str | None = None, already_ex
     return prefix + _format_limit_suffix(removed_title)
 
 
-async def recommend_game(query: str, user_login: str, user_display_name: str) -> RecommendationActionResult:
+async def recommend_game(
+    query: str,
+    user_login: str,
+    user_display_name: str,
+    igdb_id: str | None = None,
+    note: str | None = None,
+) -> RecommendationActionResult:
     normalized_query = normalize_recommendation_name(query)
     if not normalized_query:
         return _make_result("invalid", build_recommendations_help_message())
@@ -250,7 +271,7 @@ async def recommend_game(query: str, user_login: str, user_display_name: str) ->
                 return _make_result("duplicate_vote", f"Уже рекомендована «{existing.name}».")
 
             removed_title = await _enforce_user_limit(session, user_login)
-            await _db_add_recommendation(session, existing, user_login)
+            await _db_add_recommendation(session, existing, user_login, note=note)
             await session.commit()
             summary = await build_recommendation_summary(session, existing)
             return _make_result(
@@ -260,7 +281,11 @@ async def recommend_game(query: str, user_login: str, user_display_name: str) ->
                 accepted=True,
             )
 
-        metadata = await fetch_recommendation_metadata(query)
+        metadata = (
+            await fetch_igdb_metadata_by_id(igdb_id)
+            if igdb_id
+            else await fetch_recommendation_metadata(query)
+        )
         if metadata is None:
             return _make_result(
                 "not_found",
@@ -279,7 +304,7 @@ async def recommend_game(query: str, user_login: str, user_display_name: str) ->
                 return _make_result("duplicate_vote", f"Уже рекомендована «{existing.name}».")
 
             removed_title = await _enforce_user_limit(session, user_login)
-            await _db_add_recommendation(session, existing, user_login)
+            await _db_add_recommendation(session, existing, user_login, note=note)
             await session.commit()
             summary = await build_recommendation_summary(session, existing)
             return _make_result(
@@ -301,9 +326,7 @@ async def recommend_game(query: str, user_login: str, user_display_name: str) ->
             cover_url=metadata.cover_url,
             raw_payload=metadata.source_payload,
         )
-        await _db_add_recommendation(session, game, user_login)
-        if metadata.source_name == "igdb":
-            await _db_add_igdb_note(session, game.id, user_login="igdb")
+        await _db_add_recommendation(session, game, user_login, note=note)
 
         if _is_streamer_recommendation(user_login):
             await _db_set_streamer_interested(session, game.id, user_login, True)
@@ -442,5 +465,53 @@ async def _get_user(session: AsyncSession, login: str) -> User | None:
     return await find_user_by_login(session, _normalize_user_login(login))
 
 
+# За сколько дней до/после релиза Twitch-рекомендация считается актуальной.
+# До релиза (или если дата неизвестна) — попадает в «Релизы»; если релиз уже
+# прошёл более чем за UPCOMING_RELEASE_WINDOW_DAYS дней — рекомендация
+# удаляется, а игра остаётся в БД.
+UPCOMING_RELEASE_WINDOW_DAYS = 2
+
+
 async def refresh_recommendation_lifecycle() -> int:
-    return 0
+    """Удаляет устаревшие рекомендации псевдопользователя Twitch.
+
+    Twitch-рекомендация перестаёт попадать в «Релизы», когда релиз уже
+    состоялся и с него прошло более ``UPCOMING_RELEASE_WINDOW_DAYS`` дней.
+    В таком случае сама рекомендация удаляется, но игра в БД остаётся.
+    Возвращает число удалённых рекомендаций.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=UPCOMING_RELEASE_WINDOW_DAYS)
+
+    twitch_users = (
+        select(User.id)
+        .join(UserProfile, UserProfile.user_id == User.id)
+        .where(UserProfile.login == UPCOMING_RELEASE_LOGIN, UserProfile.is_current.is_(True))
+        .scalar_subquery()
+    )
+    q = (
+        select(game_recommendations.c.user_id, game_recommendations.c.game_id)
+        .join(GameMetadataIGDB, GameMetadataIGDB.game_id == game_recommendations.c.game_id)
+        .where(
+            game_recommendations.c.user_id.in_(twitch_users),
+            GameMetadataIGDB.release_date.is_not(None),
+            GameMetadataIGDB.release_date < cutoff,
+        )
+    )
+    # Игра остаётся в БД — удаляется только строка рекомендации.
+    delete_q = delete(game_recommendations).where(
+        game_recommendations.c.user_id.in_(twitch_users),
+        game_recommendations.c.game_id.in_(
+            select(GameMetadataIGDB.game_id).where(
+                GameMetadataIGDB.release_date.is_not(None),
+                GameMetadataIGDB.release_date < cutoff,
+            )
+        ),
+    )
+
+    async with AsyncSessionLocal() as session:
+        stale_count = len((await session.execute(q)).all())
+        if not stale_count:
+            return 0
+        await session.execute(delete_q)
+        await session.commit()
+        return stale_count
