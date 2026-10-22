@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+# Логи backend — в свой файл, иначе он делит `bot.log` с ботом (подробности
+# в utils/logger.py). Ставим ДО импорта роутеров: они вызывают
+# `get_logger()` → `configure_logging()` на уровне модуля.
+os.environ.setdefault("BOT_LOG_FILE", "backend.log")
 
 from backend.config import get_backend_settings
 from backend.routers import auth, games, health, hltb, meta, recommendations, releases, streams, users

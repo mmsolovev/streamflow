@@ -96,7 +96,9 @@ class BuildFinishedEntitiesTests(unittest.TestCase):
         self.assertEqual(entity["url"], VOD_1)
         # Смещение и длина обязаны указывать РОВНО на подпись, иначе
         # ссылка захватит заголовок или обрежется.
-        self.assertEqual(entity["offset"], utf16_length("Запись стрима:\n\n"))
+        # Подпись — это "TWITCH"; перед ней в лейбле стоит emoji (2 UTF-16
+        # единицы), поэтому смещение считаем от позиции слова в тексте.
+        self.assertEqual(entity["offset"], utf16_length(text[: text.index("TWITCH")]))
         self.assertEqual(entity["length"], utf16_length("TWITCH"))
 
     def test_entity_offsets_use_utf16_units(self):
@@ -105,7 +107,7 @@ class BuildFinishedEntitiesTests(unittest.TestCase):
         # показал бы мусор вместо подписи.
         text, entities = build_finished_entities([VOD_1, VOD_2])
         second = [e for e in entities if e["url"] == VOD_2][0]
-        expected = utf16_length("Запись стрима:\n\n" + VOD_LINK_LABEL + "\n")
+        expected = utf16_length(text[: text.rindex("TWITCH")])
         self.assertEqual(second["offset"], expected)
 
     def test_custom_emoji_entity_is_never_added(self):

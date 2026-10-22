@@ -1,0 +1,318 @@
+```json
+{
+"events": [
+{
+"id": 001,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 005,
+"patterns": [
+"JOKE"
+]
+},
+{
+"id": 012,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 013,
+"patterns": []
+},
+{
+"id": 015,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 027,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 032,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 034,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 037,
+"patterns": []
+},
+{
+"id": 044,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 058,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 061,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 062,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 073,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 074,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 082,
+"patterns": []
+},
+{
+"id": 121,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 124,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 125,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 130,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 145,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 146,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 159,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 162,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 173,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 175,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 188,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 193,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 201,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 201,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 202,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 203,
+"patterns": [
+"GREETING"
+]
+},
+{
+"id": 204,
+"patterns": []
+},
+{
+"id": 205,
+"patterns": []
+},
+{
+"id": 206,
+"patterns": []
+},
+{
+"id": 207,
+"patterns": [
+"STREAMER_SUPPORT"
+]
+},
+{
+"id": 208,
+"patterns": [
+"STREAMER_SUPPORT"
+]
+},
+{
+"id": 209,
+"patterns": [
+"STREAMER_SUPPORT"
+]
+},
+{
+"id": 210,
+"patterns": [
+"STREAMER_SUPPORT"
+]
+},
+{
+"id": 214,
+"patterns": [
+"GAME_ADVICE"
+]
+},
+{
+"id": 216,
+"patterns": [
+"GAME_ADVICE"
+]
+},
+{
+"id": 236,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 237,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 238,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 239,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 240,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 241,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 242,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 243,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 244,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 271,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 272,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 273,
+"patterns": [
+"COPYPASTA"
+]
+},
+{
+"id": 274,
+"patterns": [
+"COPYPASTA"
+]
+}
+]
+}
+```

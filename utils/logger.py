@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -9,12 +10,25 @@ LOG_FILE = LOG_DIR / "bot.log"
 _LOGGING_CONFIGURED = False
 
 
+def _log_file() -> Path:
+    """Файл логов: `BOT_LOG_FILE` (относительно LOG_DIR), иначе `bot.log`.
+
+    Разные процессы (бот и backend) обязаны писать в разные файлы: один
+    `RotatingFileHandler` на файл в двух процессах ломает ротацию — второй
+    процесс держит файл открытым и `os.rename` падает с WinError 32.
+    """
+    name = os.environ.get("BOT_LOG_FILE") or "bot.log"
+    path = Path(name)
+    return path if path.is_absolute() else LOG_DIR / path
+
+
 def configure_logging() -> None:
-    global _LOGGING_CONFIGURED
+    global _LOGGING_CONFIGURED, LOG_FILE
     if _LOGGING_CONFIGURED:
         return
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_FILE = _log_file()
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
