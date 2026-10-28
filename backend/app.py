@@ -16,8 +16,20 @@ from fastapi.responses import JSONResponse
 os.environ.setdefault("BOT_LOG_FILE", "backend.log")
 
 from backend.config import get_backend_settings
-from backend.routers import auth, games, health, hltb, meta, recommendations, releases, streams, users
-from backend.security.maintenance import cleanup_expired_sessions_loop
+from backend.routers import (
+    admin,
+    auth,
+    games,
+    health,
+    hltb,
+    meta,
+    recommendations,
+    releases,
+    streams,
+    telegram_post_edit,
+    users,
+)
+from backend.security.maintenance import cleanup_expired_sessions_loop, sync_twitch_bans_loop
 
 
 def _error_body(code: str, message: Any) -> dict:
@@ -49,11 +61,13 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         cleanup_task = asyncio.create_task(cleanup_expired_sessions_loop())
+        ban_sync_task = asyncio.create_task(sync_twitch_bans_loop())
         try:
             yield
         finally:
             cleanup_task.cancel()
-            await asyncio.gather(cleanup_task, return_exceptions=True)
+            ban_sync_task.cancel()
+            await asyncio.gather(cleanup_task, ban_sync_task, return_exceptions=True)
 
     app = FastAPI(
         title="streamflow API",
@@ -86,7 +100,9 @@ def create_app() -> FastAPI:
     app.include_router(recommendations.router, prefix=prefix)
     app.include_router(meta.router, prefix=prefix)
     app.include_router(auth.router, prefix=prefix)
+    app.include_router(admin.router, prefix=prefix)
     app.include_router(users.router, prefix=prefix)
+    app.include_router(telegram_post_edit.router, prefix=prefix)
 
     return app
 

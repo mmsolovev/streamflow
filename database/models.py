@@ -1,6 +1,7 @@
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -88,16 +89,23 @@ class User(Base):
     birthday_calendar_day_id = Column(Integer, ForeignKey("calendar_days.id"))
     birthday_set_at = Column(DateTime)
     birthday_changed_at = Column(DateTime)
+    # Twitch affiliation flag (partner/affiliate), NOT the project staff role.
     is_streamer = Column(Boolean, default=False)
-    is_admin = Column(Boolean, default=False)
-    is_trusted = Column(Boolean, default=False)
-    twitch_management = Column(Boolean, default=False)
+    role = Column(String(20), nullable=False, server_default="user", default="user")
     duels_win = Column(Integer)
     duels_lose = Column(Integer)
     duels_draw = Column(Integer)
     created_at = Column(DateTime)
 
     profiles = relationship("UserProfile", back_populates="user")
+
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('owner', 'streamer', 'admin', 'editor', 'user')",
+            name="ck_users_role",
+        ),
+        Index("ix_users_role", "role"),
+    )
 
     @property
     def current_profile(self):
@@ -305,8 +313,9 @@ class TwitchAuthorization(Base):
     __tablename__ = "twitch_authorizations"
 
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
-    access_token = Column(Text, nullable=False)
-    refresh_token = Column(Text, nullable=False)
+    access_token_encrypted = Column(Text)
+    refresh_token_encrypted = Column(Text)
+    key_version = Column(Integer, nullable=False, server_default="1", default=1)
     scopes = Column(Text)
     expires_at = Column(DateTime)
     last_refresh_at = Column(DateTime)
@@ -326,8 +335,9 @@ class TwitchStreamerAuthorization(Base):
 
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     twitch_login = Column(Text, nullable=False)
-    access_token = Column(Text, nullable=False)
-    refresh_token = Column(Text, nullable=False)
+    access_token_encrypted = Column(Text)
+    refresh_token_encrypted = Column(Text)
+    key_version = Column(Integer, nullable=False, server_default="1", default=1)
     scopes = Column(Text)
     expires_at = Column(DateTime)
     last_refresh_at = Column(DateTime)
@@ -340,9 +350,60 @@ class WebSession(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String(64), unique=True)
+    csrf_hash = Column(String(64))
     expires_at = Column(DateTime, nullable=False)
+    absolute_expires_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False)
     last_activity_at = Column(DateTime)
+
+
+class UserRestriction(Base):
+    """Активное ограничение пользователя (Twitch-бан или service-бан)."""
+
+    __tablename__ = "user_restrictions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String(20), nullable=False)
+    channel = Column(Text)
+    reason = Column(Text)
+    source = Column(String(20), nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, nullable=False)
+    checked_at = Column(DateTime)
+    expires_at = Column(DateTime)
+    lifted_at = Column(DateTime)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('twitch_ban', 'service_ban')", name="ck_user_restrictions_kind"),
+        CheckConstraint("source IN ('twitch_api', 'manual')", name="ck_user_restrictions_source"),
+        Index(
+            "ux_user_restrictions_active",
+            "user_id",
+            "kind",
+            text("COALESCE(channel, '')"),
+            unique=True,
+            postgresql_where=text("lifted_at IS NULL"),
+        ),
+    )
+
+
+class ModerationAudit(Base):
+    """Журнал изменений ролей и ограничений."""
+
+    __tablename__ = "moderation_audit"
+
+    id = Column(BigInteger, primary_key=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    target_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    action = Column(String(40), nullable=False)
+    old_value = Column(Text)
+    new_value = Column(Text)
+    reason = Column(Text)
+    ip = Column(Text)
+    user_agent = Column(Text)
+    created_at = Column(DateTime, nullable=False)
 
 
 class TwitchReward(Base):
@@ -730,6 +791,11 @@ class TelegramAnnouncement(Base):
     # этой колонки разбор текста не нашёл бы канал и анонс не привязался бы
     # к стриму. Nullable: у постов без ссылок значения нет.
     link_urls = Column(Text)
+    original_text = Column(Text)
+    original_caption = Column(Text)
+    original_entities = Column(Text)
+    text_entities_snapshot = Column(Text)
+    caption_entities_snapshot = Column(Text)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
     __table_args__ = (
@@ -750,12 +816,12 @@ class TelegramAnnouncementVod(Base):
     __tablename__ = "telegram_announcement_vods"
 
     id = Column(Integer, primary_key=True)
-    announcement_id = Column(Integer, ForeignKey("telegram_announcements.id"), nullable=False)
+    announcement_id = Column(Integer, ForeignKey("telegram_announcements.id"), nullable=True)
     # Twitch stream_id, а не streams.id: строки streams может ещё не быть
     stream_id = Column(Text, nullable=False)
     stream_started_at = Column(DateTime, nullable=False)
     stream_ended_at = Column(DateTime)
-    # waiting | resolved | no_vod | failed
+    # pending_selection | waiting | resolved | no_vod | ready | applying | edited | edit_failed | failed | undone
     status = Column(String(20), nullable=False, default="waiting")
     vod_url = Column(Text)
     duration_minutes = Column(Integer)
@@ -763,6 +829,15 @@ class TelegramAnnouncementVod(Base):
     check_at = Column(DateTime)
     attempts = Column(Integer, default=0)
     last_error = Column(Text)
+    selected_by_admin = Column(Boolean, default=False)
+    last_checked_at = Column(DateTime)
+    publish_now_requested_at = Column(DateTime)
+    undo_requested_at = Column(DateTime)
+    restore_requested_at = Column(DateTime)
+    applied_at = Column(DateTime)
+    applied_text = Column(Text)
+    applied_entities = Column(Text)
+    undone_at = Column(DateTime)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
     __table_args__ = (
@@ -770,8 +845,45 @@ class TelegramAnnouncementVod(Base):
             "announcement_id", "stream_id",
             name="uq_telegram_announcement_vods_announcement_stream",
         ),
+        UniqueConstraint("stream_id", name="uq_telegram_announcement_vods_stream_id"),
         Index("ix_telegram_announcement_vods_status_check_at", "status", "check_at"),
         Index("ix_telegram_announcement_vods_stream_id", "stream_id"),
     )
 
     announcement = relationship("TelegramAnnouncement", back_populates="vods")
+
+
+class TelegramPostEditSettings(Base):
+    __tablename__ = "telegram_post_edit_settings"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    delay_seconds = Column(Integer, nullable=False, default=660)
+    header = Column(Text, nullable=False, default="Запись стрима:\n\n")
+    item = Column(Text, nullable=False, default="🎥{{link}}~")
+    separator = Column(Text, nullable=False, default="\n")
+    footer = Column(Text, nullable=False, default="")
+    link_label = Column(Text, nullable=False, default="TWITCH")
+    updated_at = Column(DateTime)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"))
+
+
+class TelegramPostEditOperation(Base):
+    __tablename__ = "telegram_post_edit_operations"
+
+    id = Column(Integer, primary_key=True)
+    job_id = Column(Integer, ForeignKey("telegram_announcement_vods.id"), nullable=False)
+    announcement_id = Column(Integer, ForeignKey("telegram_announcements.id"), nullable=False)
+    kind = Column(String(20), nullable=False, default="publish")
+    status = Column(String(20), nullable=False, default="queued")
+    before_text = Column(Text)
+    before_entities = Column(Text)
+    after_text = Column(Text)
+    after_entities = Column(Text)
+    error = Column(Text)
+    requested_by_user_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime)
+    applied_at = Column(DateTime)
+    __table_args__ = (
+        Index("ix_telegram_post_edit_operations_job_id", "job_id", "id"),
+    )

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +70,41 @@ def load_link_urls(raw: str | None) -> list[str]:
     return [str(url).strip() for url in urls if str(url or "").strip()]
 
 
+def entity_to_dict(entity) -> dict:
+    if isinstance(entity, dict):
+        return dict(entity)
+    if hasattr(entity, "model_dump"):
+        return entity.model_dump(exclude_none=True)
+    return {
+        key: value
+        for key, value in vars(entity).items()
+        if value is not None and not key.startswith("_")
+    }
+
+
+def dump_entities(entities) -> str | None:
+    values = []
+    for entity in entities or ():
+        value = entity_to_dict(entity)
+        if value:
+            values.append(value)
+    if not values:
+        return None
+    return json.dumps(values, ensure_ascii=False)
+
+
+def load_entities(raw: str | None) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        values = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(values, list):
+        return []
+    return [dict(value) for value in values if isinstance(value, dict)]
+
+
 async def record_post(
     session: AsyncSession,
     *,
@@ -81,6 +116,7 @@ async def record_post(
     is_forward: bool,
     text: str | None,
     caption: str | None,
+    entities=None,
     custom_emoji_id: str | None = None,
     link_urls=None,
 ) -> int:
@@ -95,42 +131,85 @@ async def record_post(
     `link_urls` — по той же причине, плюс без них отбор кандидата в принципе
     не работает: у скрытой ссылки в тексте следа нет.
     """
-    statement = (
-        pg_insert(TelegramAnnouncement)
-        .values(
-            chat_id=chat_id,
-            message_id=message_id,
-            media_kind=media_kind,
-            media_group_id=media_group_id,
-            is_forward=bool(is_forward),
-            text_snapshot=text,
-            caption_snapshot=caption,
-            custom_emoji_id=custom_emoji_id,
-            link_urls=dump_link_urls(link_urls),
-            posted_at=to_naive_utc(posted_at) or _now(),
-            status="observed",
-            created_at=_now(),
-            updated_at=_now(),
-        )
-        .on_conflict_do_update(
-            constraint="uq_telegram_announcements_chat_message",
-            set_={
-                "media_kind": media_kind,
-                "media_group_id": media_group_id,
-                "is_forward": bool(is_forward),
-                "text_snapshot": text,
-                "caption_snapshot": caption,
-                "custom_emoji_id": custom_emoji_id,
-                "link_urls": dump_link_urls(link_urls),
-                "posted_at": to_naive_utc(posted_at) or _now(),
-                "updated_at": _now(),
-            },
-        )
-        .returning(TelegramAnnouncement.id)
+    entities_raw = dump_entities(entities)
+    text_entities = None if media_kind else entities_raw
+    caption_entities = entities_raw if media_kind else None
+
+    insert_stmt = pg_insert(TelegramAnnouncement).values(
+        chat_id=chat_id,
+        message_id=message_id,
+        media_kind=media_kind,
+        media_group_id=media_group_id,
+        is_forward=bool(is_forward),
+        text_snapshot=text,
+        caption_snapshot=caption,
+        text_entities_snapshot=text_entities,
+        caption_entities_snapshot=caption_entities,
+        original_text=text,
+        original_caption=caption,
+        original_entities=entities_raw,
+        custom_emoji_id=custom_emoji_id,
+        link_urls=dump_link_urls(link_urls),
+        posted_at=to_naive_utc(posted_at) or _now(),
+        status="observed",
+        created_at=_now(),
+        updated_at=_now(),
     )
+    statement = insert_stmt.on_conflict_do_update(
+        constraint="uq_telegram_announcements_chat_message",
+        set_={
+            "media_kind": media_kind,
+            "media_group_id": media_group_id,
+            "is_forward": bool(is_forward),
+            "text_snapshot": text,
+            "caption_snapshot": caption,
+            "text_entities_snapshot": text_entities,
+            "caption_entities_snapshot": caption_entities,
+            "original_text": func.coalesce(
+                TelegramAnnouncement.original_text,
+                insert_stmt.excluded.original_text,
+            ),
+            "original_caption": func.coalesce(
+                TelegramAnnouncement.original_caption,
+                insert_stmt.excluded.original_caption,
+            ),
+            "original_entities": func.coalesce(
+                TelegramAnnouncement.original_entities,
+                insert_stmt.excluded.original_entities,
+            ),
+            "custom_emoji_id": custom_emoji_id,
+            "link_urls": dump_link_urls(link_urls),
+            "posted_at": to_naive_utc(posted_at) or _now(),
+            "updated_at": _now(),
+        },
+    ).returning(TelegramAnnouncement.id)
 
     result = await session.execute(statement)
     return result.scalar_one()
+
+
+def snapshot_of(announcement: TelegramAnnouncement) -> tuple[str | None, list[dict]]:
+    if announcement.media_kind:
+        return (
+            announcement.caption_snapshot,
+            load_entities(announcement.caption_entities_snapshot),
+        )
+    return (
+        announcement.text_snapshot,
+        load_entities(announcement.text_entities_snapshot),
+    )
+
+
+def original_of(announcement: TelegramAnnouncement) -> tuple[str | None, list[dict]]:
+    if announcement.media_kind:
+        return (
+            announcement.original_caption,
+            load_entities(announcement.original_entities),
+        )
+    return (
+        announcement.original_text,
+        load_entities(announcement.original_entities),
+    )
 
 
 async def get_by_id(
@@ -257,6 +336,7 @@ async def touch_snapshots(
     announcement_id: int,
     text: str | None,
     caption: str | None,
+    entities=None,
     custom_emoji_id: str | None = None,
     link_urls=None,
     media_kind: str | None = None,
@@ -270,6 +350,12 @@ async def touch_snapshots(
     }
 
     # Не перезаписываем None-значения, чтобы не потерять ранее установленные данные.
+    if entities is not None:
+        entities_raw = dump_entities(entities)
+        if media_kind:
+            values["caption_entities_snapshot"] = entities_raw
+        else:
+            values["text_entities_snapshot"] = entities_raw
     if custom_emoji_id is not None:
         values["custom_emoji_id"] = custom_emoji_id
     if link_urls is not None:
@@ -310,15 +396,20 @@ async def save_custom_emoji_id(
 
 __all__ = [
     "REBIND_LOOKBACK_HOURS",
+    "dump_entities",
     "dump_link_urls",
+    "entity_to_dict",
     "get_by_chat_message",
     "get_by_id",
+    "load_entities",
     "load_link_urls",
     "mark_edited",
     "mark_skipped",
+    "original_of",
     "recent_bound_ids",
     "recent_posts",
     "record_post",
     "save_custom_emoji_id",
+    "snapshot_of",
     "to_naive_utc",
 ]

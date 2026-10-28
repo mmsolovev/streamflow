@@ -50,7 +50,7 @@ def next_retry_at(attempts: int) -> datetime:
 async def create_job(
     session: AsyncSession,
     *,
-    announcement_id: int,
+    announcement_id: int | None,
     stream_id: str,
     stream_started_at: datetime | None,
     stream_ended_at: datetime | None,
@@ -59,10 +59,13 @@ async def create_job(
     """Ставит задачу в очередь. Повторный вызов для того же стрима — no-op.
 
     Возвращает id созданной задачи либо None, если задача уже была.
-    Идемпотентность обеспечивает UNIQUE(announcement_id, stream_id): при
-    повторном `stream.offline` или реконнекте задача не задваивается.
+    Идемпотентность обеспечивает UNIQUE(stream_id): при повторном
+    `stream.offline` или реконнекте задача не задваивается.
     """
     started = to_naive_utc(stream_started_at) or _now()
+    check_at = None
+    if announcement_id is not None:
+        check_at = _now() + timedelta(seconds=max(check_delay_seconds, 0))
 
     statement = (
         pg_insert(TelegramAnnouncementVod)
@@ -71,14 +74,14 @@ async def create_job(
             stream_id=str(stream_id),
             stream_started_at=started,
             stream_ended_at=to_naive_utc(stream_ended_at),
-            status="waiting",
+            status="waiting" if announcement_id is not None else "pending_selection",
             attempts=0,
             # VOD появляется не мгновенно, поэтому первая проверка отложена.
-            check_at=_now() + timedelta(seconds=max(check_delay_seconds, 0)),
+            check_at=check_at,
             created_at=_now(),
             updated_at=_now(),
         )
-        .on_conflict_do_nothing(constraint="uq_telegram_announcement_vods_announcement_stream")
+        .on_conflict_do_nothing(constraint="uq_telegram_announcement_vods_stream_id")
         .returning(TelegramAnnouncementVod.id)
     )
 
@@ -104,6 +107,7 @@ async def claim_due(
         select(TelegramAnnouncementVod)
         .where(
             TelegramAnnouncementVod.status == "waiting",
+            TelegramAnnouncementVod.announcement_id.is_not(None),
             TelegramAnnouncementVod.check_at <= moment,
         )
         .order_by(TelegramAnnouncementVod.check_at.asc())
@@ -143,7 +147,55 @@ async def jobs_for_announcement(
 async def resolved_urls(session: AsyncSession, announcement_id: int) -> list[str]:
     """Ссылки на найденные VOD, хронологически."""
     jobs = await jobs_for_announcement(session, announcement_id)
-    return [job.vod_url for job in jobs if job.status == "resolved" and job.vod_url]
+    return [job.vod_url for job in jobs if job.vod_url and job.status != "no_vod"]
+
+
+async def request_publish(session: AsyncSession, job_id: int) -> None:
+    await session.execute(
+        update(TelegramAnnouncementVod)
+        .where(TelegramAnnouncementVod.id == job_id)
+        .values(
+            publish_now_requested_at=_now(),
+            last_error=None,
+            updated_at=_now(),
+        )
+    )
+
+
+async def request_undo(session: AsyncSession, job_id: int) -> None:
+    await session.execute(
+        update(TelegramAnnouncementVod)
+        .where(TelegramAnnouncementVod.id == job_id)
+        .values(
+            undo_requested_at=_now(),
+            last_error=None,
+            updated_at=_now(),
+        )
+    )
+
+
+async def request_restore(session: AsyncSession, job_id: int) -> None:
+    await session.execute(
+        update(TelegramAnnouncementVod)
+        .where(TelegramAnnouncementVod.id == job_id)
+        .values(
+            restore_requested_at=_now(),
+            last_error=None,
+            updated_at=_now(),
+        )
+    )
+
+
+async def get_by_stream_id(
+    session: AsyncSession,
+    stream_id: str,
+) -> TelegramAnnouncementVod | None:
+    result = await session.execute(
+        select(TelegramAnnouncementVod).where(
+            TelegramAnnouncementVod.stream_id == str(stream_id)
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 async def mark_resolved(
@@ -246,7 +298,8 @@ async def recent_finished_streams(
             TelegramAnnouncementVod.stream_ended_at,
         )
         .where(
-            TelegramAnnouncementVod.status == "resolved",
+            TelegramAnnouncementVod.status.in_(("resolved", "edited")),
+            TelegramAnnouncementVod.announcement_id.is_not(None),
             TelegramAnnouncementVod.stream_ended_at.is_not(None),
             TelegramAnnouncementVod.stream_ended_at >= since,
         )
@@ -262,12 +315,16 @@ __all__ = [
     "claim_due",
     "create_job",
     "get_by_id",
+    "get_by_stream_id",
     "jobs_for_announcement",
     "mark_failed",
     "mark_no_vod",
     "mark_resolved",
     "next_retry_at",
     "recent_finished_streams",
+    "request_publish",
+    "request_restore",
+    "request_undo",
     "resolved_urls",
     "to_naive_utc",
 ]

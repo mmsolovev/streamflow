@@ -226,6 +226,51 @@ def _rank_and_order(items: list[dict]) -> list[dict]:
     return items
 
 
+def _ranked_games_subquery():
+    """Все игры с рангом по суммарной длительности (как в разделе «Игры»)."""
+    counts = (
+        select(StreamGame.game_id, func.count().label("streams_count"))
+        .group_by(StreamGame.game_id)
+        .subquery()
+    )
+    return (
+        select(
+            Game.id.label("id"),
+            Game.name.label("name"),
+            GameStats.duration_minutes.label("duration_minutes"),
+            GameStats.last_stream.label("last_stream"),
+            (
+                select(StreamGame.stream_id)
+                .join(Stream, Stream.id == StreamGame.stream_id)
+                .where(StreamGame.game_id == Game.id)
+                .order_by(Stream.started_at.desc(), Stream.id.desc())
+                .limit(1)
+                .correlate(Game)
+                .scalar_subquery()
+                .label("last_stream_id")
+            ),
+            counts.c.streams_count.label("streams_count"),
+            GameMetadataIGDB.steam_url.label("steam_url"),
+            GameMetadataIGDB.cover_url.label("cover_url"),
+            GameMetadataHLTB.hltb_all_styles.label("hltb_all_styles"),
+            func.row_number()
+            .over(
+                order_by=(
+                    GameStats.duration_minutes.desc().nulls_last(),
+                    func.lower(Game.name).asc(),
+                    Game.id.asc(),
+                )
+            )
+            .label("rank"),
+        )
+        .join(counts, counts.c.game_id == Game.id)
+        .join(GameStats, GameStats.game_id == Game.id)
+        .outerjoin(GameMetadataIGDB, GameMetadataIGDB.game_id == Game.id)
+        .outerjoin(GameMetadataHLTB, GameMetadataHLTB.game_id == Game.id)
+        .subquery()
+    )
+
+
 async def list_games(
     session: AsyncSession,
     *,
@@ -239,37 +284,8 @@ async def list_games(
     Возвращает `(items, total, total_all, aggregates)`.
     """
     query = query or ListQuery()
-    counts = (
-        select(StreamGame.game_id, func.count().label("streams_count"))
-        .group_by(StreamGame.game_id)
-        .subquery()
-    )
     # Ранг считается по всем играм (до поиска и фильтров) — как в «Играх».
-    ranked = (
-        select(
-            Game.id.label("id"),
-            Game.name.label("name"),
-            GameStats.duration_minutes.label("duration_minutes"),
-            GameStats.last_stream.label("last_stream"),
-            counts.c.streams_count.label("streams_count"),
-            GameMetadataIGDB.steam_url.label("steam_url"),
-            GameMetadataIGDB.cover_url.label("cover_url"),
-            GameMetadataHLTB.hltb_all_styles.label("hltb_all_styles"),
-            func.row_number()
-            .over(
-                order_by=(
-                    GameStats.duration_minutes.desc().nulls_last(),
-                    func.lower(Game.name).asc(),
-                )
-            )
-            .label("rank"),
-        )
-        .join(counts, counts.c.game_id == Game.id)
-        .join(GameStats, GameStats.game_id == Game.id)
-        .outerjoin(GameMetadataIGDB, GameMetadataIGDB.game_id == Game.id)
-        .outerjoin(GameMetadataHLTB, GameMetadataHLTB.game_id == Game.id)
-        .subquery()
-    )
+    ranked = _ranked_games_subquery()
 
     total_all = int(
         (await session.execute(select(func.count()).select_from(ranked))).scalar_one()
@@ -341,6 +357,7 @@ async def list_games(
                 "rank": int(row.rank or 0),
                 "streams_count": int(row.streams_count or 0),
                 "last_stream": row.last_stream,
+                "last_stream_id": row.last_stream_id,
                 "duration_minutes": row.duration_minutes,
                 "hltb_all_styles": row.hltb_all_styles,
                 "steam_url": row.steam_url,
@@ -502,6 +519,17 @@ async def get_game(
         select(func.count()).where(StreamGame.game_id == game.id)
     )
     streams_count = int(streams_count_row.scalar_one() or 0)
+    rank = 0
+    if streams_count > 0:
+        ranked = _ranked_games_subquery()
+        rank = int(
+            (
+                await session.execute(
+                    select(ranked.c.rank).where(ranked.c.id == game.id)
+                )
+            ).scalar_one_or_none()
+            or 0
+        )
     recommenders = await game_recommenders(session, game.id)
     user_recommendations = await _user_recommendations_count(session, game.id)
     game_streams, streams_total = await _game_streams(
@@ -521,8 +549,10 @@ async def get_game(
         "name": game.name,
         "slug": game.slug,
         "game_type": game.game_type,
+        "rank": rank,
         "streams_count": streams_count,
         "last_stream": stats.last_stream if stats else None,
+        "last_stream_id": game_streams[0]["id"] if game_streams else None,
         "duration_minutes": stats.duration_minutes if stats else 0,
         "hltb_all_styles": hltb.hltb_all_styles if hltb else None,
         "steam_url": igdb.steam_url if igdb else None,

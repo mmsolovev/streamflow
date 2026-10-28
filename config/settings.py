@@ -62,6 +62,22 @@ STREAM_RUNTIME_SAMPLE_SECONDS = int(os.getenv("STREAM_RUNTIME_SAMPLE_SECONDS", "
 BOT_PREFIX = "!"
 SIGN="MrDestructoid"
 COOLDOWN = 60
+# Bootstrap-идентификатор владельца. Роль хранится в users.role; env нужен,
+# чтобы восстановить доступ, если роль случайно потеряна.
+OWNER_TWITCH_USER_ID = os.getenv("OWNER_TWITCH_USER_ID", "137727939").strip()
+OWNER_TWITCH_LOGIN = os.getenv("OWNER_TWITCH_LOGIN", "mishgan_sol").strip()
+
+TWITCH_BAN_CHECK_TTL_SECONDS = int(os.getenv("TWITCH_BAN_CHECK_TTL_SECONDS", "600"))
+TWITCH_BAN_SYNC_INTERVAL_SECONDS = int(os.getenv("TWITCH_BAN_SYNC_INTERVAL_SECONDS", "900"))
+TWITCH_BAN_FAIL_OPEN = os.getenv("TWITCH_BAN_FAIL_OPEN", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+# Legacy-списки. Используются только одноразовым database/seed_roles.py и
+# больше не участвуют в проверках прав. После seed их можно удалить из env.
 ADMINS = ["mishgan_sol", "tabula", "orfeylefontu"]
 ALLOWED_USERS = {"mishgan_sol", "tabula", "orfeylefontu", "eternalchilll", "wraith8", "kampacha", "angrys2l"}
 RECOMMENDATIONS_LIMIT = int(os.getenv("RECOMMENDATIONS_LIMIT", "10"))
@@ -79,7 +95,9 @@ RECOMMENDATIONS_STREAMER_DISPLAY_NAME = os.getenv("RECOMMENDATIONS_STREAMER_DISP
 # STREAMER_LOGINS, либо допиши логин в список ниже. Сравнение без учёта
 # регистра (casefold).
 STREAMER_LOGINS = _parse_csv(os.getenv("STREAMER_LOGINS")) or [RECOMMENDATIONS_STREAMER_LOGIN]
-SHEETS_STREAMER_ID = int(os.getenv("SHEETS_STREAMER_ID", "45"))
+# Необязательный override. 0 = резолвить основного стримера по
+# RECOMMENDATIONS_STREAMER_LOGIN из БД.
+SHEETS_STREAMER_ID = int(os.getenv("SHEETS_STREAMER_ID", "0"))
 RECOMMENDATION_SHEETS_SYNC_DEBOUNCE_SECONDS = int(os.getenv("RECOMMENDATION_SHEETS_SYNC_DEBOUNCE_SECONDS", "15"))
 
 SPREADSHEET_NAME = "Tabula Streams"

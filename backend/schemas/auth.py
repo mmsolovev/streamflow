@@ -13,6 +13,13 @@ class UserView(BaseModel):
     id: int
     login: Optional[str] = None
     display_name: Optional[str] = None
+    role: str = "user"
+    display_role: str = "user"
+    capabilities: list[str] = []
+    is_twitch_banned: bool = False
+    is_service_banned: bool = False
+    can_write: bool = False
+    # Переходные поля для старого фронтенда; источник истины — role/capabilities.
     is_streamer: bool = False
     is_admin: bool = False
 

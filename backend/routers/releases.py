@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database.models import Game, streamer_games
-from backend.deps import AdminDep, SessionDep, StreamerIdDep
+from backend.deps import EditorDep, SessionDep, StreamerIdDep
 from backend.repositories import releases as repo
 from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
@@ -73,7 +73,7 @@ async def set_interested(
     body: InterestUpdateIn,
     session: SessionDep,
     streamer_id: StreamerIdDep,
-    _user: AdminDep,
+    _user: EditorDep,
 ) -> InterestUpdateOut:
     game = await session.get(Game, game_id)
     if not game:

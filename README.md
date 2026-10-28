@@ -1,29 +1,30 @@
 # streamflow
 
-Twitch-бот для стримерского чата, локальной автоматизации, сбора статистики по стримам и веб-интерфейса (HTTP API).
+Twitch-бот для стримерского чата, локальной автоматизации, сбора статистики по стримам и веб-приложения.
 
-Проект совмещает четыре части:
+Проект совмещает пять частей:
 - чат-бота на `TwitchIO` с командами для пользователей чата Twitch;
 - локальный пайплайн сбора и хранения статистики по стримам и играм;
 - табличный UI в `Google Sheets`, где удобно смотреть, дополнять и править данные;
-- веб-бэкенд на `FastAPI` ([backend/](backend)) — API для будущего веб-интерфейса, с авторизацией через Twitch OAuth.
+- веб-бэкенд на `FastAPI` ([backend/](backend)) с авторизацией через Twitch OAuth;
+- React-фронтенд ([frontend/](frontend)) — статистика, рекомендации, HLTB и админка.
 
 ## Что умеет
 
-- отвечает на чат-команды `!команды`, `!праздник`, `!hltb`, `!инфо`, `!игры`, `!стримы`, `!r`, `!рек`, `!фильмы`, `!время`;
-- поддерживает команды с ограниченным доступом для админов `!таймер`, `!отбой`, `!старт`;
-- умеет отвечать через GPT для разрешённых пользователей `!gpt`;
+- отвечает на чат-команды `!команды`, `!праздник`, `!hltb`, `!инфо`, `!игры`, `!стримы`, `!r`, `!рек`, `!фильм`, `!время`;
+- поддерживает команды с ограниченным доступом: `!таймер`, `!отбой`, `!старт`;
+- умеет отвечать через LLM для разрешённых пользователей `!gpt`;
 - автоматически делает `shoutout` при рейде с заданными условиями;
 - собирает и хранит статистику стримов, игр и рекомендаций в `PostgreSQL`;
 - выдает и принимает информацию о стримах, играх и рекомендациях по запросу в чате Twitch;
 - синхронизирует данные в `Google Sheets`, где таблица используется как UI для просмотра и ручных пометок;
 - собирает live-метрики стримов (Runtime Stream Collector);
-- отдаёт данные по HTTP API для веб-интерфейса ([backend/](backend)) с авторизацией через Twitch OAuth;
+- отдаёт данные по HTTP API и показывает их в веб-интерфейсе ([backend/](backend), [frontend/](frontend));
 - после окончания стрима сам правит Telegram-анонс, подставляя ссылку на запись (VOD).
 
 ## Команды чата
 
-Подробная инструкция для зрителей и модераторов описана в [docs/CHAT_COMMANDS.txt](docs/CHAT_COMMANDS.txt).
+Подробная инструкция для зрителей и модераторов — [docs/CHAT_COMMANDS.md](docs/CHAT_COMMANDS.md).
 
 Кратко:
 - `!команды` или `!команды <имя>`: список команд или справка по конкретной команде;
@@ -34,13 +35,17 @@ Twitch-бот для стримерского чата, локальной ав�
 - `!игры <название>`: статистика по игре и ссылка на общую таблицу;
 - `!стримы <дата>`: информация о стриме за дату и ссылка на общую таблицу;
 - `!рек <название>`: предложить игру для стрима или проголосовать за уже предложенную;
-- `!фильмы`: информация о фильмах;
+- `!фильм`: текущий фильм; `+`/`-`/`time` — управление для админов;
 - `!r`: перевод текста из неправильной раскладки при ответе через `Reply`;
 - `!таймер ...`, `!gpt ...`, `!отбой`, `!старт`: команды с ограничением по роли.
 
 ## Архитектура
 
-Подробно архитектура проекта описана в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Подробно архитектура проекта описана в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Тематические документы: [команды чата](docs/CHAT_COMMANDS.md),
+[база данных](docs/DATABASE.md), [источники данных](docs/DATA_SOURCES.md),
+[HTTP API](docs/API.md), [фронтенд](docs/FRONTEND.md),
+[Telegram](docs/TELEGRAM.md).
 
 Центральная часть проекта — ETL-пайплайн, который отвечает за сбор, обработку и доставку данных. Он состоит из четырех слоев, работа которых координируется CLI-скриптами.
 
@@ -76,8 +81,8 @@ Twitch-бот для стримерского чата, локальной ав�
 ```
 
 Помимо ETL, в проекте есть потребители данных из `PostgreSQL`: Twitch-бот,
-EventSub/`runtime`-сборщик live-метрик и веб-бэкенд [backend/](backend)
-(`FastAPI`, HTTP API для веб-интерфейса).
+EventSub/`runtime`-сборщик live-метрик, веб-бэкенд [backend/](backend)
+(`FastAPI`) и React-фронтенд [frontend/](frontend).
 
 ### 1. Ingest (Сбор)
 - **Что делает:** Собирает "сырые" данные из внешних источников.
@@ -137,34 +142,42 @@ EventSub/`runtime`-сборщик live-метрик и веб-бэкенд [back
 ## Telegram-анонсы
 
 Бот следит за Telegram-каналом и после завершения стрима находит соответствующий
-анонс, после чего правит подпись на сообщение со ссылкой на запись (VOD).
-Кастомный эмодзи стримера из анонса переиспользуется при правке.
+анонс, после чего дописывает в него ссылку на запись (VOD).
 
 - управляется переменными `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`,
   `TELEGRAM_CHANNEL_ID` (по умолчанию `TELEGRAM_ENABLED=false` — код есть, но
   ничего не опрашивает);
+- `TELEGRAM_CHANNEL_ID` должен быть числовым id канала (`-100…`);
 - ссылка на канал выводится из основного канала, отдельно задавать не нужно;
-- пошаговый план и детали — [docs/TELEGRAM_ANNOUNCEMENT_VOD_LINK.md](docs/TELEGRAM_ANNOUNCEMENT_VOD_LINK.md).
+- пошаговый план и детали — [docs/TELEGRAM.md](docs/TELEGRAM.md).
 
-## Веб-бэкенд (FastAPI)
+## Веб-приложение (FastAPI + React)
 
-Пакет [backend/](backend) — отдельное `FastAPI`-приложение, которое постепенно
-заменяет `Google Sheets` как UI. Читает и пишет те же данные в `PostgreSQL`
-(общая схема), используя доменную логику проекта. Авторизация — Twitch OAuth +
-cookie-сессии.
+Пакет [backend/](backend) — `FastAPI`-приложение, которое вместе с
+[frontend/](frontend) заменяет `Google Sheets` как UI. Читает и пишет те же
+данные в `PostgreSQL` (общая схема), используя доменную логику проекта.
+Авторизация — Twitch OAuth + cookie-сессии.
 
-- точка входа: `backend.main:app`;
+- точка входа API: `backend.main:app`;
 - API под префиксом `/api/v1`, документация — `/docs`;
-- запуск локально:
+- запуск API локально:
 
   ```bash
   .venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
   ```
 
+- запуск фронтенда:
+
+  ```bash
+  cd frontend
+  npm install
+  npm run dev
+  ```
+
 - запуск в Docker: сервис `backend` в `docker-compose.yml`
   (`docker compose up -d --build backend`);
-- интеграция для фронтенда: [docs/WEB_API.md](docs/WEB_API.md);
-- план и решения: [docs/WEB_BACKEND_FASTAPI_ANALYSIS.md](docs/WEB_BACKEND_FASTAPI_ANALYSIS.md).
+- контракт API: [docs/API.md](docs/API.md);
+- структура и дизайн-токены фронтенда: [docs/FRONTEND.md](docs/FRONTEND.md).
 
 Для веб-входа задайте в `.env` `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`,
 `TWITCH_REDIRECT_URI`, а также `BACKEND_CORS_ORIGINS`/`BACKEND_FRONTEND_URL`
@@ -180,11 +193,13 @@ cookie-сессии.
 - [runtime](runtime) — сбор live-метрик стрима (Runtime Stream Collector).
 - [telegram](telegram) — правка Telegram-анонсов после стрима.
 - [backend](backend) — веб-бэкенд на `FastAPI` (`backend.main:app`).
+- [frontend](frontend) — React-приложение (Vite, TypeScript, Tailwind 4).
 - [database](database) — модели и работа с `PostgreSQL` (SQLAlchemy async + Alembic).
 - [pipeline](pipeline) — ETL-пайплайн для сбора и обработки данных.
 - [storage](storage) — локальные данные, кэш, база и runtime-файлы.
 - [config](config) — конфигурация и credentials.
-- [docs](docs) — документация: архитектура, чат-команды, Web API, планы.
+- [docs](docs) — документация: архитектура, команды, БД, источники, API,
+  фронтенд, Telegram.
 
 ## Конфигурация
 
@@ -192,7 +207,8 @@ cookie-сессии.
 - `TWITCH_TOKEN`, `TWITCH_NICK`, `TWITCH_CHANNEL` (или `TWITCH_CHANNELS`) для подключения к Twitch;
 - `CLIENT_ID`, `CLIENT_SECRET` для Twitch API;
 - `DATABASE_URL` для подключения к PostgreSQL;
-- `RAWG_API_KEY` для игровых интеграций;
+- `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET` (fallback на `CLIENT_ID`/`CLIENT_SECRET`);
+- `GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENROUTER_API_KEY` для LLM;
 - `GAMES_SHEET_URL` для публичной ссылки на таблицу в ответах `!игры` и `!стримы`;
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`, `TWITCH_SCOPE` для веб-входа (OAuth);
 - `BACKEND_*` (`BACKEND_HOST`, `BACKEND_PORT`, `BACKEND_CORS_ORIGINS`, `BACKEND_FRONTEND_URL`, cookie/CSRF) для веб-бэкенда;
@@ -217,11 +233,20 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
+# PostgreSQL
+docker compose up -d db
+python -m alembic upgrade head
+
 # бот
 python bot.py
 
 # веб-бэкенд (API + OAuth)
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
+
+# фронтенд (в отдельном терминале)
+cd frontend
+npm install
+npm run dev
 ```
 
 Через Docker:
@@ -235,6 +260,7 @@ docker compose up -d --build backend
 ```
 
 Веб-бэкенд доступен на `http://localhost:8001` (`/docs` — документация).
+Фронтенд в Docker не входит — запускайте его отдельно, `http://localhost:5173`.
 При старте сервиса `backend` автоматически применяются миграции
 (`alembic upgrade head`).
 
@@ -252,7 +278,7 @@ docker compose up -d --build backend
 
 - Бот подключается к каналу(ам), указанным в `TWITCH_CHANNEL` или `TWITCH_CHANNELS` (через запятую).
   Первый канал в `TWITCH_CHANNELS` считается основным (EventSub/статистика/анонсы).
-- Некоторые команды доступны только модераторам или списку разрешённых пользователей.
+- Некоторые команды доступны только модераторам или staff-ролям (см. `docs/CHAT_COMMANDS.md`).
 - Без `Google Sheets` интеграции бот продолжит работать, но ответы `!игры` и `!стримы` будут без полезной ссылки на таблицу.
 - Без `storage/info.json` команда `!инфо` использует пример из репозитория.
 - Веб-бэкенд требует настроенного Twitch OAuth (`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`); иначе `/api/v1/auth/login` отвечает `503`.
@@ -263,15 +289,18 @@ docker compose up -d --build backend
 
 Основные библиотеки:
 - `twitchio`
+- `aiogram`
 - `SQLAlchemy[asyncio]`
 - `asyncpg`
 - `alembic`
 - `fastapi`
 - `uvicorn[standard]`
 - `pydantic-settings`
+- `cryptography`
 - `gspread`
 - `oauth2client`
 - `howlongtobeatpy`
+- `google-genai`
 - `openai`
 - `g4f`
 - `beautifulsoup4`
@@ -279,8 +308,21 @@ docker compose up -d --build backend
 
 Список пакетов: [requirements.txt](requirements.txt).
 
+## Проверки
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests -q
+cd frontend
+npm run lint
+npm run typecheck
+npm test
+```
+
+Тесты покрывают backend API/схемы/репозитории, authz и Telegram. Для запуска
+`pytest` установите зависимости из `requirements.txt` и сам `pytest`.
+
 ## Планы развития
 
 - расширение списка команд и функций бота;
-- полноценный веб-интерфейс на базе `backend/` (API готов, фронтенд в разработке);
+- развитие веб-интерфейса: команды, ивенты, интерактив, расширенная админка;
 - инструменты для аналитики и прогнозирования.

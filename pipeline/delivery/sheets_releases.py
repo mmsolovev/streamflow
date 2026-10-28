@@ -19,7 +19,8 @@ from database.models import (
     game_recommendations,
     streamer_games,
 )
-from config.settings import RELEASES_SHEET_NAME, SHEETS_STREAMER_ID
+from config.settings import RELEASES_SHEET_NAME
+from services.streamer_service import resolve_primary_streamer_id
 from pipeline.delivery.sheets_utils import (
     build_hyperlink_formula,
     build_recommenders_text,
@@ -264,6 +265,7 @@ async def sync_releases_safe() -> None:
             existing[title] = normalized_row
 
     async with AsyncSessionLocal() as session:
+        streamer_id = await resolve_primary_streamer_id(session)
         # Sync streamer_interested from sheet back to DB
         for game_name, row in existing.items():
             result = await session.execute(
@@ -277,20 +279,20 @@ async def sync_releases_safe() -> None:
             if sheet_value is True:
                 await session.execute(
                     streamer_games.update()
-                    .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == SHEETS_STREAMER_ID)
+                    .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == streamer_id)
                     .values(interested=True)
                 )
             elif sheet_value is False:
                 sg_result = await session.execute(
                     select(streamer_games.c.interested)
-                    .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == SHEETS_STREAMER_ID)
+                    .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == streamer_id)
                     .limit(1)
                 )
                 current = sg_result.scalar_one_or_none()
                 if current is False:
                     await session.execute(
                         streamer_games.update()
-                        .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == SHEETS_STREAMER_ID)
+                        .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == streamer_id)
                         .values(interested=False)
                     )
         await session.flush()
@@ -327,7 +329,7 @@ async def sync_releases_safe() -> None:
 
             sg_result = await session.execute(
                 select(streamer_games.c.interested)
-                .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == SHEETS_STREAMER_ID)
+                .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == streamer_id)
                 .limit(1)
             )
             interested = sg_result.scalar_one_or_none() or False

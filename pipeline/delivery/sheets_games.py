@@ -20,7 +20,8 @@ from database.models import (
     Genre,
     Platform,
 )
-from config.settings import SHEETS_STREAMER_ID, SPREADSHEET_NAME, GAMES_SHEET_NAME
+from config.settings import SPREADSHEET_NAME, GAMES_SHEET_NAME
+from services.streamer_service import resolve_primary_streamer_id
 from pipeline.delivery.sheets_utils import (
     build_hyperlink_formula,
     comparable_row,
@@ -59,13 +60,14 @@ async def _build_tags_text(session, game_id: int) -> str:
 
 
 async def _get_game_streamer_flags(session, game_id: int) -> dict:
+    streamer_id = await resolve_primary_streamer_id(session)
     result = await session.execute(
         select(
             streamer_games.c.liked,
             streamer_games.c.completed,
         ).where(
             streamer_games.c.game_id == game_id,
-            streamer_games.c.streamer_id == SHEETS_STREAMER_ID,
+            streamer_games.c.streamer_id == streamer_id,
         ).limit(1)
     )
     row = result.first()
@@ -100,6 +102,7 @@ def _build_games_dataset(rows):
 
 
 async def _sync_game_manual_fields_from_sheet(session, existing_rows):
+    streamer_id = await resolve_primary_streamer_id(session)
     for game_name, row in existing_rows.items():
         result = await session.execute(
             select(Game).where(Game.name == game_name).limit(1)
@@ -113,7 +116,7 @@ async def _sync_game_manual_fields_from_sheet(session, existing_rows):
         completed = parse_sheet_bool(normalized_row[9]) or False
 
         stmt = pg_insert(streamer_games).values(
-            streamer_id=SHEETS_STREAMER_ID,
+            streamer_id=streamer_id,
             game_id=game.id,
             liked=liked,
             completed=completed,

@@ -8,10 +8,14 @@ import { cn } from '@/lib/cn'
 
 /** Человекочитаемые роли пользователя. */
 function userRoles(user: UserView): string[] {
-  const roles: string[] = []
-  if (user.is_admin) roles.push('Администратор')
-  if (user.is_streamer) roles.push('Стример')
-  return roles.length ? roles : ['Зритель']
+  const labels: Record<string, string> = {
+    owner: 'Администратор',
+    streamer: 'Стример',
+    admin: 'Администратор',
+    editor: 'Редактор',
+    user: 'Зритель',
+  }
+  return [labels[user.role] ?? 'Зритель']
 }
 
 /** Никнейм с выпадающей панелью пользователя (роль, выход и т.п.). */
@@ -87,10 +91,10 @@ export function UserMenu({ user }: { user: UserView }) {
                 setOpen(false)
                 goToStreamerLogin()
               }}
-              disabled={!user.is_streamer}
+              disabled={user.role !== 'streamer'}
               className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-[var(--text)] transition-colors enabled:hover:bg-white/5 disabled:cursor-not-allowed disabled:text-[var(--text-muted)] disabled:opacity-60"
               title={
-                user.is_streamer
+                user.role === 'streamer'
                   ? 'Подключить расширенные права стримера'
                   : 'Доступно только аккаунту стримера'
               }

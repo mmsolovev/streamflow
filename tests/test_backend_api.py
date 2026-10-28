@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from backend.app import app
-from backend.deps import get_current_user, get_session
+from backend.deps import get_current_user, get_session, get_streamer_id
 from backend.repositories import games as games_repo
 from backend.repositories import hltb as hltb_repo
 from backend.repositories import recommendations as recs_repo
@@ -74,24 +74,24 @@ class FakeSession:
 
 ADMIN = SimpleNamespace(
     id=1,
+    role="owner",
     is_streamer=True,
-    is_admin=True,
     current_profile=SimpleNamespace(login="mishgan_sol", display_name="Mishgan"),
 )
 
 # Стример без прав администратора.
 STREAMER_ONLY = SimpleNamespace(
     id=2,
+    role="streamer",
     is_streamer=True,
-    is_admin=False,
     current_profile=SimpleNamespace(login="tabula", display_name="Tabula"),
 )
 
 # Обычный авторизованный пользователь.
 REGULAR_USER = SimpleNamespace(
     id=3,
+    role="user",
     is_streamer=False,
-    is_admin=False,
     current_profile=SimpleNamespace(login="viewer", display_name="Viewer"),
 )
 
@@ -108,6 +108,7 @@ class WebApiTests(unittest.TestCase):
         self.client = TestClient(app)
         app.dependency_overrides[get_session] = _session_dep(FakeSession())
         app.dependency_overrides[get_current_user] = lambda: ADMIN
+        app.dependency_overrides[get_streamer_id] = lambda: 2
         self.addCleanup(app.dependency_overrides.clear)
 
     def test_health_degraded_without_db(self):
@@ -157,7 +158,14 @@ class WebApiTests(unittest.TestCase):
             "title": "Stream",
             "games": ["Hades"],
             "tags": ["Участники"],
-            "participants": ["Tabula"],
+            "participants": [
+                {
+                    "user_id": 1,
+                    "login": "tabula",
+                    "display_name": "Tabula",
+                    "twitch_url": "https://www.twitch.tv/tabula",
+                }
+            ],
             "vod_url": None,
             "avg_viewers": 10,
             "max_viewers": 20,
@@ -305,25 +313,25 @@ class WebApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 401)
 
-    def test_game_state_requires_admin(self):
-        """Отметки «Понравилось»/«Пройдено» доступны только администратору."""
+    def test_game_state_allows_streamer(self):
+        """Стример входит в staff и может редактировать таблицы."""
         app.dependency_overrides[get_current_user] = lambda: STREAMER_ONLY
         app.dependency_overrides[get_session] = _session_dep(FakeSession(game=SimpleNamespace(id=5)))
         response = self.client.patch(
             f"{PREFIX}/games/5/streamer-state",
             json={"liked": True, "completed": False},
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
-    def test_release_interested_requires_admin(self):
-        """Отметка «Интересно» доступна только администратору."""
+    def test_release_interested_allows_streamer(self):
+        """Отметка «Интересно» доступна стримеру как staff."""
         app.dependency_overrides[get_current_user] = lambda: STREAMER_ONLY
         app.dependency_overrides[get_session] = _session_dep(FakeSession(game=SimpleNamespace(id=5)))
         response = self.client.patch(
             f"{PREFIX}/releases/5/interested",
             json={"interested": True},
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_regular_user_cannot_change_flags(self):
         """Обычный пользователь (не админ, не стример) — 403."""

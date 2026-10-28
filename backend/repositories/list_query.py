@@ -1,7 +1,8 @@
 """Общие параметры списков: поиск, сортировка и фильтры.
 
 Фильтры передаются теми же ключами, что и на фронтенде
-(`tag:<значение>`, `rec:<логин>`, плюс ключи колонок вроде `liked`).
+(`tag:<значение>`, `rec:<логин>`, `participant:<логин>`, плюс ключи колонок
+вроде `liked`).
 """
 from __future__ import annotations
 
@@ -38,6 +39,15 @@ class ListQuery:
     def recommenders(self) -> list[str]:
         """Логины рекомендовавших из фильтров `rec:<логин>`."""
         return [f.split(":", 1)[1] for f in self.filters if f.startswith("rec:")]
+
+    @property
+    def participants(self) -> list[str]:
+        """Логины участников стримов из фильтров `participant:<логин>`."""
+        return [
+            f.split(":", 1)[1]
+            for f in self.filters
+            if f.startswith("participant:")
+        ]
 
     def text_condition(self, columns: Iterable[ColumnElement]) -> ColumnElement | None:
         """Условие поиска по подстроке (без учёта регистра)."""

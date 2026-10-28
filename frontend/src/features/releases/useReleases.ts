@@ -7,7 +7,7 @@ import {
   setReleaseInterested,
 } from '@/features/releases/api'
 import type { ReleasesListParams } from '@/features/releases/api'
-import type { ReleaseView } from '@/api/types'
+import type { ReleasesPage } from '@/api/types'
 
 /** Список релизов с серверными поиском, фильтрами, сортировкой и пагинацией. */
 export function useReleasesList(params: ReleasesListParams) {
@@ -35,18 +35,21 @@ export function useSetReleaseInterested() {
       setReleaseInterested(gameId, interested),
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: ['releases'] })
-      const previous = queryClient.getQueriesData<ReleaseView[]>({
+      const previous = queryClient.getQueriesData<ReleasesPage>({
         queryKey: ['releases', 'list'],
       })
-      queryClient.setQueriesData<ReleaseView[]>(
+      queryClient.setQueriesData<ReleasesPage>(
         { queryKey: ['releases', 'list'] },
         (old) =>
           old
-            ? old.map((release) =>
-                release.id === variables.gameId
-                  ? { ...release, interested: variables.interested }
-                  : release,
-              )
+            ? {
+                ...old,
+                items: old.items.map((release) =>
+                  release.id === variables.gameId
+                    ? { ...release, interested: variables.interested }
+                    : release,
+                ),
+              }
             : old,
       )
       return { previous }

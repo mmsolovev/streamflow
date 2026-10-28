@@ -1,6 +1,6 @@
 from twitchio.ext import commands
 
-from config.settings import ADMINS
+from services.authz_service import Capability, resolve_actor
 from services.command_registry import register_command
 from services.lost_movie_service import (
     clear_movie,
@@ -26,8 +26,14 @@ ALIASES = [
 ]
 
 
-def _is_admin(ctx) -> bool:
-    return bool(ctx.author) and ctx.author.name in ADMINS
+async def _is_admin(ctx) -> bool:
+    if not ctx.author:
+        return False
+    actor = await resolve_actor(
+        twitch_user_id=getattr(ctx.author, "id", None),
+        login=ctx.author.name,
+    )
+    return actor.can_command(Capability.ADMIN_COMMANDS)
 
 
 def setup(bot):
@@ -43,7 +49,7 @@ def setup(bot):
     @commands.command(name="фильм", aliases=ALIASES)
     async def movie_command(ctx, *args):
         if args and args[0] == "+":
-            if not _is_admin(ctx):
+            if not await _is_admin(ctx):
                 return
 
             title = " ".join(args[1:]).strip()
@@ -57,7 +63,7 @@ def setup(bot):
             return
 
         if args and args[0] == "-":
-            if not _is_admin(ctx):
+            if not await _is_admin(ctx):
                 return
 
             if len(args) >= 2 and str(args[1]).casefold() == "time":
@@ -72,7 +78,7 @@ def setup(bot):
             return
 
         if args and str(args[0]).casefold() == "time":
-            if not _is_admin(ctx):
+            if not await _is_admin(ctx):
                 return
 
             value = str(args[1]) if len(args) >= 2 else None
