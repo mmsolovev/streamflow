@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 
 export function SearchInput({
@@ -19,8 +19,20 @@ export function SearchInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-md border border-white/15 bg-[var(--card-bg)] py-1.5 pl-8 pr-3 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+        className="w-full rounded-md border border-white/15 bg-[var(--card-bg)] py-1.5 pl-8 pr-8 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
       />
+      {value.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          onMouseDown={(event) => event.preventDefault()}
+          title="Очистить"
+          aria-label="Очистить"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      ) : null}
     </div>
   )
 }

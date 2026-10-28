@@ -210,7 +210,7 @@ function makeColumns(
 }
 
 export function ReleasesView() {
-  const { user, isAdmin } = useAuth()
+  const { user, canEdit } = useAuth()
   const deleteMutation = useDeleteRecommendation()
   const interestedMutation = useSetReleaseInterested()
   const [offset, setOffset] = useOffset()
@@ -263,7 +263,7 @@ export function ReleasesView() {
             ? (login) => {
                 if (!user) return false
                 const own = user.login && login.toLowerCase() === user.login.toLowerCase()
-                return Boolean(own) || Boolean(user.is_admin)
+                return Boolean(own) || canEdit
               }
             : undefined,
           onDeleteRecommender: (item, login) => {
@@ -283,7 +283,7 @@ export function ReleasesView() {
             : null,
         },
         {
-          canEdit: isAdmin,
+          canEdit,
           onToggleInterested: (release, interested) => {
             interestedMutation.mutate({ gameId: release.id, interested })
           },
@@ -299,7 +299,7 @@ export function ReleasesView() {
       user,
       deleteMutation,
       editMode,
-      isAdmin,
+      canEdit,
       interestedMutation,
     ],
   )

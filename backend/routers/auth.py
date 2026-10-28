@@ -1,17 +1,18 @@
 """Twitch OAuth login and cookie-backed web sessions."""
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from config.settings import ADMINS, STREAMER_LOGINS
+from config.settings import STREAMER_LOGINS
 from database.models import (
     TwitchAuthorization,
     TwitchStreamerAuthorization,
@@ -20,28 +21,59 @@ from database.models import (
     WebSession,
 )
 from backend.config import get_backend_settings
-from backend.deps import AdminDep, CurrentUserDep, SessionDep, current_user_login
+from backend.deps import (
+    AdminDep,
+    CurrentActorDep,
+    CurrentUserDep,
+    SessionDep,
+    current_user_login,
+)
 from backend.schemas.auth import StreamerAuthStatus, StreamerAuthorizationView, UserView
 from backend.security.sessions import (
     attach_oauth_state_cookie,
     attach_csrf_cookie,
     attach_session_cookie,
+    clear_csrf_cookie,
     clear_oauth_state_cookie,
     clear_session_cookie,
     create_session,
+    hash_secret,
+)
+from backend.security.token_crypto import (
+    KEY_VERSION,
+    decrypt_stored_token,
+    encrypt_token,
 )
 from backend.security.twitch_oauth import build_authorize_url, exchange_code, fetch_twitch_user
+from services.authz_service import (
+    Actor,
+    Role,
+    actor_from_user,
+    apply_owner_bootstrap,
+    coerce_role,
+    display_role,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
-def _user_view(user: User, login: str, display_name: str) -> UserView:
+def _user_view(user: User, login: str, display_name: str, actor: Actor | None = None) -> UserView:
+    role = actor.role if actor else coerce_role(user.role)
+    restrictions = actor.restrictions if actor else None
     return UserView(
         id=user.id,
         login=login if login != "unknown" else None,
         display_name=display_name if display_name != "unknown" else None,
-        is_streamer=bool(user.is_streamer),
-        is_admin=bool(user.is_admin),
+        role=role.value,
+        display_role=display_role(role),
+        capabilities=actor.capabilities if actor else [],
+        is_twitch_banned=bool(restrictions and restrictions.twitch_banned),
+        is_service_banned=bool(restrictions and restrictions.service_banned),
+        can_write=actor.can_write if actor else False,
+        # Переходные поля: фронтенд должен использовать role/capabilities.
+        is_streamer=role is Role.STREAMER,
+        is_admin=role in {Role.OWNER, Role.STREAMER, Role.ADMIN},
     )
 
 
@@ -92,26 +124,27 @@ async def _upsert_twitch_user(session: AsyncSession, twitch_user: dict) -> tuple
         raise _oauth_error("Twitch returned an incomplete user profile.", "invalid_twitch_user")
 
     now = datetime.utcnow()
-    admin_logins = {item.casefold() for item in ADMINS}
     streamer_logins = {item.casefold() for item in STREAMER_LOGINS}
-    user = (await session.execute(select(User).where(User.twitch_user_id == twitch_id))).scalar_one_or_none()
+    user = (
+        await session.execute(
+            select(User)
+            .where(User.twitch_user_id == twitch_id)
+            .options(selectinload(User.profiles))
+        )
+    ).scalar_one_or_none()
     if user is None:
         user = User(
             twitch_user_id=twitch_id,
             created_at=now,
-            is_admin=login in admin_logins,
+            role=Role.USER.value,
             is_streamer=login in streamer_logins,
         )
         session.add(user)
         await session.flush()
 
-    settings = get_backend_settings()
-    if settings.backend_streamer_id == user.id:
-        user.is_streamer = True
+    # is_streamer — только Twitch-аффилиация (partner/affiliate), не staff-роль.
     if login in streamer_logins:
         user.is_streamer = True
-    if login in admin_logins:
-        user.is_admin = True
 
     profile = (
         await session.execute(
@@ -127,6 +160,7 @@ async def _upsert_twitch_user(session: AsyncSession, twitch_user: dict) -> tuple
     profile.twitch_url = f"https://twitch.tv/{login}"
     profile.last_seen_at = now
     profile.updated_at = now
+    apply_owner_bootstrap(user, login)
     return user, login, display_name
 
 
@@ -139,11 +173,14 @@ async def _store_login_authorization(session: AsyncSession, user: User, token_da
     if authorization is None:
         authorization = TwitchAuthorization(user_id=user.id, created_at=now)
         session.add(authorization)
-    authorization.access_token = token_data["access_token"]
-    refresh_token = token_data.get("refresh_token") or authorization.refresh_token
+    refresh_token = token_data.get("refresh_token") or decrypt_stored_token(
+        authorization.refresh_token_encrypted
+    )
     if not refresh_token:
         raise ValueError("Twitch did not return a refresh token")
-    authorization.refresh_token = refresh_token
+    authorization.access_token_encrypted = encrypt_token(token_data["access_token"])
+    authorization.refresh_token_encrypted = encrypt_token(refresh_token)
+    authorization.key_version = KEY_VERSION
     authorization.scopes = _scopes_string(token_data.get("scope") or [])
     authorization.expires_at = expires_at
     authorization.last_refresh_at = now
@@ -162,11 +199,14 @@ async def _store_streamer_authorization(
         authorization = TwitchStreamerAuthorization(user_id=user.id, created_at=now)
         session.add(authorization)
     authorization.twitch_login = login
-    authorization.access_token = token_data["access_token"]
-    refresh_token = token_data.get("refresh_token") or authorization.refresh_token
+    refresh_token = token_data.get("refresh_token") or decrypt_stored_token(
+        authorization.refresh_token_encrypted
+    )
     if not refresh_token:
         raise ValueError("Twitch did not return a refresh token")
-    authorization.refresh_token = refresh_token
+    authorization.access_token_encrypted = encrypt_token(token_data["access_token"])
+    authorization.refresh_token_encrypted = encrypt_token(refresh_token)
+    authorization.key_version = KEY_VERSION
     authorization.scopes = _scopes_string(token_data.get("scope") or [])
     authorization.expires_at = expires_at
     authorization.last_refresh_at = now
@@ -174,9 +214,9 @@ async def _store_streamer_authorization(
 
 
 @router.get("/me", response_model=UserView)
-async def me(user: CurrentUserDep) -> UserView:
+async def me(user: CurrentUserDep, actor: CurrentActorDep) -> UserView:
     login, display_name = current_user_login(user)
-    return _user_view(user, login, display_name)
+    return _user_view(user, login, display_name, actor)
 
 
 @router.get("/login", response_class=RedirectResponse, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
@@ -244,7 +284,11 @@ async def callback(
 
         if flow == "streamer":
             allowed = {item.casefold() for item in STREAMER_LOGINS}
-            if login_name.casefold() not in allowed:
+            role = coerce_role(user.role)
+            if (
+                login_name.casefold() not in allowed
+                and role not in {Role.OWNER, Role.STREAMER}
+            ):
                 await session.rollback()
                 if settings.backend_frontend_url:
                     response = RedirectResponse(
@@ -266,11 +310,14 @@ async def callback(
                 )
                 clear_oauth_state_cookie(redirect)
                 return redirect
-            return _user_view(user, login_name, display_name)
+            return _user_view(user, login_name, display_name, actor_from_user(user))
 
         await _store_login_authorization(session, user, token_data)
-        web_session = await create_session(session, user.id)
+        issued_session = await create_session(session, user.id)
         await session.commit()
+        from services.twitch_ban_service import sync_user_twitch_ban
+
+        await sync_user_twitch_ban(user.id, user.twitch_user_id, force=True)
     except HTTPException:
         await session.rollback()
         raise
@@ -281,6 +328,7 @@ async def callback(
         await session.rollback()
         if isinstance(exc, RuntimeError) and str(exc) == "Twitch OAuth is not configured":
             raise _oauth_error(str(exc), "oauth_not_configured") from exc
+        logger.exception("Twitch OAuth callback failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"code": "oauth_provider_error", "message": "Twitch OAuth provider is unavailable."},
@@ -291,15 +339,15 @@ async def callback(
             _frontend_redirect_with(settings.backend_frontend_url, login="success"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
-        attach_session_cookie(redirect, web_session)
-        attach_csrf_cookie(redirect, secrets.token_urlsafe(32))
+        attach_session_cookie(redirect, issued_session)
+        attach_csrf_cookie(redirect, issued_session)
         clear_oauth_state_cookie(redirect)
         return redirect
 
-    attach_session_cookie(response, web_session)
-    attach_csrf_cookie(response, secrets.token_urlsafe(32))
+    attach_session_cookie(response, issued_session)
+    attach_csrf_cookie(response, issued_session)
     clear_oauth_state_cookie(response)
-    return _user_view(user, login_name, display_name)
+    return _user_view(user, login_name, display_name, actor_from_user(user))
 
 
 @router.get("/streamer/status", response_model=StreamerAuthStatus)
@@ -337,16 +385,15 @@ async def logout(
     settings = get_backend_settings()
     cookie_value = request.cookies.get(settings.backend_cookie_name)
     if cookie_value:
-        try:
-            web_session = await session.get(WebSession, UUID(cookie_value))
-            if web_session:
-                await session.delete(web_session)
-                await session.commit()
-        except (ValueError, TypeError):
-            await session.rollback()
+        web_session = (
+            await session.execute(
+                select(WebSession).where(WebSession.token_hash == hash_secret(cookie_value))
+            )
+        ).scalar_one_or_none()
+        if web_session:
+            await session.delete(web_session)
+            await session.commit()
     clear_session_cookie(response)
-    from backend.security.sessions import clear_csrf_cookie
-
     clear_csrf_cookie(response)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response

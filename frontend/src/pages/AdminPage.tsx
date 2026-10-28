@@ -7,6 +7,7 @@ import { SwitchLine } from '@/components/ui/SwitchLine'
 import { goToStreamerLogin } from '@/features/auth/api'
 import { useAuth } from '@/features/auth/context'
 import { useStreamerStatus } from '@/features/auth/useStreamerStatus'
+import { TelegramPostStreamPanel } from '@/features/telegramPostEdit/TelegramPostStreamPanel'
 import type { AdminSection, TelegramTab } from '@/config/nav'
 import { ADMIN_TABS, DEFAULT_TELEGRAM_TAB, TELEGRAM_TABS } from '@/config/nav'
 import { cn } from '@/lib/cn'
@@ -21,7 +22,7 @@ const TITLES: Record<AdminSection, string> = {
 const NOTES: Record<AdminSection, string> = {
   management: 'Раздел управления ботом.',
   connections: 'Информация о подключенных сервисах.',
-  telegram: 'Сообщения бота в Telegram по ходу стрима.',
+  telegram: 'Управление Telegram-ботом по ходу стрима',
 }
 
 /** Карточка сервиса Twitch: подключенные аккаунты и запрошенные разрешения. */
@@ -143,6 +144,23 @@ function TelegramSwitchLine() {
   )
 }
 
+function TelegramContent() {
+  const [searchParams] = useSearchParams()
+  const raw = searchParams.get('tab')
+  const active: TelegramTab =
+    TELEGRAM_TABS.find((tab) => tab.param === raw)?.key ?? DEFAULT_TELEGRAM_TAB
+
+  if (active === 'end') {
+    return <TelegramPostStreamPanel />
+  }
+
+  return (
+    <div className="flex-1 px-6 py-5">
+      <p className="text-sm text-[var(--text-muted)]">Раздел в разработке.</p>
+    </div>
+  )
+}
+
 /** Админ-раздел: та же компоновка, что в «Статистике» — панель слева, шапка и
  *  содержимое справа. */
 export function AdminPage({ section }: { section: AdminSection }) {
@@ -177,16 +195,19 @@ export function AdminPage({ section }: { section: AdminSection }) {
               </NavLink>
             ))}
           </nav>
-          <SectionHeader title={title} hint={note} />
+          <SectionHeader
+            title={title}
+            hint={note}
+            plainTitle={section === 'telegram'}
+            noUppercase={section === 'telegram'}
+          />
           {section === 'telegram' ? <TelegramSwitchLine /> : null}
           {section === 'connections' ? (
             <div className="p-6">
               <TwitchServiceCard />
             </div>
           ) : section === 'telegram' ? (
-            <div className="flex-1 px-6 py-5">
-              <p className="text-sm text-[var(--text-muted)]">Раздел в разработке.</p>
-            </div>
+            <TelegramContent />
           ) : (
             <div className="flex flex-1 items-center justify-center p-8 text-sm text-[var(--text-muted)]">
               Раздел в разработке.

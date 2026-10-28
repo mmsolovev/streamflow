@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database.models import Game, streamer_games
-from backend.deps import AdminDep, SessionDep, StreamerIdDep
+from backend.deps import EditorDep, SessionDep, StreamerIdDep
 from backend.repositories import games as repo
 from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
@@ -31,6 +31,7 @@ def _view(item: dict) -> GameView:
         hours=round((item["duration_minutes"] or 0) / 60, 1),
         duration_minutes=item["duration_minutes"],
         last_stream=item["last_stream"],
+        last_stream_id=item.get("last_stream_id"),
         hltb_all_styles=item["hltb_all_styles"],
         steam_url=item["steam_url"],
         cover_url=item["cover_url"],
@@ -123,6 +124,7 @@ async def get_game(
         hours=round((item["duration_minutes"] or 0) / 60, 1),
         duration_minutes=item["duration_minutes"],
         last_stream=item["last_stream"],
+        last_stream_id=item.get("last_stream_id"),
         hltb_all_styles=item["hltb_all_styles"],
         steam_url=item["steam_url"],
         cover_url=item["cover_url"],
@@ -179,7 +181,7 @@ async def update_streamer_state(
     body: GameStateUpdateIn,
     session: SessionDep,
     streamer_id: StreamerIdDep,
-    _user: AdminDep,
+    _user: EditorDep,
 ) -> GameStateUpdateOut:
     game = await session.get(Game, game_id)
     if not game:

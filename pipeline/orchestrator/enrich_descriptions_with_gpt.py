@@ -53,7 +53,7 @@ async def _process_game(session: AsyncSession, game: Game, semaphore: asyncio.Se
 
         logger.info(f"Generating description for: {game.name}")
         try:
-            short_description = await generate_short_description(summary)
+            short_description = await generate_short_description(summary, game.name)
         except Exception as e:
             logger.error(f"GPT request failed for '{game.name}': {e}")
             await asyncio.sleep(GAME_DELAY)

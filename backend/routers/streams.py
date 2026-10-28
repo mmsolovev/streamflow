@@ -5,11 +5,16 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from backend.deps import SessionDep
+from backend.deps import SessionDep, StreamerOrAdminDep
 from backend.repositories import streams as repo
 from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
-from backend.schemas.stream import StreamView
+from backend.schemas.stream import (
+    StreamParticipantActionOut,
+    StreamParticipantAddIn,
+    StreamParticipantDeleteOut,
+    StreamView,
+)
 
 router = APIRouter(prefix="/streams", tags=["streams"])
 
@@ -82,3 +87,43 @@ async def get_stream(stream_id: int, session: SessionDep) -> StreamView:
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стрим не найден.")
     return _view(item)
+
+@router.post("/{stream_id}/participants", response_model=StreamParticipantActionOut)
+async def add_stream_participant(
+    stream_id: int,
+    body: StreamParticipantAddIn,
+    session: SessionDep,
+    _user: StreamerOrAdminDep,
+) -> StreamParticipantActionOut:
+    participant = await repo.add_stream_participant(
+        session, stream_id, body.user_login
+    )
+    if participant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Стрим или пользователь не найден.",
+        )
+    return StreamParticipantActionOut(
+        outcome="added",
+        message="Участник добавлен.",
+        participant=participant,
+    )
+
+
+@router.delete(
+    "/{stream_id}/participants/{user_id}", response_model=StreamParticipantDeleteOut
+)
+async def delete_stream_participant(
+    stream_id: int,
+    user_id: int,
+    session: SessionDep,
+    _user: StreamerOrAdminDep,
+) -> StreamParticipantDeleteOut:
+    if not await repo.remove_stream_participant(session, stream_id, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Участник на этом стриме не найден.",
+        )
+    return StreamParticipantDeleteOut(
+        outcome="deleted", message="Участник удалён."
+    )

@@ -1,7 +1,8 @@
 ﻿"""Серверные условия для фильтров списков.
 
 Значения фильтров приходят теми же ключами, что и на фронтенде:
-`tag:<значение>` (жанр/платформа) и `rec:<логин>` (рекомендовавший).
+`tag:<значение>` (жанр/платформа), `rec:<логин>` (рекомендовавший) и
+`participant:<логин>` (участник стрима).
 """
 from __future__ import annotations
 
@@ -82,6 +83,26 @@ def recommender_condition(game_id_column, logins: list[str]) -> ColumnElement | 
         .where(
             game_recommendations.c.game_id == game_id_column,
             game_recommendations.c.user_id.in_(user_ids),
+        )
+        .exists()
+    )
+
+
+def stream_participant_condition(
+    stream_id_column, logins: list[str]
+) -> ColumnElement | None:
+    """На стриме есть хотя бы один из указанных участников."""
+    normalized = [login.strip().casefold() for login in logins if login.strip()]
+    if not normalized:
+        return None
+    return (
+        select(streamers_on_stream.c.stream_id)
+        .join(User, User.id == streamers_on_stream.c.streamer_id)
+        .join(UserProfile, UserProfile.user_id == User.id)
+        .where(
+            streamers_on_stream.c.stream_id == stream_id_column,
+            UserProfile.is_current.is_(True),
+            func.lower(UserProfile.login).in_(normalized),
         )
         .exists()
     )

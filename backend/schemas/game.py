@@ -19,6 +19,7 @@ class GameView(BaseModel):
     hours: float
     duration_minutes: Optional[int]
     last_stream: Optional[datetime]
+    last_stream_id: Optional[int] = None
     hltb_all_styles: Optional[float]
     steam_url: Optional[str]
     cover_url: Optional[str]

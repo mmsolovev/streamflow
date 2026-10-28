@@ -10,7 +10,7 @@ import {
   updateGameState,
 } from '@/features/games/api'
 import type { ListParams } from '@/features/games/api'
-import type { GameDetail, GameView } from '@/api/types'
+import type { GameDetail, GamesPage } from '@/api/types'
 
 /** Список игр с серверными поиском, фильтрами, сортировкой и пагинацией. */
 export function useGamesList(params: ListParams) {
@@ -81,7 +81,7 @@ export function useUpdateGameState() {
       updateGameState(gameId, { liked, completed }),
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: ['games'] })
-      const previous = queryClient.getQueriesData<GameView[]>({
+      const previous = queryClient.getQueriesData<GamesPage>({
         queryKey: ['games', 'list'],
       })
       const previousDetail = queryClient.getQueryData<GameDetail>([
@@ -90,13 +90,20 @@ export function useUpdateGameState() {
         variables.gameId,
       ])
       // Список кешируется по параметрам — обновляем все его варианты.
-      queryClient.setQueriesData<GameView[]>({ queryKey: ['games', 'list'] }, (old) =>
+      queryClient.setQueriesData<GamesPage>({ queryKey: ['games', 'list'] }, (old) =>
         old
-          ? old.map((game) =>
-              game.id === variables.gameId
-                ? { ...game, liked: variables.liked, completed: variables.completed }
-                : game,
-            )
+          ? {
+              ...old,
+              items: old.items.map((game) =>
+                game.id === variables.gameId
+                  ? {
+                      ...game,
+                      liked: variables.liked,
+                      completed: variables.completed,
+                    }
+                  : game,
+              ),
+            }
           : old,
       )
       queryClient.setQueryData<GameDetail>(

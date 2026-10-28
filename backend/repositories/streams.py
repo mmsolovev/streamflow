@@ -18,12 +18,12 @@ from database.models import (
     streamers_on_stream,
 )
 from backend.repositories._shared import JUST_CHATTING_NAMES
-from backend.repositories.filters import stream_tag_condition
+from backend.repositories.filters import stream_participant_condition, stream_tag_condition
 from backend.repositories.list_query import ListQuery
 
 
-async def list_streams_filter_options(session: AsyncSession) -> dict[str, list[str]]:
-    """Доступные значения тегов стримов — для меню фильтров.
+async def list_streams_filter_options(session: AsyncSession) -> dict:
+    """Доступные значения фильтров стримов: теги, даты и участники.
 
     Теги стримов собираются в Python (жанры игр + особые значения), поэтому
     значения считаются одним проходом по данным.
@@ -35,6 +35,7 @@ async def list_streams_filter_options(session: AsyncSession) -> dict[str, list[s
     participants = await _participants_map(session, stream_ids)
 
     values: set[str] = set()
+    participants_by_login: dict[str, dict[str, str]] = {}
     for stream in streams:
         games = [sg.game for sg in stream.stream_games if sg.game]
         game_names = {game.name for game in games}
@@ -50,8 +51,18 @@ async def list_streams_filter_options(session: AsyncSession) -> dict[str, list[s
         if has_just_chatting and not has_other_games:
             values.add("Общение")
         values.update(genre_names)
-        if participants.get(stream.id):
+        stream_participants = participants.get(stream.id, [])
+        if stream_participants:
             values.add("Участники")
+        for participant in stream_participants:
+            login = (participant.get("login") or "").strip().lower()
+            if not login:
+                continue
+            label = participant.get("display_name") or participant.get("login") or login
+            participants_by_login.setdefault(
+                login,
+                {"login": login, "label": label},
+            )
         if "IRL" in (stream.title or "") or "IRL" in game_names:
             values.add("IRL")
 
@@ -64,6 +75,10 @@ async def list_streams_filter_options(session: AsyncSession) -> dict[str, list[s
                 if stream.started_at
             },
             reverse=True,
+        ),
+        "participants": sorted(
+            participants_by_login.values(),
+            key=lambda entry: entry["label"].lower(),
         ),
     }
 
@@ -100,6 +115,9 @@ async def list_streams(
     tag_cond = stream_tag_condition(Stream.id, query.tags)
     if tag_cond is not None:
         where.append(tag_cond)
+    participant_cond = stream_participant_condition(Stream.id, query.participants)
+    if participant_cond is not None:
+        where.append(participant_cond)
 
     total_all = int(
         (await session.execute(select(func.count()).select_from(Stream))).scalar_one() or 0
@@ -120,12 +138,18 @@ async def list_streams(
         .where(StreamGame.stream_id == Stream.id)
         .scalar_subquery()
     )
+    participants_count = (
+        select(func.count())
+        .select_from(streamers_on_stream)
+        .where(streamers_on_stream.c.stream_id == Stream.id)
+        .scalar_subquery()
+    )
     sort_column = {
         "date": Stream.started_at,
         "title": Stream.title,
         "games": games_count,
         "duration": Stream.duration_minutes,
-        "participants": Stream.started_at,
+        "participants": participants_count,
     }.get(query.sort or "", Stream.started_at)
 
     q = (
@@ -276,22 +300,35 @@ async def get_stream(session: AsyncSession, stream_id: int) -> dict | None:
     }
 
 
-async def _participants_map(session: AsyncSession, stream_ids: list[int]) -> dict[int, list[str]]:
+async def _participants_map(session: AsyncSession, stream_ids: list[int]) -> dict[int, list[dict]]:
     if not stream_ids:
         return {}
     result = await session.execute(
-        select(streamers_on_stream.c.stream_id, UserProfile.display_name)
-        .join(User, User.id == UserProfile.user_id)
-        .join(streamers_on_stream, streamers_on_stream.c.streamer_id == User.id)
+        select(
+            streamers_on_stream.c.stream_id,
+            User.id,
+            UserProfile.login,
+            UserProfile.display_name,
+            UserProfile.twitch_url,
+        )
+        .join(User, User.id == streamers_on_stream.c.streamer_id)
+        .join(UserProfile, UserProfile.user_id == User.id)
         .where(
             streamers_on_stream.c.stream_id.in_(stream_ids),
             UserProfile.is_current.is_(True),
         )
+        .order_by(func.lower(UserProfile.display_name).asc())
     )
-    mapping: dict[int, list[str]] = {}
-    for stream_id, display_name in result.all():
-        if display_name:
-            mapping.setdefault(stream_id, []).append(display_name)
+    mapping: dict[int, list[dict]] = {}
+    for stream_id, user_id, login, display_name, twitch_url in result.all():
+        mapping.setdefault(stream_id, []).append(
+            {
+                "user_id": user_id,
+                "login": login,
+                "display_name": display_name or login,
+                "twitch_url": twitch_url,
+            }
+        )
     return mapping
 
 
@@ -332,3 +369,70 @@ async def _vods_map(session: AsyncSession, stream_ids: list[int]) -> dict[int, s
     for stream_id, url in result.all():
         mapping.setdefault(stream_id, url)
     return mapping
+
+async def add_stream_participant(
+    session: AsyncSession, stream_id: int, user_login: str
+) -> dict | None:
+    """Добавляет участника на стрим по логину. None — стрим или пользователь не найден."""
+    if await session.get(Stream, stream_id) is None:
+        return None
+
+    row = (
+        await session.execute(
+            select(
+                User.id,
+                UserProfile.login,
+                UserProfile.display_name,
+                UserProfile.twitch_url,
+            )
+            .join(UserProfile, UserProfile.user_id == User.id)
+            .where(
+                UserProfile.is_current.is_(True),
+                func.lower(UserProfile.login) == user_login.strip().casefold(),
+            )
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None
+
+    user_id, login, display_name, twitch_url = row
+    exists = (
+        await session.execute(
+            select(streamers_on_stream.c.stream_id).where(
+                streamers_on_stream.c.stream_id == stream_id,
+                streamers_on_stream.c.streamer_id == user_id,
+            )
+        )
+    ).first()
+    if exists is None:
+        await session.execute(
+            streamers_on_stream.insert().values(
+                stream_id=stream_id,
+                streamer_id=user_id,
+                role="guest",
+                created_at=datetime.utcnow(),
+            )
+        )
+        await session.commit()
+
+    return {
+        "user_id": user_id,
+        "login": login,
+        "display_name": display_name or login,
+        "twitch_url": twitch_url,
+    }
+
+
+async def remove_stream_participant(
+    session: AsyncSession, stream_id: int, user_id: int
+) -> bool:
+    """Удаляет участника со стрима. False — такой связи не было."""
+    result = await session.execute(
+        streamers_on_stream.delete().where(
+            streamers_on_stream.c.stream_id == stream_id,
+            streamers_on_stream.c.streamer_id == user_id,
+        )
+    )
+    await session.commit()
+    return bool(result.rowcount)

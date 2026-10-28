@@ -41,13 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthValue>(() => {
     const user = query.data ?? null
+    const capabilities = new Set(user?.capabilities ?? [])
     return {
       user,
       isLoading: query.isLoading,
       isAuthenticated: user !== null,
-      isStreamer: user?.is_streamer ?? false,
-      isAdmin: user?.is_admin ?? false,
-      canEdit: Boolean(user?.is_streamer || user?.is_admin),
+      isStreamer: user?.role === 'streamer',
+      isAdmin: capabilities.has('admin_commands'),
+      canEdit: capabilities.has('edit_tables') && Boolean(user?.can_write),
       refetch,
     }
   }, [query.data, query.isLoading, refetch])

@@ -17,7 +17,12 @@ class BackendSettings(BaseSettings):
     backend_cookie_name: str = "backend_session_id"
     backend_cookie_secure: bool = False
     backend_session_ttl_days: int = 30
+    backend_session_idle_minutes: int = 60 * 24
     backend_session_cleanup_interval_seconds: int = 3600
+
+    # Key for encrypting Twitch access/refresh tokens at rest. Generate with:
+    #   python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+    token_encryption_key: str | None = None
 
     # uvicorn defaults for `backend.main:app`.
     backend_host: str = "127.0.0.1"
@@ -45,7 +50,10 @@ class BackendSettings(BaseSettings):
     #   channel:read:predictions, channel:manage:predictions
     #   channel:read:goals, channel:read:hype_train, channel:manage:broadcast
     #   moderator:read:chatters, moderator:manage:banned_users
-    twitch_streamer_scope: str = "channel:read:redemptions channel:manage:redemptions"
+    twitch_streamer_scope: str = (
+        "channel:read:redemptions channel:manage:redemptions "
+        "moderator:read:banned_users"
+    )
 
     twitch_oauth_state_ttl_seconds: int = 600
     twitch_token_refresh_skew_seconds: int = 300

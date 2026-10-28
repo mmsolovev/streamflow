@@ -89,14 +89,14 @@ async def ask_openrouter(prompt: str) -> str:
                 if attempt < MAX_ATTEMPTS_PER_MODEL:
                     await asyncio.sleep(RETRY_DELAY * attempt)
 
-    return "Не удалось получить ответ"
+    raise RuntimeError("OpenRouter failed for every configured model")
 
 
 def _is_likely_russian(text: str) -> bool:
     return bool(_RE_CYRILLIC.search(text))
 
 
-async def generate_short_description(english_summary: str) -> str | None:
+async def generate_short_description(english_summary: str, game_title: str | None = None) -> str | None:
     """Generate a short Russian game description from English IGDB summary.
 
     Uses OpenRouter free models. Returns None on failure or if validation fails.
@@ -121,7 +121,13 @@ async def generate_short_description(english_summary: str) -> str | None:
                             model=m,
                             messages=[
                                 {"role": "system", "content": DESCRIPTION_SYSTEM_PROMPT},
-                                {"role": "user", "content": summary},
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"Название игры: {game_title.strip() if isinstance(game_title, str) and game_title.strip() else 'не указано'}\n"
+                                        f"Английское описание: {summary}"
+                                    ),
+                                },
                             ],
                             max_tokens=250,
                             temperature=0.7,

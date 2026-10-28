@@ -1,12 +1,16 @@
 from twitchio.ext import commands
 
 import services.runtime as runtime
-from config.settings import ADMINS
+from services.authz_service import Capability, resolve_actor
 from services.command_registry import register_command
 
 
-def has_access(ctx):
-    return ctx.author.name in ADMINS or ctx.author.moderator
+async def has_access(ctx):
+    actor = await resolve_actor(
+        twitch_user_id=getattr(ctx.author, "id", None),
+        login=ctx.author.name,
+    )
+    return actor.can_command(Capability.ADMIN_COMMANDS)
 
 
 def setup(bot):
@@ -16,7 +20,7 @@ def setup(bot):
 
     @commands.command(name="отбой")
     async def stop_bot(ctx):
-        if not has_access(ctx):
+        if not await has_access(ctx):
             return
 
         if not runtime.BOT_ENABLED:
@@ -28,7 +32,7 @@ def setup(bot):
 
     @commands.command(name="старт")
     async def start_bot(ctx):
-        if not has_access(ctx):
+        if not await has_access(ctx):
             return
 
         if runtime.BOT_ENABLED:

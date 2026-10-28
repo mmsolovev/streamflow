@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Check, Copy } from 'lucide-react'
 
 import type { GameView } from '@/api/types'
 import { CoverImage } from '@/components/entity/CoverImage'
@@ -46,6 +47,33 @@ interface GameFlagActions {
   busyGameId: number | null
 }
 
+/** Копирует название игры в буфер обмена. */
+function CopyNameButton({ name }: { name: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(name)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Буфер обмена недоступен — молча игнорируем.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleCopy()}
+      title="Скопировать название"
+      aria-label="Скопировать название"
+      className="shrink-0 rounded p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--accent)]"
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  )
+}
+
 function makeColumns(
   activeTags: string[],
   onTagClick: (value: string) => void,
@@ -59,7 +87,20 @@ function makeColumns(
       align: 'center',
       sortValue: (game) => toSortTime(game.last_stream) ?? -Infinity,
       tieBreaks: [(a, b) => a.name.localeCompare(b.name, 'ru')],
-      render: (game) => <DateCell iso={game.last_stream} withTime />,
+      render: (game) =>
+        game.last_stream ? (
+          <Link
+            to={`/streams?date=${game.last_stream.slice(0, 10)}${
+              game.last_stream_id ? `&focus=${game.last_stream_id}` : ''
+            }`}
+            title="Перейти к стриму"
+            className="transition-colors hover:text-[var(--accent)]"
+          >
+            <DateCell iso={game.last_stream} />
+          </Link>
+        ) : (
+          <span className="text-[var(--text-muted)]">—</span>
+        ),
     },
     {
       key: 'name',
@@ -82,10 +123,11 @@ function makeColumns(
           <Link
             to={`/games/${game.id}`}
             title={game.name}
-            className="min-w-0 truncate font-medium transition-colors hover:text-[var(--accent)]"
+            className="min-w-0 flex-1 truncate font-medium transition-colors hover:text-[var(--accent)]"
           >
             {game.name}
           </Link>
+          <CopyNameButton name={game.name} />
         </span>
       ),
     },
@@ -94,21 +136,42 @@ function makeColumns(
       label: 'Ранг',
       align: 'center',
       sortValue: (game) => game.rank,
-      render: (game) => `#${game.rank}`,
+      render: (game) => (
+        <Link
+          to={`/games/${game.id}`}
+          className="transition-colors hover:text-[var(--accent)]"
+        >
+          #{game.rank}
+        </Link>
+      ),
     },
     {
       key: 'hours',
       label: 'Часов',
       align: 'center',
       sortValue: (game) => game.hours,
-      render: (game) => formatHoursMinutes(game.duration_minutes),
+      render: (game) => (
+        <Link
+          to={`/games/${game.id}`}
+          className="transition-colors hover:text-[var(--accent)]"
+        >
+          {formatHoursMinutes(game.duration_minutes)}
+        </Link>
+      ),
     },
     {
       key: 'streams',
       label: 'Стримов',
       align: 'center',
       sortValue: (game) => game.streams_count,
-      render: (game) => formatNumber(game.streams_count),
+      render: (game) => (
+        <Link
+          to={`/games/${game.id}`}
+          className="transition-colors hover:text-[var(--accent)]"
+        >
+          {formatNumber(game.streams_count)}
+        </Link>
+      ),
     },
     {
       key: 'hltb',
@@ -117,9 +180,17 @@ function makeColumns(
       noUppercase: true,
       sortValue: (game) => game.hltb_all_styles ?? -1,
       render: (game) =>
-        game.hltb_all_styles === null
-          ? '—'
-          : formatHoursMinutes(Math.round(game.hltb_all_styles * 60)),
+        game.hltb_all_styles === null ? (
+          '—'
+        ) : (
+          <Link
+            to={`/hltb?search=${encodeURIComponent(game.name)}&focus=${game.id}`}
+            title="Показать в HowLongToBeat"
+            className="transition-colors hover:text-[var(--accent)]"
+          >
+            {formatHoursMinutes(Math.round(game.hltb_all_styles * 60))}
+          </Link>
+        ),
     },
     {
       key: 'steam',
@@ -199,7 +270,7 @@ function makeColumns(
 }
 
 export function GamesView() {
-  const { isAdmin } = useAuth()
+  const { canEdit } = useAuth()
   const stateMutation = useUpdateGameState()
   const [offset, setOffset] = useOffset()
 
@@ -246,7 +317,7 @@ export function GamesView() {
   const columns = useMemo(
     () =>
       makeColumns(activeTags, (value) => toggleFilter(tagKey(value)), {
-        canEdit: isAdmin,
+        canEdit,
         onToggleLiked: toggleLiked,
         onToggleCompleted: toggleCompleted,
         busyGameId: stateMutation.isPending
@@ -256,7 +327,7 @@ export function GamesView() {
     [
       activeTags,
       toggleFilter,
-      isAdmin,
+      canEdit,
       toggleLiked,
       toggleCompleted,
       stateMutation.isPending,

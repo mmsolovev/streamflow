@@ -216,7 +216,7 @@ export function RecommendationsView() {
             ? (login) => {
                 if (!user) return false
                 const own = user.login && login.toLowerCase() === user.login.toLowerCase()
-                return Boolean(own) || Boolean(user.is_admin)
+                return Boolean(own) || Boolean(user.capabilities?.includes('edit_tables'))
               }
             : undefined,
           onDeleteRecommender: (item, login) => {

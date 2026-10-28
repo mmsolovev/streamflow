@@ -2,9 +2,9 @@ import asyncio
 
 from twitchio.ext import commands
 
-from config.settings import ADMINS
+from services.authz_service import Capability, resolve_actor
 from services.command_registry import register_command
-from services.openrouter_service import ask_openrouter
+from services.gpt_service import ask_gpt
 from utils.cooldowns import check_cooldown
 from utils.delays import human_delay
 
@@ -20,8 +20,11 @@ def setup(bot):
     @commands.command(name="gpt")
     async def gpt_command(ctx, *, question: str = None):
 
-        user = ctx.author.name.lower()    # проверяем, что пользователь разрешён
-        if user not in ADMINS:
+        actor = await resolve_actor(
+            twitch_user_id=getattr(ctx.author, "id", None),
+            login=ctx.author.name,
+        )
+        if not actor.can_command(Capability.ADMIN_COMMANDS):
             return
 
         if not question:    # проверяем есть ли тело вопроса
@@ -42,7 +45,9 @@ def setup(bot):
         await human_delay()
 
         try:
-            answer = await asyncio.wait_for(ask_openrouter(question), timeout=30)
+            # Gemini, OpenRouter and g4f each have their own request timeout.
+            # Keep the command deadline long enough for the fallback chain.
+            answer = await asyncio.wait_for(ask_gpt(question), timeout=210)
 
             if not answer:
                 await ctx.send("MrDestructoid Я не знаю ответа")

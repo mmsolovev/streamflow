@@ -18,11 +18,11 @@ export const NAV_TABS: NavTab[] = [
     enabled: true,
   },
   {
-    key: 'commands',
-    label: 'Команды',
-    to: '/commands',
-    bases: ['/commands'],
-    enabled: false,
+    key: 'bot',
+    label: 'Бот',
+    to: '/bot/commands',
+    bases: ['/bot'],
+    enabled: true,
   },
   {
     key: 'events',
@@ -88,6 +88,20 @@ export const TELEGRAM_TABS: TelegramTabDef[] = [
   { key: 'start', label: 'Старт стрима', param: 'start' },
   { key: 'during', label: 'Во время стрима', param: 'during' },
   { key: 'end', label: 'Конец стрима', param: 'end' },
+]
+
+/** Разделы вкладки «Бот» (левая панель). */
+export type BotSection = 'commands'
+
+export interface BotTab {
+  key: BotSection
+  label: string
+  to: string
+  noUppercase?: boolean
+}
+
+export const BOT_TABS: BotTab[] = [
+  { key: 'commands', label: 'Команды', to: '/bot/commands' },
 ]
 
 /** Подраздел, открытый по умолчанию при переходе в «Telegram». */

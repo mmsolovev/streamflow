@@ -2,7 +2,7 @@ from encodings.aliases import aliases
 
 from twitchio.ext import commands
 
-from config.settings import ALLOWED_USERS
+from services.authz_service import Role, resolve_actor
 from services.command_registry import register_command
 from services.timer_service import (
     MAX_SECONDS,
@@ -17,8 +17,14 @@ from utils.cooldowns import check_cooldown
 from utils.delays import human_delay
 
 
-def has_access(ctx) -> bool:
-    return ctx.author.moderator or ctx.author.name in ALLOWED_USERS
+async def has_access(ctx) -> bool:
+    if getattr(ctx.author, "moderator", False):
+        return True
+    actor = await resolve_actor(
+        twitch_user_id=getattr(ctx.author, "id", None),
+        login=ctx.author.name,
+    )
+    return actor.role in {Role.OWNER, Role.STREAMER, Role.ADMIN, Role.EDITOR}
 
 
 def setup(bot):
@@ -40,7 +46,7 @@ def setup(bot):
             await ctx.send(build_status_message())
             return
 
-        if not has_access(ctx):
+        if not await has_access(ctx):
             return
 
         if not check_cooldown(ctx, "таймер", 5):

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from backend.deps import AdminDep, SessionDep
+from backend.deps import EditorDep, SessionDep
 from backend.repositories import hltb as repo
 from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
@@ -46,7 +46,7 @@ async def list_hltb(
 
 
 @router.post("/lookup", response_model=HltbLookupOut)
-async def lookup_hltb(body: HltbLookupIn, _user: AdminDep) -> HltbLookupOut:
+async def lookup_hltb(body: HltbLookupIn, _user: EditorDep) -> HltbLookupOut:
     """Ищет игру по ссылке HowLongToBeat — для предпросмотра перед добавлением."""
     result = await lookup_hltb_by_url(body.url)
     if result is None:
@@ -58,7 +58,7 @@ async def lookup_hltb(body: HltbLookupIn, _user: AdminDep) -> HltbLookupOut:
 
 
 @router.post("", response_model=HltbAddOut)
-async def add_hltb(body: HltbAddIn, _user: AdminDep) -> HltbAddOut:
+async def add_hltb(body: HltbAddIn, _user: EditorDep) -> HltbAddOut:
     """Добавляет игру по ссылке HowLongToBeat: сохраняет HLTB и обновляет IGDB."""
     result = await add_hltb_game_by_url(body.url, body.game_id)
     if result is None:

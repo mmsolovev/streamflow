@@ -51,8 +51,12 @@
    │  │                     │               │            │                │
    │  │  enrich_descriptions_with_gpt                     │                │
    │  └──────────────────────────────────────────────────┘                │
-   └───────────────────────────────────────────────────────────────────────┘
+    └───────────────────────────────────────────────────────────────────────┘
 ```
+
+Потребители данных: чат-бот, `runtime`-сборщик, `FastAPI` API + React SPA,
+Telegram-сервис. Все используют общий слой `services/` и `PostgreSQL`;
+`pipeline/` отвечает за ETL и синхронизацию с Google Sheets.
 
 ---
 
@@ -256,7 +260,7 @@ game_stats                       │ alias        │
 
 | Домен | Таблицы |
 |-------|---------|
-| Core | `games`, `streams`, `users`, `games_franchises`, `duels` |
+| Core | `games`, `streams`, `stream_titles`, `users`, `user_profiles`, `games_franchises`, `duels` |
 | Duels | `duels_franchises`, `duels_characters`, `duels_character_versions`, `duels_abilities`, `duels_version_abilities`, `duels_scenarios`, `duels_scenario_usage` |
 | Relations | `stream_games`, `stream_recordings`, `streamers_on_stream`, `streamer_games`, `game_recommendations`, `game_genres`, `game_platforms` |
 | External metadata | `game_metadata_igdb`, `game_metadata_hltb`, `game_stats`, `game_aliases` |
@@ -265,9 +269,13 @@ game_stats                       │ alias        │
 | Calendar | `calendar_days`, `holidays`, `famous_persons` |
 | Bot | `bot_commands`, `bot_command_aliases`, `command_usage_logs` |
 | Chat | `chat_messages`, `vip_history` |
-| Auth | `twitch_authorizations`, `web_sessions` |
+| Auth | `twitch_authorizations`, `twitch_streamer_authorizations`, `web_sessions`, `user_restrictions`, `moderation_audit` |
 | Rewards | `twitch_rewards`, `twitch_reward_redemptions` |
 | Analytics | `stream_runtime_samples`, `stream_runtime_buckets` |
+
+Таблицы `stream_runtime_*` объявлены в схеме, но текущий `runtime`-коллектор
+пишет сессии в JSON, а не в БД.
+| Telegram | `telegram_announcements`, `telegram_announcement_vods`, `telegram_post_edit_settings`, `telegram_post_edit_operations` |
 
 ### Миграции
 
@@ -282,6 +290,12 @@ game_stats                       │ alias        │
 - `0008_add_telegram_announcements` — Telegram-анонсы
 - `0009_add_telegram_custom_emoji_id` — кастомные emoji в анонсах
 - `0010_add_telegram_announcement_link_urls` — ссылки на VOD в анонсах
+- `0011_streamer_authorizations` — отдельные токены стримера
+- `0012_post_stream_editing` — задачи/операции правки Telegram-постов
+- `0013_post_edit_restore` — восстановление исходного текста
+- `0014_roles_permissions` — роли, capability, ограничения пользователей, аудит
+- `0015_drop_plaintext_twitch_tokens` — только зашифрованные токены
+- `0016_drop_legacy_user_permissions` — удаление старых permission-флагов
 
 ```bash
 # Применить все миграции
@@ -352,9 +366,12 @@ runtime.Collector
 ─────────────────────────────────────────────────────────────────────────
 Циркулярные зависимости               pipeline ↔ services    Выделить shared/core
 Конфиг — плоские глобальные переменные config/settings.py    pydantic-settings
-Нет тестов                            Весь проект            После выделения shared/
-Ручной ввод данных только в Sheets    Sheets UI              Веб-бэкенд backend/ (в работе)
+Нет тестов                            Весь проект            tests/ покрывают backend/authz/telegram
+Ручной ввод данных только в Sheets    Sheets UI              Веб-приложение backend/ + frontend/
 ```
+
+Тесты покрывают backend API/схемы/репозитории, authz и Telegram (`tests/`).
+ETL и runtime проверяются в основном вручную.
 
 ---
 
@@ -371,8 +388,9 @@ backend/
 ├── config.py          BackendSettings (pydantic-settings, префикс BACKEND_*)
 ├── deps.py            get_session, get_current_user, роли, CSRF
 ├── schemas/           Pydantic DTO (in/out)
-├── repositories/      read-слой (games/streams/releases/recommendations)
-├── routers/           health, games, streams, releases, recommendations, meta, auth
+├── repositories/      read/write-слой (games/streams/releases/recommendations/hltb/telegram)
+├── routers/           health, auth, games, streams, releases, recommendations,
+│                      hltb, meta, users, admin, telegram_post_edit
 └── security/          Twitch OAuth, cookie-сессии, CSRF, ротация токенов, cleanup
 ```
 
@@ -381,9 +399,49 @@ backend/
   `web_sessions`; CSRF через double-submit (`backend_csrf_token` +
   `X-CSRF-Token`).
 - Write-путь рекомендаций переиспользует `services/recommendations_service.py`.
+- Админские операции проверяют capability через `services/authz_service.py`
+  и пишут `moderation_audit`.
 - Фоновая задача в `lifespan` чистит истёкшие `web_sessions`.
 - Деплой: сервис `backend` в `docker-compose.yml` (порт 8001, healthcheck,
   `alembic upgrade head` при старте).
 
-Интеграция фронтенда: [WEB_API.md](WEB_API.md). План и решения:
-[WEB_BACKEND_FASTAPI_ANALYSIS.md](WEB_BACKEND_FASTAPI_ANALYSIS.md).
+Контракт и примеры — [API.md](API.md).
+
+---
+
+## 9. Фронтенд (React)
+
+`frontend/` — SPA на React 19, TypeScript, Vite и Tailwind 4. Ходит в API через
+Vite proxy `/api` с `withCredentials: true`, CSRF-токен берёт из cookie.
+
+```
+frontend/src/
+├── api/          axios-клиент, сгенерированные типы OpenAPI
+├── components/   общие UI-компоненты
+├── pages/        страницы разделов
+├── config/nav.ts навигация и акценты разделов
+└── index.css     дизайн-токены и палитра
+```
+
+Роуты: игры, стримы, релизы, рекомендации, HLTB, админка (пользователи,
+аудит, Telegram). Подробности — [FRONTEND.md](FRONTEND.md).
+
+---
+
+## 10. Telegram post-stream
+
+`telegram/` — отдельный aiogram-сервис, запускаемый вместе с ботом:
+
+```
+channel_post ──► handlers ──► telegram_announcements
+stream.offline ──► TelegramService.on_stream_ended ──► vod job (check_at)
+poller ──► Twitch Helix VOD ──► edit_message_text/caption ──► operation log
+```
+
+- Анонс ищется по ссылке на канал в окне до/после стрима, с rebind после
+  рестарта трансляции.
+- Правка идемпотентна: `telegram_post_edit_operations` хранит before/after,
+  поддерживает undo/restore.
+- Ручная правка поста стримером блокирует автоматику (`skipped`).
+
+Подробно — [TELEGRAM.md](TELEGRAM.md).

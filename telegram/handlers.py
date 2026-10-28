@@ -14,7 +14,7 @@ from aiogram.types import Message
 
 from database.db import AsyncSessionLocal
 from telegram import announcements
-from telegram.entities import extract_link_urls, find_custom_emoji_id
+from telegram.entities import extract_link_urls
 from telegram.templates import is_own_edit
 from utils.logger import get_logger
 
@@ -60,11 +60,6 @@ def link_urls_of(message: Message) -> list[str]:
     return extract_link_urls(message.caption or message.text, entities_of(message))
 
 
-def custom_emoji_id_of(message: Message) -> str | None:
-    """Кастомный эмодзи из анонса, если стример поставил его из набора."""
-    return find_custom_emoji_id(entities_of(message))
-
-
 async def record_announcement(session, message: Message) -> int:
     """Общий путь записи поста для обоих апдейтов."""
     return await announcements.record_post(
@@ -77,7 +72,7 @@ async def record_announcement(session, message: Message) -> int:
         is_forward=message.forward_origin is not None,
         text=message.text,
         caption=message.caption,
-        custom_emoji_id=custom_emoji_id_of(message),
+        entities=entities_of(message),
         link_urls=link_urls_of(message),
     )
 
@@ -143,7 +138,7 @@ async def on_edited_channel_post(message: Message) -> None:
                 announcement_id=existing.id,
                 text=message.text,
                 caption=message.caption,
-                custom_emoji_id=custom_emoji_id_of(message),
+                entities=entities_of(message),
                 link_urls=link_urls_of(message),
                 media_kind=media_kind(message),
                 media_group_id=message.media_group_id,
@@ -171,7 +166,6 @@ async def on_edited_channel_post(message: Message) -> None:
 
 
 __all__ = [
-    "custom_emoji_id_of",
     "entities_of",
     "link_urls_of",
     "media_kind",

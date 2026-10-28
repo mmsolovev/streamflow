@@ -244,6 +244,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/streams/{stream_id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Stream Participant */
+        post: operations["add_stream_participant_api_v1_streams__stream_id__participants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/streams/{stream_id}/participants/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Stream Participant */
+        delete: operations["delete_stream_participant_api_v1_streams__stream_id__participants__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/releases/filters": {
         parameters: {
             query?: never;
@@ -540,6 +574,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_v1_admin_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change Role */
+        patch: operations["change_role_api_v1_admin_users__user_id__role_patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}/restrictions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Service Ban */
+        post: operations["create_service_ban_api_v1_admin_users__user_id__restrictions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}/restrictions/{restriction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Lift Service Ban */
+        delete: operations["lift_service_ban_api_v1_admin_users__user_id__restrictions__restriction_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit */
+        get: operations["list_audit_api_v1_admin_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/search": {
         parameters: {
             query?: never;
@@ -557,10 +676,249 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/telegram/post-stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Post Stream */
+        get: operations["get_post_stream_api_v1_admin_telegram_post_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/telegram/post-stream/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Settings */
+        patch: operations["update_settings_api_v1_admin_telegram_post_stream_settings_patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/telegram/post-stream/settings/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Settings */
+        post: operations["reset_settings_api_v1_admin_telegram_post_stream_settings_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/telegram/post-stream/target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Target */
+        put: operations["set_target_api_v1_admin_telegram_post_stream_target_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/telegram/post-stream/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Now */
+        post: operations["publish_now_api_v1_admin_telegram_post_stream_publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/telegram/post-stream/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo */
+        post: operations["undo_api_v1_admin_telegram_post_stream_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/telegram/post-stream/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Original */
+        post: operations["restore_original_api_v1_admin_telegram_post_stream_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/telegram/post-stream/check-vod": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Vod */
+        post: operations["check_vod_api_v1_admin_telegram_post_stream_check_vod_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionAcceptedOut */
+        ActionAcceptedOut: {
+            /** Accepted */
+            accepted: boolean;
+            /** Message */
+            message: string;
+        };
+        /** AdminUserPage */
+        AdminUserPage: {
+            /** Items */
+            items: components["schemas"]["AdminUserView"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** AdminUserView */
+        AdminUserView: {
+            /** Id */
+            id: number;
+            /** Login */
+            login?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Role */
+            role: string;
+            /** Display Role */
+            display_role: string;
+            /**
+             * Is Twitch Banned
+             * @default false
+             */
+            is_twitch_banned: boolean;
+            /**
+             * Is Service Banned
+             * @default false
+             */
+            is_service_banned: boolean;
+            /**
+             * Restrictions
+             * @default []
+             */
+            restrictions: components["schemas"]["RestrictionView"][];
+            /** Created At */
+            created_at?: string | null;
+        };
+        /** AnnouncementOption */
+        AnnouncementOption: {
+            /** Id */
+            id: number;
+            /** Message Id */
+            message_id: number;
+            /**
+             * Posted At
+             * Format: date-time
+             */
+            posted_at: string;
+            /** Media Kind */
+            media_kind: string | null;
+            /** Status */
+            status: string;
+            /** Manually Edited */
+            manually_edited: boolean;
+            /** Preview */
+            preview: string;
+            /** Link Urls */
+            link_urls: string[];
+        };
+        /** AuditPage */
+        AuditPage: {
+            /** Items */
+            items: components["schemas"]["AuditView"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** AuditView */
+        AuditView: {
+            /** Id */
+            id: number;
+            /** Actor User Id */
+            actor_user_id?: number | null;
+            /** Target User Id */
+            target_user_id?: number | null;
+            /** Action */
+            action: string;
+            /** Old Value */
+            old_value?: string | null;
+            /** New Value */
+            new_value?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /**
          * ChannelInfo
          * @description Данные канала — для сайдбара (логин, имя, аватар).
@@ -607,6 +965,8 @@ export interface components {
             duration_minutes: number | null;
             /** Last Stream */
             last_stream: string | null;
+            /** Last Stream Id */
+            last_stream_id?: number | null;
             /** Hltb All Styles */
             hltb_all_styles: number | null;
             /** Steam Url */
@@ -739,6 +1099,8 @@ export interface components {
             duration_minutes: number | null;
             /** Last Stream */
             last_stream: string | null;
+            /** Last Stream Id */
+            last_stream_id?: number | null;
             /** Hltb All Styles */
             hltb_all_styles: number | null;
             /** Steam Url */
@@ -982,6 +1344,90 @@ export interface components {
                 [key: string]: number;
             } | null;
         };
+        /** PostEditRunView */
+        PostEditRunView: {
+            /** Id */
+            id: number;
+            /** Stream Id */
+            stream_id: string;
+            /** Stream Title */
+            stream_title: string | null;
+            /** Stream Started At */
+            stream_started_at: string | null;
+            /** Stream Ended At */
+            stream_ended_at: string | null;
+            /** Announcement Id */
+            announcement_id: number | null;
+            /** Status */
+            status: string;
+            /** Vod Url */
+            vod_url: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Selected By Admin */
+            selected_by_admin: boolean;
+            /** Check At */
+            check_at: string | null;
+            /** Applied At */
+            applied_at: string | null;
+            /** Undone At */
+            undone_at: string | null;
+        };
+        /** PostEditSettingsPatch */
+        PostEditSettingsPatch: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Delay Seconds */
+            delay_seconds?: number | null;
+            /** Header */
+            header?: string | null;
+            /** Item */
+            item?: string | null;
+            /** Separator */
+            separator?: string | null;
+            /** Footer */
+            footer?: string | null;
+            /** Link Label */
+            link_label?: string | null;
+        };
+        /** PostEditSettingsView */
+        PostEditSettingsView: {
+            /** Enabled */
+            enabled: boolean;
+            /** Delay Seconds */
+            delay_seconds: number;
+            /** Header */
+            header: string;
+            /** Item */
+            item: string;
+            /** Separator */
+            separator: string;
+            /** Footer */
+            footer: string;
+            /** Link Label */
+            link_label: string;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** PostStreamView */
+        PostStreamView: {
+            settings: components["schemas"]["PostEditSettingsView"];
+            target: components["schemas"]["PostEditRunView"] | null;
+            /** Runs */
+            runs: components["schemas"]["PostEditRunView"][];
+            /** Announcements */
+            announcements: components["schemas"]["AnnouncementOption"][];
+            preview: components["schemas"]["PreviewView"];
+        };
+        /** PreviewView */
+        PreviewView: {
+            /** Text */
+            text: string;
+            /** Html */
+            html: string;
+            /** Media Kind */
+            media_kind: string | null;
+        };
         /** RecommendationActionOut */
         RecommendationActionOut: {
             /** Outcome */
@@ -1108,6 +1554,91 @@ export interface components {
             /** Recommenders Count */
             recommenders_count: number;
         };
+        /** RestrictionView */
+        RestrictionView: {
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Channel */
+            channel?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Source */
+            source: string;
+            /** Expires At */
+            expires_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By User Id */
+            created_by_user_id?: number | null;
+        };
+        /** RoleChangeBody */
+        RoleChangeBody: {
+            /** Role */
+            role: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** RunActionIn */
+        RunActionIn: {
+            /** Run Id */
+            run_id: number;
+        };
+        /** ServiceBanBody */
+        ServiceBanBody: {
+            /** Reason */
+            reason?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+        };
+        /** SetTargetIn */
+        SetTargetIn: {
+            /** Run Id */
+            run_id: number;
+            /** Announcement Id */
+            announcement_id: number;
+        };
+        /**
+         * StreamParticipant
+         * @description Участник стрима со ссылкой на профиль Twitch.
+         */
+        StreamParticipant: {
+            /** User Id */
+            user_id: number;
+            /** Login */
+            login?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Twitch Url */
+            twitch_url?: string | null;
+        };
+        /** StreamParticipantActionOut */
+        StreamParticipantActionOut: {
+            /** Outcome */
+            outcome: string;
+            /** Message */
+            message: string;
+            participant?: components["schemas"]["StreamParticipant"] | null;
+        };
+        /**
+         * StreamParticipantAddIn
+         * @description Добавление участника на стрим по логину Twitch.
+         */
+        StreamParticipantAddIn: {
+            /** User Login */
+            user_login: string;
+        };
+        /** StreamParticipantDeleteOut */
+        StreamParticipantDeleteOut: {
+            /** Outcome */
+            outcome: string;
+            /** Message */
+            message: string;
+        };
         /** StreamView */
         StreamView: {
             /** Id */
@@ -1130,7 +1661,7 @@ export interface components {
             /** Tags */
             tags: string[];
             /** Participants */
-            participants: string[];
+            participants: components["schemas"]["StreamParticipant"][];
             /** Vod Url */
             vod_url: string | null;
             /** Avg Viewers */
@@ -1187,6 +1718,36 @@ export interface components {
             /** Display Name */
             display_name?: string | null;
             /**
+             * Role
+             * @default user
+             */
+            role: string;
+            /**
+             * Display Role
+             * @default user
+             */
+            display_role: string;
+            /**
+             * Capabilities
+             * @default []
+             */
+            capabilities: string[];
+            /**
+             * Is Twitch Banned
+             * @default false
+             */
+            is_twitch_banned: boolean;
+            /**
+             * Is Service Banned
+             * @default false
+             */
+            is_service_banned: boolean;
+            /**
+             * Can Write
+             * @default false
+             */
+            can_write: boolean;
+            /**
              * Is Streamer
              * @default false
              */
@@ -1209,6 +1770,22 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VodCheckOut */
+        VodCheckOut: {
+            /** Available */
+            available: boolean;
+            /** Vod Url */
+            vod_url?: string | null;
+            /** Duration Minutes */
+            duration_minutes?: number | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
         };
     };
     responses: never;
@@ -1638,6 +2215,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StreamView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_stream_participant_api_v1_streams__stream_id__participants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stream_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StreamParticipantAddIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreamParticipantActionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_stream_participant_api_v1_streams__stream_id__participants__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stream_id: number;
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreamParticipantDeleteOut"];
                 };
             };
             /** @description Validation Error */
@@ -2091,6 +2735,171 @@ export interface operations {
             };
         };
     };
+    list_users_api_v1_admin_users_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_role_api_v1_admin_users__user_id__role_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleChangeBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_service_ban_api_v1_admin_users__user_id__restrictions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceBanBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestrictionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lift_service_ban_api_v1_admin_users__user_id__restrictions__restriction_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+                restriction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_audit_api_v1_admin_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     search_users_api_v1_users_search_get: {
         parameters: {
             query: {
@@ -2111,6 +2920,255 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_UserSuggestion_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_post_stream_api_v1_admin_telegram_post_stream_get: {
+        parameters: {
+            query?: {
+                run_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostStreamView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_settings_api_v1_admin_telegram_post_stream_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostEditSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostEditSettingsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_settings_api_v1_admin_telegram_post_stream_settings_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostEditSettingsView"];
+                };
+            };
+        };
+    };
+    set_target_api_v1_admin_telegram_post_stream_target_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTargetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionAcceptedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_now_api_v1_admin_telegram_post_stream_publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunActionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionAcceptedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_api_v1_admin_telegram_post_stream_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunActionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionAcceptedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_original_api_v1_admin_telegram_post_stream_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunActionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionAcceptedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_vod_api_v1_admin_telegram_post_stream_check_vod_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunActionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VodCheckOut"];
                 };
             };
             /** @description Validation Error */

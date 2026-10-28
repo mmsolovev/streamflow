@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { AdminPage } from '@/pages/AdminPage'
+import { BotPage } from '@/pages/BotPage'
 import { GameDetailPage } from '@/pages/GameDetailPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
@@ -20,10 +21,8 @@ export default function App() {
         <Route path="releases" element={<StatsPage section="releases" />} />
         <Route path="recommendations" element={<StatsPage section="recommendations" />} />
         <Route path="hltb" element={<StatsPage section="hltb" />} />
-        <Route
-          path="commands"
-          element={<PlaceholderPage title="Команды" note="Раздел в разработке." />}
-        />
+        <Route path="bot" element={<Navigate to="/bot/commands" replace />} />
+        <Route path="bot/commands" element={<BotPage section="commands" />} />
         <Route
           path="events"
           element={<PlaceholderPage title="Ивенты" note="Раздел в разработке." />}

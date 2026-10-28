@@ -5,15 +5,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import (
-    ADMINS,
-    ALLOWED_USERS,
     GAMES_SHEET_URL,
-    RECOMMENDATIONS_BANNED_USERS,
     RECOMMENDATIONS_LIMIT,
     RECOMMENDATIONS_STREAMER_LOGIN,
 )
 from database.db import AsyncSessionLocal
 from database.models import Game, GameMetadataIGDB, User, UserProfile, game_recommendations, streamer_games
+from services.authz_service import Capability, Role, resolve_actor
 from services.games_service import build_game_response, find_game_lookup
 from services.user_service import find_user_by_login
 from pipeline.ingest.igdb_api import (
@@ -172,23 +170,32 @@ async def _check_if_streamed(session: AsyncSession, game_name: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
-def _user_is_privileged(user_login: str) -> bool:
-    normalized_login = _normalize_user_login(user_login)
-    return normalized_login in {login.casefold() for login in ADMINS} or normalized_login in {
-        login.casefold() for login in ALLOWED_USERS
-    }
+async def _user_is_privileged(user_login: str) -> bool:
+    actor = await resolve_actor(login=user_login)
+    return actor.role in {Role.OWNER, Role.STREAMER, Role.ADMIN, Role.EDITOR}
 
 
-def _user_is_admin(user_login: str) -> bool:
-    return _normalize_user_login(user_login) in {login.casefold() for login in ADMINS}
+async def _user_is_admin(user_login: str) -> bool:
+    actor = await resolve_actor(login=user_login)
+    return actor.can_command(Capability.ADMIN_COMMANDS)
 
 
-def can_recommend_as_streamer(user_login: str) -> bool:
-    return _user_is_admin(user_login)
+async def can_recommend_as_streamer(user_login: str) -> bool:
+    return await _user_is_admin(user_login)
 
 
-def _user_is_banned(user_login: str) -> bool:
-    return _normalize_user_login(user_login) in RECOMMENDATIONS_BANNED_USERS
+async def _user_is_banned(user_login: str) -> bool:
+    actor = await resolve_actor(login=user_login)
+    if actor.role is not Role.USER or not actor.user_id:
+        return False
+    from services.twitch_ban_service import sync_user_twitch_ban
+
+    restrictions = await sync_user_twitch_ban(
+        actor.user_id,
+        actor.twitch_user_id,
+        force=False,
+    )
+    return restrictions.twitch_banned
 
 
 def _is_streamer_recommendation(user_login: str) -> bool:
@@ -200,7 +207,7 @@ async def _find_streamed_game_match(query: str):
 
 
 async def _enforce_user_limit(session: AsyncSession, user_login: str) -> str | None:
-    if _user_is_privileged(user_login):
+    if await _user_is_privileged(user_login):
         return None
     active_votes = await _db_load_user_recommendations(session, user_login)
     if len(active_votes) < RECOMMENDATIONS_LIMIT:
@@ -255,7 +262,7 @@ async def recommend_game(
     if not normalized_query:
         return _make_result("invalid", build_recommendations_help_message())
 
-    if _user_is_banned(user_login):
+    if await _user_is_banned(user_login):
         return _make_fake_add_result(query)
 
     streamed_match = await _find_streamed_game_match(query)
@@ -352,7 +359,7 @@ def _parse_igdb_score(rating_text: str | None) -> float | None:
 
 
 async def delete_own_last_recommendation(user_login: str) -> RecommendationActionResult:
-    if _user_is_banned(user_login):
+    if await _user_is_banned(user_login):
         return _make_fake_delete_result()
 
     async with AsyncSessionLocal() as session:
@@ -383,7 +390,7 @@ async def delete_own_recommendation_by_title(query: str, user_login: str) -> Rec
     if not normalize_recommendation_name(query):
         return _make_result("invalid", "Напиши: !рек - [название игры]")
 
-    if _user_is_banned(user_login):
+    if await _user_is_banned(user_login):
         return _make_fake_delete_result(query)
 
     async with AsyncSessionLocal() as session:
@@ -401,10 +408,10 @@ async def delete_own_recommendation_by_title(query: str, user_login: str) -> Rec
 
 
 async def admin_delete_recommendations(target_user: str, query: str | None, actor_login: str) -> RecommendationActionResult:
-    if not _user_is_admin(actor_login):
+    if not await _user_is_admin(actor_login):
         return _make_result("forbidden", "Доступ к команде ограничен.")
 
-    if _user_is_banned(actor_login):
+    if await _user_is_banned(actor_login):
         return _make_fake_delete_result(query)
 
     normalized_target = _normalize_user_login(target_user)

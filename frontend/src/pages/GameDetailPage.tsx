@@ -98,7 +98,7 @@ export function GameDetailPage() {
   const { gameId } = useParams()
   const id = Number(gameId)
   const query = useGame(id)
-  const { isAdmin } = useAuth()
+  const { canEdit } = useAuth()
   const stateMutation = useUpdateGameState()
   const interestedMutation = useSetReleaseInterested()
 
@@ -282,7 +282,7 @@ export function GameDetailPage() {
                             <FlagToggle
                               value={game.completed}
                               label="Пройдено"
-                              onChange={isAdmin ? setCompleted : undefined}
+                              onChange={canEdit ? setCompleted : undefined}
                               busy={stateMutation.isPending}
                             />
                           }
@@ -294,7 +294,7 @@ export function GameDetailPage() {
                             <FlagToggle
                               value={game.liked}
                               label="Понравилось"
-                              onChange={isAdmin ? setLiked : undefined}
+                              onChange={canEdit ? setLiked : undefined}
                               busy={stateMutation.isPending}
                             />
                           }
@@ -310,7 +310,7 @@ export function GameDetailPage() {
                           <FlagToggle
                             value={game.interested}
                             label="Интересно"
-                            onChange={isAdmin ? setInterested : undefined}
+                            onChange={canEdit ? setInterested : undefined}
                             busy={interestedMutation.isPending}
                           />
                         }

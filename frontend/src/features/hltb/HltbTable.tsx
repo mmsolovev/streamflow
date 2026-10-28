@@ -1,5 +1,5 @@
 ﻿import { useCallback, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 
 import type { HltbView } from '@/api/types'
@@ -16,6 +16,7 @@ import { useAuth } from '@/features/auth/context'
 import { AddHltbModal } from '@/features/hltb/AddHltbModal'
 import { useHltbList } from '@/features/hltb/useHltb'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useFocusGameRow } from '@/hooks/useFocusGameRow'
 import { useOffset, useResetOffsetOn } from '@/hooks/useOffset'
 import { useTableSort } from '@/hooks/useTableSort'
 import { formatHltbTime, formatNumber } from '@/lib/format'
@@ -28,11 +29,12 @@ const HLTB_URL = 'https://howlongtobeat.com/game/'
 
 /** Раздел «HowLongToBeat»: время прохождения игр (по данным game_metadata_hltb). */
 export function HltbTable() {
-  const { isAdmin } = useAuth()
+  const { canEdit } = useAuth()
   const [offset, setOffset] = useOffset()
+  const [searchParams] = useSearchParams()
   const [addOpen, setAddOpen] = useState(false)
 
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '')
   const debouncedSearch = useDebouncedValue(search)
 
   const columns = useMemo<EntityColumn<HltbView>[]>(
@@ -143,6 +145,13 @@ export function HltbTable() {
   const totalAll = query.data?.total_all ?? 0
   const aggregates = query.data?.aggregates
 
+  const { highlightId } = useFocusGameRow({
+    rows: pageItems,
+    pageSize: PAGE_SIZE,
+    offset,
+    setOffset,
+  })
+
   const handleSearch = useCallback((value: string) => setSearch(value), [])
 
   return (
@@ -168,7 +177,7 @@ export function HltbTable() {
           ) : undefined
         }
         action={
-          isAdmin ? (
+          canEdit ? (
             <button
               type="button"
               onClick={() => setAddOpen(true)}
@@ -207,6 +216,7 @@ export function HltbTable() {
             columns={columns}
             rows={pageItems}
             rowKey={(item) => item.id}
+            highlightedRowKey={highlightId}
             sortKey={sortKey}
             sortDir={sortDir}
             onSort={onSort}

@@ -1,12 +1,16 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 
-import type { StreamView } from '@/api/types'
+import type { StreamParticipant, StreamView } from '@/api/types'
 import { DateCell } from '@/components/entity/DateCell'
 import { EntityList } from '@/components/entity/EntityList'
 import { GameCoverStrip } from '@/components/entity/GameCoverStrip'
+import { ParticipantsCell } from '@/components/entity/ParticipantsCell'
 import { TagsCell } from '@/components/entity/TagsCell'
 import { TAGS_COLUMN_WIDTH, type EntityColumn } from '@/components/entity/types'
 import { SectionHeader } from '@/components/layout/SectionHeader'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DatePickerMenu } from '@/components/ui/DatePickerMenu'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -16,13 +20,20 @@ import { Pagination } from '@/components/ui/Pagination'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { StatChip } from '@/components/ui/StatChip'
+import { useAuth } from '@/features/auth/context'
 import { useGamesCovers } from '@/features/games/useGames'
-import { useStreamsFilterOptions, useStreamsList } from '@/features/streams/useStreams'
+import { AddParticipantModal } from '@/features/streams/AddParticipantModal'
+import {
+  useDeleteStreamParticipant,
+  useStreamsFilterOptions,
+  useStreamsList,
+} from '@/features/streams/useStreams'
 import { AddRecommendation } from '@/features/recommendations/AddRecommendation'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useFocusGameRow } from '@/hooks/useFocusGameRow'
 import { useOffset, useResetOffsetOn } from '@/hooks/useOffset'
 import { useTableSort } from '@/hooks/useTableSort'
-import { formatHoursMinutes, formatNumber } from '@/lib/format'
+import { formatDateNumeric, formatHoursMinutes, formatNumber } from '@/lib/format'
 import { normalizeGameName } from '@/lib/games'
 import { buildTagFilterEntries, streamTagGroups } from '@/lib/tags'
 
@@ -31,11 +42,22 @@ const PAGE_SIZE = 24
 const GRID = `120px minmax(200px, 2.5fr) minmax(350px, 2.2fr) 148px 80px 80px minmax(160px, 1.2fr) ${TAGS_COLUMN_WIDTH}`
 
 const tagKey = (value: string) => `tag:${value}`
+const participantKey = (login: string) => `participant:${login.trim().toLowerCase()}`
+
+interface ParticipantActions {
+  canEdit: boolean
+  deletingUserId: number | null
+  onDelete: (stream: StreamView, participant: StreamParticipant) => void
+  onAdd: (stream: StreamView) => void
+}
 
 function makeColumns(
   activeTags: string[],
   onTagClick: (value: string) => void,
+  activeParticipantLogins: string[],
+  onParticipantClick: (login: string) => void,
   gamesByName: Map<string, import('@/lib/games').GameRef>,
+  participantActions: ParticipantActions,
 ): EntityColumn<StreamView>[] {
   return [
     {
@@ -106,12 +128,18 @@ function makeColumns(
     {
       key: 'participants',
       label: 'Участники',
-      sortValue: (stream) => stream.participants.join(', ').toLowerCase(),
-      defaultDir: 'asc',
+      sortValue: (stream) => stream.participants.length,
+      defaultDir: 'desc',
       render: (stream) => (
-        <span className="truncate" title={stream.participants.join(', ')}>
-          {stream.participants.join(', ') || '—'}
-        </span>
+        <ParticipantsCell
+          participants={stream.participants}
+          activeLogins={activeParticipantLogins}
+          onLoginClick={onParticipantClick}
+          canEdit={participantActions.canEdit}
+          deletingUserId={participantActions.deletingUserId}
+          onDelete={(participant) => participantActions.onDelete(stream, participant)}
+          onAdd={() => participantActions.onAdd(stream)}
+        />
       ),
     },
     {
@@ -130,13 +158,22 @@ function makeColumns(
 }
 
 export function StreamsView() {
+  const { canEdit } = useAuth()
   const gamesQuery = useGamesCovers()
+  const deleteMutation = useDeleteStreamParticipant()
   const [offset, setOffset] = useOffset()
+  const [searchParams] = useSearchParams()
 
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search)
-  const [date, setDate] = useState('')
+  const [date, setDate] = useState(() => searchParams.get('date') ?? '')
   const [activeFilters, setActiveFilters] = useState<string[]>([])
+  const [editMode, setEditMode] = useState(false)
+  const [confirmTarget, setConfirmTarget] = useState<{
+    stream: StreamView
+    participant: StreamParticipant
+  } | null>(null)
+  const [addTarget, setAddTarget] = useState<StreamView | null>(null)
 
   const toggleFilter = useCallback((key: string) => {
     setActiveFilters((prev) =>
@@ -152,6 +189,14 @@ export function StreamsView() {
     [activeFilters],
   )
 
+  const activeParticipantLogins = useMemo(
+    () =>
+      activeFilters
+        .filter((key) => key.startsWith('participant:'))
+        .map((key) => key.slice('participant:'.length)),
+    [activeFilters],
+  )
+
   const gamesByName = useMemo(() => {
     const map = new Map<string, import('@/lib/games').GameRef>()
     for (const game of gamesQuery.data ?? []) {
@@ -164,8 +209,31 @@ export function StreamsView() {
   }, [gamesQuery.data])
 
   const columns = useMemo(
-    () => makeColumns(activeTags, (value) => toggleFilter(tagKey(value)), gamesByName),
-    [activeTags, toggleFilter, gamesByName],
+    () =>
+      makeColumns(
+        activeTags,
+        (value) => toggleFilter(tagKey(value)),
+        activeParticipantLogins,
+        (login) => toggleFilter(participantKey(login)),
+        gamesByName,
+        {
+          canEdit: editMode,
+          deletingUserId: deleteMutation.isPending
+            ? (deleteMutation.variables?.userId ?? null)
+            : null,
+          onDelete: (stream, participant) =>
+            setConfirmTarget({ stream, participant }),
+          onAdd: (stream) => setAddTarget(stream),
+        },
+      ),
+    [
+      activeTags,
+      activeParticipantLogins,
+      toggleFilter,
+      gamesByName,
+      editMode,
+      deleteMutation,
+    ],
   )
 
   const { sortKey, sortDir, onSort } = useTableSort([], columns, {
@@ -196,7 +264,11 @@ export function StreamsView() {
         label: entry.label,
       }),
     )
-    return [...columnFilters, ...tagFilters]
+    const participantFilters = (options.data?.participants ?? []).map((entry) => ({
+      key: participantKey(entry.login),
+      label: `Участник: ${entry.label}`,
+    }))
+    return [...columnFilters, ...tagFilters, ...participantFilters]
   }, [columns, options.data])
 
   const dateOptions = options.data?.dates ?? []
@@ -207,6 +279,13 @@ export function StreamsView() {
   const aggregates = query.data?.aggregates
 
   useResetOffsetOn(setOffset, [debouncedSearch, date, activeFilters, sortKey, sortDir])
+
+  const { highlightId } = useFocusGameRow({
+    rows: pageItems,
+    pageSize: PAGE_SIZE,
+    offset,
+    setOffset,
+  })
 
   return (
     <div className="flex flex-1 flex-col">
@@ -241,7 +320,24 @@ export function StreamsView() {
             — написать в чат Twitch для получения краткой информации о стриме
           </>
         }
-        action={<AddRecommendation />}
+        action={
+          <>
+            <AddRecommendation />
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => setEditMode((value) => !value)}
+                className={
+                  editMode
+                    ? 'rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90'
+                    : 'rounded-md border border-white/15 px-3 py-1.5 text-sm text-[var(--text-muted)] transition-colors hover:bg-white/5 hover:text-[var(--text)]'
+                }
+              >
+                Редактировать
+              </button>
+            ) : null}
+          </>
+        }
       >
         <SearchInput
           value={search}
@@ -258,6 +354,46 @@ export function StreamsView() {
         />
       </SectionHeader>
 
+      <ConfirmDialog
+        open={confirmTarget !== null}
+        title="Удалить участника"
+        message={
+          confirmTarget
+            ? `Удалить участника «${
+                confirmTarget.participant.display_name ||
+                confirmTarget.participant.login ||
+                '—'
+              }» со стрима от ${formatDateNumeric(confirmTarget.stream.started_at)}?`
+            : undefined
+        }
+        busy={deleteMutation.isPending}
+        onCancel={() => setConfirmTarget(null)}
+        onConfirm={() => {
+          if (!confirmTarget) return
+          const { stream, participant } = confirmTarget
+          setConfirmTarget(null)
+          deleteMutation.mutate(
+            { streamId: stream.id, userId: participant.user_id },
+            {
+              onSuccess: (result) =>
+                toast.success(result.message || 'Участник удалён.'),
+              onError: (error) => toast.error(error.message),
+            },
+          )
+        }}
+      />
+
+      {addTarget ? (
+        <AddParticipantModal
+          streamId={addTarget.id}
+          streamLabel={`${formatDateNumeric(addTarget.started_at)} — ${addTarget.title}`}
+          existingLogins={addTarget.participants
+            .map((participant) => participant.login ?? '')
+            .filter(Boolean)}
+          onClose={() => setAddTarget(null)}
+        />
+      ) : null}
+
       {query.isLoading ? (
         <TableSkeleton columns={8} />
       ) : query.isError ? (
@@ -270,6 +406,7 @@ export function StreamsView() {
             columns={columns}
             rows={pageItems}
             rowKey={(stream) => stream.id}
+            highlightedRowKey={highlightId}
             sortKey={sortKey}
             sortDir={sortDir}
             onSort={onSort}

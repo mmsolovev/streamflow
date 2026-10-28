@@ -64,8 +64,8 @@ def setup(bot):
             return
 
         if game_query.startswith("+ "):
-            if not can_recommend_as_streamer(user_login):
-                await ctx.send("Команда доступна только ADMINS.")
+            if not await can_recommend_as_streamer(user_login):
+                await ctx.send("Команда доступна только администраторам.")
                 return
 
             result = await recommend_game(

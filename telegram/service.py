@@ -25,10 +25,16 @@ import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import LinkPreviewOptions, MessageEntity
+from sqlalchemy import select, update
 
 import config.settings as settings
 from database.db import AsyncSessionLocal
-from telegram import announcements, vod_jobs
+from database.models import (
+    TelegramAnnouncement,
+    TelegramAnnouncementVod,
+    TelegramPostEditOperation,
+)
+from telegram import announcements, post_edit, post_edit_store, vod_jobs
 from telegram.handlers import router as channel_router
 from telegram.matcher import (
     build_channel_link_matcher,
@@ -36,16 +42,13 @@ from telegram.matcher import (
     normalize_dt,
     pick_candidate,
 )
-from telegram.templates import (
-    build_finished_entities,
-    fit_entities,
-    fit_to_media_limit,
-)
 from telegram.vod_service import VodLookupError, fetch_vod_for_stream
 from utils.logger import get_logger
 
 
 logger = get_logger("telegram.service")
+
+COMMAND_POLL_INTERVAL_SECONDS = 5
 
 
 class TelegramService:
@@ -81,6 +84,7 @@ class TelegramService:
         self.dispatcher: Dispatcher | None = None
         self._polling_task: asyncio.Task | None = None
         self._poller_task: asyncio.Task | None = None
+        self._command_task: asyncio.Task | None = None
         self._http: aiohttp.ClientSession | None = None
 
     # ------------------------------------------------------------------
@@ -131,6 +135,10 @@ class TelegramService:
                 name="telegram-vod-poller",
             )
             self._http = aiohttp.ClientSession()
+            self._command_task = asyncio.create_task(
+                self._command_loop(),
+                name="telegram-post-edit-commands",
+            )
 
             logger.info(
                 "Telegram integration started for chat %s, primary channel %s",
@@ -142,7 +150,7 @@ class TelegramService:
             await self.stop()
 
     async def stop(self) -> None:
-        for task in (self._polling_task, self._poller_task):
+        for task in (self._polling_task, self._poller_task, self._command_task):
             if task and not task.done():
                 task.cancel()
                 try:
@@ -152,6 +160,7 @@ class TelegramService:
 
         self._polling_task = None
         self._poller_task = None
+        self._command_task = None
 
         if self._http and not self._http.closed:
             await self._http.close()
@@ -199,6 +208,288 @@ class TelegramService:
         except Exception:
             logger.exception("Telegram VOD poller stopped with error")
 
+    async def _command_loop(self) -> None:
+        """Обрабатывает publish/undo/restore команды из админки."""
+        try:
+            while True:
+                await asyncio.sleep(COMMAND_POLL_INTERVAL_SECONDS)
+                await self._process_commands()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Telegram post-edit command loop stopped with error")
+
+    async def _process_commands(self) -> None:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(TelegramAnnouncementVod)
+                .where(
+                    (TelegramAnnouncementVod.publish_now_requested_at.is_not(None))
+                    | (TelegramAnnouncementVod.undo_requested_at.is_not(None))
+                    | (TelegramAnnouncementVod.restore_requested_at.is_not(None))
+                )
+                .order_by(TelegramAnnouncementVod.id.asc())
+                .limit(20)
+                .with_for_update(skip_locked=True)
+            )
+            jobs = list(result.scalars().all())
+            commands = [
+                (
+                    job.id,
+                    job.publish_now_requested_at is not None,
+                    job.undo_requested_at is not None,
+                    job.restore_requested_at is not None,
+                )
+                for job in jobs
+            ]
+            if commands:
+                await session.execute(
+                    update(TelegramAnnouncementVod)
+                    .where(TelegramAnnouncementVod.id.in_([item[0] for item in commands]))
+                    .values(
+                        publish_now_requested_at=None,
+                        undo_requested_at=None,
+                        restore_requested_at=None,
+                        updated_at=datetime.utcnow(),
+                    )
+                )
+                await session.commit()
+
+        for job_id, publish_now, undo, restore in commands:
+            if restore:
+                await self._restore_original(job_id)
+            elif undo:
+                await self._undo(job_id)
+            elif publish_now:
+                await self._publish_now(job_id)
+
+    async def _publish_now(self, job_id: int) -> None:
+        if self._http is None or self.bot is None:
+            await self._set_job_error(job_id, "Telegram service is not started")
+            return
+
+        async with AsyncSessionLocal() as session:
+            job = await vod_jobs.get_by_id(session, job_id)
+            if job is None or job.announcement_id is None:
+                return
+
+            vod_url = job.vod_url
+            if not vod_url:
+                try:
+                    vod = await fetch_vod_for_stream(
+                        session=self._http,
+                        channel_login=self.channel_login,
+                        stream_id=job.stream_id,
+                        client_id=settings.CLIENT_ID,
+                    )
+                except Exception as exc:
+                    await self._set_job_error(job_id, f"{type(exc).__name__}: {exc}")
+                    return
+                if vod is None or not vod.get("url"):
+                    await self._set_job_error(job_id, "VOD not found in channel archive")
+                    return
+                vod_url = vod["url"]
+                await vod_jobs.mark_resolved(
+                    session,
+                    job_id=job.id,
+                    vod_url=vod_url,
+                    duration_minutes=vod.get("duration_minutes"),
+                    recorded_at=normalize_dt(vod.get("published_at") or vod.get("created_at")),
+                )
+
+            urls = await vod_jobs.resolved_urls(session, job.announcement_id)
+            await self._apply_edit(session, job=job, vod_urls=urls)
+
+    async def _undo(self, job_id: int) -> None:
+        if self.bot is None:
+            await self._set_job_error(job_id, "Telegram service is not started")
+            return
+
+        async with AsyncSessionLocal() as session:
+            job = await vod_jobs.get_by_id(session, job_id)
+            if job is None or job.announcement_id is None:
+                return
+
+            result = await session.execute(
+                select(TelegramPostEditOperation)
+                .where(
+                    TelegramPostEditOperation.job_id == job_id,
+                    TelegramPostEditOperation.status == "applied",
+                )
+                .order_by(TelegramPostEditOperation.id.desc())
+                .limit(1)
+            )
+            operation = result.scalar_one_or_none()
+            announcement = await announcements.get_by_id(session, job.announcement_id)
+            if operation is None or announcement is None:
+                await self._set_job_error(job_id, "Нет применённой операции для отмены")
+                return
+
+            if announcement.manually_edited or announcement.status == "skipped":
+                await self._set_job_error(job_id, "Пост изменён вручную, отмена заблокирована")
+                return
+            if announcement.edited_text and operation.after_text != announcement.edited_text:
+                await self._set_job_error(job_id, "Пост изменён после правки бота, отмена заблокирована")
+                return
+
+            text = operation.before_text or ""
+            entities = announcements.load_entities(operation.before_entities)
+            message_entities = [MessageEntity(**entity) for entity in entities] or None
+            bot = self.bot
+
+            try:
+                if announcement.media_kind:
+                    await bot.edit_message_caption(
+                        chat_id=announcement.chat_id,
+                        message_id=announcement.message_id,
+                        caption=text,
+                        caption_entities=message_entities,
+                    )
+                else:
+                    await bot.edit_message_text(
+                        chat_id=announcement.chat_id,
+                        message_id=announcement.message_id,
+                        text=text,
+                        entities=message_entities,
+                        link_preview_options=LinkPreviewOptions(is_disabled=True),
+                    )
+            except TelegramBadRequest as exc:
+                if "not modified" not in str(exc).casefold():
+                    await self._set_job_error(job_id, f"Telegram: {exc}")
+                    return
+
+            now = datetime.utcnow()
+            operation.status = "undone"
+            await session.execute(
+                update(TelegramAnnouncement)
+                .where(TelegramAnnouncement.id == announcement.id)
+                .values(
+                    status="observed",
+                    edited_text=None,
+                    manually_edited=False,
+                    text_snapshot=text if not announcement.media_kind else announcement.text_snapshot,
+                    caption_snapshot=text if announcement.media_kind else announcement.caption_snapshot,
+                    text_entities_snapshot=(
+                        operation.before_entities if not announcement.media_kind else announcement.text_entities_snapshot
+                    ),
+                    caption_entities_snapshot=(
+                        operation.before_entities if announcement.media_kind else announcement.caption_entities_snapshot
+                    ),
+                    updated_at=now,
+                )
+            )
+            await session.execute(
+                update(TelegramAnnouncementVod)
+                .where(TelegramAnnouncementVod.id == job_id)
+                .values(status="undone", undone_at=now, last_error=None, updated_at=now)
+            )
+            await session.commit()
+
+    async def _restore_original(self, job_id: int) -> None:
+        if self.bot is None:
+            await self._set_job_error(job_id, "Telegram service is not started")
+            return
+
+        async with AsyncSessionLocal() as session:
+            job = await vod_jobs.get_by_id(session, job_id)
+            if job is None or job.announcement_id is None:
+                return
+
+            announcement = await announcements.get_by_id(session, job.announcement_id)
+            if announcement is None:
+                await self._set_job_error(job_id, "Announcement not found")
+                return
+            if announcement.manually_edited or announcement.status == "skipped":
+                await self._set_job_error(
+                    job_id,
+                    "Пост изменён вручную, восстановление заблокировано",
+                )
+                return
+
+            text, entities = announcements.original_of(announcement)
+            if text is None and not entities:
+                await self._set_job_error(job_id, "Оригинал поста не сохранён")
+                return
+            text = text or ""
+            message_entities = [MessageEntity(**entity) for entity in entities] or None
+            bot = self.bot
+
+            try:
+                if announcement.media_kind:
+                    await bot.edit_message_caption(
+                        chat_id=announcement.chat_id,
+                        message_id=announcement.message_id,
+                        caption=text,
+                        caption_entities=message_entities,
+                    )
+                else:
+                    await bot.edit_message_text(
+                        chat_id=announcement.chat_id,
+                        message_id=announcement.message_id,
+                        text=text,
+                        entities=message_entities,
+                        link_preview_options=LinkPreviewOptions(is_disabled=True),
+                    )
+            except TelegramBadRequest as exc:
+                if "not modified" not in str(exc).casefold():
+                    await self._set_job_error(job_id, f"Telegram: {exc}")
+                    return
+
+            now = datetime.utcnow()
+            await session.execute(
+                update(TelegramPostEditOperation)
+                .where(
+                    TelegramPostEditOperation.job_id == job_id,
+                    TelegramPostEditOperation.status == "applied",
+                )
+                .values(status="undone")
+            )
+            await session.execute(
+                update(TelegramAnnouncement)
+                .where(TelegramAnnouncement.id == announcement.id)
+                .values(
+                    status="observed",
+                    edited_text=None,
+                    manually_edited=False,
+                    text_snapshot=text if not announcement.media_kind else announcement.text_snapshot,
+                    caption_snapshot=text if announcement.media_kind else announcement.caption_snapshot,
+                    text_entities_snapshot=(
+                        announcement.original_entities
+                        if not announcement.media_kind
+                        else announcement.text_entities_snapshot
+                    ),
+                    caption_entities_snapshot=(
+                        announcement.original_entities
+                        if announcement.media_kind
+                        else announcement.caption_entities_snapshot
+                    ),
+                    updated_at=now,
+                )
+            )
+            await session.execute(
+                update(TelegramAnnouncementVod)
+                .where(TelegramAnnouncementVod.id == job_id)
+                .values(
+                    status="undone",
+                    undone_at=now,
+                    applied_text=None,
+                    applied_entities=None,
+                    last_error=None,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
+            logger.info("Announcement %s restored to original", announcement.id)
+
+    async def _set_job_error(self, job_id: int, error: str) -> None:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(TelegramAnnouncementVod)
+                .where(TelegramAnnouncementVod.id == job_id)
+                .values(last_error=error, updated_at=datetime.utcnow())
+            )
+            await session.commit()
+
     # ------------------------------------------------------------------
     # Реакция на окончание трансляции
     # ------------------------------------------------------------------
@@ -232,20 +523,15 @@ class TelegramService:
                     started_at=started_at,
                     ended_at=ended_at,
                 )
-                if announcement_id is None:
-                    logger.info(
-                        "No Telegram announcement found for stream %s, nothing scheduled",
-                        stream_id,
-                    )
-                    return
-
+                settings_row = await post_edit_store.get_settings(session)
+                delay_seconds = settings_row.delay_seconds
                 job_id = await vod_jobs.create_job(
                     session,
                     announcement_id=announcement_id,
                     stream_id=stream_id,
                     stream_started_at=started_at,
                     stream_ended_at=ended_at or started_at,
-                    check_delay_seconds=self.check_delay_seconds,
+                    check_delay_seconds=delay_seconds,
                 )
                 await session.commit()
 
@@ -256,11 +542,18 @@ class TelegramService:
                 )
                 return
 
+            if announcement_id is None:
+                logger.info(
+                    "No Telegram announcement found for stream %s; waiting for admin selection",
+                    stream_id,
+                )
+                return
+
             logger.info(
                 "Announcement %s bound to stream %s, VOD check in %ss",
                 announcement_id,
                 stream_id,
-                self.check_delay_seconds,
+                delay_seconds,
             )
         except Exception:
             logger.exception("Failed to schedule Telegram VOD check for stream %s", stream_id)
@@ -395,6 +688,11 @@ class TelegramService:
         """Одна задача: поиск VOD, затем правка анонса."""
         attempts = (job.attempts or 0) + 1
 
+        settings_row = await post_edit_store.get_settings(session)
+        if not settings_row.enabled:
+            logger.info("Post-stream editing is disabled, leaving job %s waiting", job.id)
+            return
+
         if self._http is None or self.bot is None:
             logger.warning("Telegram service is not started, skipping job %s", job.id)
             return
@@ -464,60 +762,67 @@ class TelegramService:
         )
 
         urls = await vod_jobs.resolved_urls(session, job.announcement_id)
-        await self._apply_edit(session, announcement_id=job.announcement_id, vod_urls=urls)
+        await self._apply_edit(session, job=job, vod_urls=urls)
 
-    async def _apply_edit(self, session, *, announcement_id: int, vod_urls: list[str]) -> None:
-        """Пересобирает текст подписи и правит пост.
-
-        Текст всегда строится заново из всех найденных VOD анонса: так после
-        краша трансляции в подписи оказываются обе ссылки, а повторный вызов
-        с тем же набором даёт тот же результат.
-        """
+    async def _apply_edit(self, session, *, job, vod_urls: list[str]) -> None:
+        """Пересобирает текст подписи и правит пост."""
+        announcement_id = job.announcement_id
         announcement = await announcements.get_by_id(session, announcement_id)
         if announcement is None:
-            logger.warning("Announcement %s disappeared before edit", announcement_id)
+            await self._set_job_error(job.id, "Announcement not found")
             return
 
         if announcement.status == "skipped" or announcement.manually_edited:
-            logger.info("Announcement %s is skipped or edited manually, not touching", announcement_id)
+            await self._set_job_error(job.id, "Пост изменён вручную")
             return
 
-        # edited_text хранит ОТРИСОВАННЫЙ текст: именно он вернётся в
-        # edited_channel_post. В API уходит тот же самый текст плюс entities,
-        # поэтому сравнение с возвращённым значением будет точным.
-        # build_finished_entities сам подбирает число ссылок под лимит поста;
-        # fit_* ниже — страховка на случай, если шаблон перестанет влезать.
-        text, entities = build_finished_entities(
-            vod_urls, announcement.media_kind
-        )
-        text = fit_to_media_limit(text, announcement.media_kind)
-        entities = fit_entities(text, entities)
-
-        if announcement.edited_text and announcement.edited_text == text:
-            logger.info("Announcement %s already contains the target text", announcement_id)
+        settings_row = await post_edit_store.get_settings(session)
+        template = post_edit_store.template_from_settings(settings_row)
+        try:
+            text, entities = post_edit.render_post(
+                template,
+                vod_urls,
+                media_kind=announcement.media_kind,
+            )
+        except ValueError as exc:
+            await self._set_job_error(job.id, f"Некорректный шаблон: {exc}")
             return
 
-        await announcements.mark_edited(
-            session,
+        if not text:
+            await self._set_job_error(job.id, "Шаблон дал пустой текст")
+            return
+
+        before_text, before_entities = announcements.snapshot_of(announcement)
+        after_entities = announcements.dump_entities(entities)
+        now = datetime.utcnow()
+
+        operation = TelegramPostEditOperation(
+            job_id=job.id,
             announcement_id=announcement_id,
-            text=text,
+            kind="publish",
+            status="queued",
+            before_text=before_text,
+            before_entities=announcements.dump_entities(before_entities),
+            after_text=text,
+            after_entities=after_entities,
+            created_at=now,
+        )
+        session.add(operation)
+        await session.execute(
+            update(TelegramAnnouncementVod)
+            .where(TelegramAnnouncementVod.id == job.id)
+            .values(status="applying", last_error=None, updated_at=now)
         )
         await session.commit()
 
         bot = self.bot
         if bot is None:
-            logger.warning(
-                "Telegram bot is not started, cannot edit announcement %s", announcement_id
+            await self._finish_operation(
+                operation.id, job.id, success=False, error="Telegram bot is not started"
             )
             return
 
-        # Шаблоны собирают сущности словарями, чтобы не зависеть от aiogram и
-        # оставаться тестируемыми. Здесь, на границе с API, они превращаются
-        # в MessageEntity: приведёт ли aiogram словари сам — неизвестно, и
-        # полагаться на это в коде, который переписывает пост стримера,
-        # не стоит.
         message_entities = [MessageEntity(**entity) for entity in entities] or None
-
         try:
             if announcement.media_kind:
                 await bot.edit_message_caption(
@@ -535,31 +840,72 @@ class TelegramService:
                     link_preview_options=LinkPreviewOptions(is_disabled=True),
                 )
         except TelegramBadRequest as exc:
-            # «message is not modified» — это успех, а не ошибка: пост уже
-            # содержит нужный текст. Не откатываем статус.
-            if "not modified" in str(exc).casefold():
-                logger.info("Announcement %s already has the VOD link", announcement_id)
+            if "not modified" not in str(exc).casefold():
+                logger.error(
+                    "Telegram rejected edit of announcement %s: %s",
+                    announcement_id,
+                    exc,
+                )
+                await self._finish_operation(
+                    operation.id, job.id, success=False, error=f"Telegram: {exc}"
+                )
                 return
 
-            logger.error(
-                "Telegram rejected edit of announcement %s: %s",
-                announcement_id,
-                exc,
-            )
-            await announcements.mark_skipped(
-                session,
-                announcement_id=announcement_id,
-                reason=f"telegram_error: {exc}",
-            )
-            await session.commit()
-            return
-
+        await announcements.mark_edited(
+            session,
+            announcement_id=announcement_id,
+            text=text,
+        )
+        await session.commit()
+        await self._finish_operation(
+            operation.id,
+            job.id,
+            success=True,
+            applied_text=text,
+            applied_entities=after_entities,
+        )
         logger.info(
             "Announcement %s updated with %s VOD link(s): %s",
             announcement_id,
             len(vod_urls),
             text,
         )
+
+    async def _finish_operation(
+        self,
+        operation_id: int,
+        job_id: int,
+        *,
+        success: bool,
+        error: str | None = None,
+        applied_text: str | None = None,
+        applied_entities: str | None = None,
+    ) -> None:
+        async with AsyncSessionLocal() as session:
+            now = datetime.utcnow()
+            operation = await session.get(TelegramPostEditOperation, operation_id)
+            if operation is not None:
+                operation.status = "applied" if success else "failed"
+                operation.error = error
+                operation.applied_at = now if success else None
+            values = {
+                "status": "edited" if success else "edit_failed",
+                "last_error": error,
+                "updated_at": now,
+            }
+            if success:
+                values.update(
+                    applied_at=now,
+                    applied_text=applied_text,
+                    applied_entities=applied_entities,
+                    undone_at=None,
+                )
+            await session.execute(
+                update(TelegramAnnouncementVod)
+                .where(TelegramAnnouncementVod.id == job_id)
+                .values(**values)
+            )
+            await session.commit()
 
     # ------------------------------------------------------------------
     # Служебное
