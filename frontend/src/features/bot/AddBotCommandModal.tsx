@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { useAuth } from '@/features/auth/context'
-import { goToLogin } from '@/features/auth/api'
+import { useCreateBotCommand } from '@/features/bot/useBotCommands'
 
 interface AddBotCommandModalProps {
   open: boolean
@@ -12,43 +12,42 @@ interface AddBotCommandModalProps {
 }
 
 export function AddBotCommandModal({ open, onClose }: AddBotCommandModalProps) {
-  const { isAuthenticated } = useAuth()
+  const { isAdmin } = useAuth()
+  const createCommand = useCreateBotCommand()
   const [botName, setBotName] = useState('')
   const [commandName, setCommandName] = useState('')
   const [description, setDescription] = useState('')
-  const [isPending, setIsPending] = useState(false)
 
   if (!open) return null
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!botName.trim() || !commandName.trim() || !description.trim()) {
-      toast.error('Заполните все поля')
+    if (!commandName.trim() || !description.trim()) {
+      toast.error('Заполните название команды и описание')
       return
     }
-    setIsPending(true)
-    setTimeout(() => {
-      toast.success('Команда добавлена')
-      setIsPending(false)
-      onClose()
+
+    try {
+      await createCommand.mutateAsync({
+        name: commandName.trim(),
+        description: description.trim(),
+        bot_name: botName.trim() || 'self',
+      })
       setBotName('')
       setCommandName('')
       setDescription('')
-    }, 300)
+      onClose()
+    } catch {
+      // Ошибка уже показана в onError хука.
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div
-        className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border shadow-xl shadow-black/40"
-        style={{ background: '#24212E', borderColor: 'rgba(169, 112, 255, 0.4)' }}
-      >
-        <div
-          className="flex shrink-0 items-center justify-between border-b px-5 py-3"
-          style={{ borderColor: 'rgba(169, 112, 255, 0.3)' }}
-        >
-          <h2 className="font-social text-sm uppercase tracking-wide" style={{ color: '#A970FF' }}>
-            Добавить команду другого бота
+      <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-[var(--accent)] bg-[var(--card-bg)] shadow-xl shadow-black/40">
+        <div className="flex shrink-0 items-center justify-between border-b border-[color-mix(in_srgb,var(--accent)_30%,transparent)] px-5 py-3">
+          <h2 className="font-social text-sm uppercase tracking-wide text-[var(--accent)]">
+            Добавить команду
           </h2>
           <button
             type="button"
@@ -60,35 +59,15 @@ export function AddBotCommandModal({ open, onClose }: AddBotCommandModalProps) {
           </button>
         </div>
 
-        {!isAuthenticated ? (
-          <div className="space-y-3 px-5 py-5">
+        {!isAdmin ? (
+          <div className="px-5 py-5">
             <p className="text-sm text-[var(--text)]">
-              Чтобы добавить команду, нужно авторизоваться через Twitch.
+              Добавлять команды могут только администраторы.
             </p>
-            <button
-              type="button"
-              onClick={goToLogin}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90"
-              style={{ background: '#A970FF' }}
-            >
-              Войти через Twitch
-            </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col">
             <div className="space-y-3 px-5 py-4">
-              <div className="space-y-1">
-                <label className="block text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                  Название бота
-                </label>
-                <input
-                  value={botName}
-                  onChange={(e) => setBotName(e.target.value)}
-                  placeholder="StreamElements, Nightbot..."
-                  className="w-full rounded-md border px-3 py-1.5 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[#A970FF]"
-                  style={{ background: '#18171F', borderColor: 'rgba(169, 112, 255, 0.3)' }}
-                />
-              </div>
               <div className="space-y-1">
                 <label className="block text-xs uppercase tracking-wide text-[var(--text-muted)]">
                   Название команды
@@ -97,8 +76,7 @@ export function AddBotCommandModal({ open, onClose }: AddBotCommandModalProps) {
                   value={commandName}
                   onChange={(e) => setCommandName(e.target.value)}
                   placeholder="!points"
-                  className="w-full rounded-md border px-3 py-1.5 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[#A970FF]"
-                  style={{ background: '#18171F', borderColor: 'rgba(169, 112, 255, 0.3)' }}
+                  className="w-full rounded-md border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[var(--section-bg)] px-3 py-1.5 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
                 />
               </div>
               <div className="space-y-1">
@@ -110,30 +88,35 @@ export function AddBotCommandModal({ open, onClose }: AddBotCommandModalProps) {
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
                   placeholder="Что делает команда"
-                  className="w-full resize-none rounded-md border px-3 py-1.5 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[#A970FF]"
-                  style={{ background: '#18171F', borderColor: 'rgba(169, 112, 255, 0.3)' }}
+                  className="w-full resize-none rounded-md border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[var(--section-bg)] px-3 py-1.5 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                  Бот
+                </label>
+                <input
+                  value={botName}
+                  onChange={(e) => setBotName(e.target.value)}
+                  placeholder="StreamElements, Nightbot... (пусто — mishgan_sol)"
+                  className="w-full rounded-md border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[var(--section-bg)] px-3 py-1.5 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
                 />
               </div>
             </div>
-            <div
-              className="flex items-center justify-end gap-2 border-t px-5 py-3"
-              style={{ borderColor: 'rgba(169, 112, 255, 0.3)' }}
-            >
+            <div className="flex items-center justify-end gap-2 border-t border-[color-mix(in_srgb,var(--accent)_30%,transparent)] px-5 py-3">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border px-3 py-1.5 text-sm text-[var(--text)] transition-colors hover:bg-white/5"
-                style={{ borderColor: 'rgba(169, 112, 255, 0.3)' }}
+                className="rounded-md border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] px-3 py-1.5 text-sm text-[var(--text)] transition-colors hover:bg-white/5"
               >
                 Отмена
               </button>
               <button
                 type="submit"
-                disabled={isPending}
-                className="rounded-md px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                style={{ background: '#A970FF' }}
+                disabled={createCommand.isPending}
+                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {isPending ? 'Сохранение...' : 'Добавить'}
+                {createCommand.isPending ? 'Сохранение...' : 'Добавить'}
               </button>
             </div>
           </form>

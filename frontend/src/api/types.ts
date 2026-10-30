@@ -46,6 +46,10 @@ export type HltbPage = Schemas['Page_HltbView_']
 export type HltbLookup = Schemas['HltbLookupOut']
 export type HltbAddResult = Schemas['HltbAddOut']
 
+export type BotCommandView = Schemas['BotCommandView']
+export type BotCommandsPage = Schemas['Page_BotCommandView_']
+export type BotCommandCreateBody = Schemas['BotCommandCreateIn']
+
 export type GamesPage = Schemas['Page_GameView_']
 export type StreamsPage = Schemas['Page_StreamView_']
 export type ReleasesPage = Schemas['Page_ReleaseView_']

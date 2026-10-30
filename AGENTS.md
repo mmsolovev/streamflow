@@ -178,9 +178,8 @@ docs/                     профильная документация
 - **IGDB** — `pipeline/ingest/igdb_api.py`, `services/igdb_service.py`
   (`IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`, fallback на `CLIENT_ID`/`CLIENT_SECRET`).
 - **HowLongToBeat** — `pipeline/ingest/hltb_client.py`, `services/hltb_service.py`.
-- **Google Sheets** — `services/sheets_service.py`, `pipeline/delivery/`,
-  `pipeline/ingest/google_sheets_reader.py`; сервисный аккаунт
-  `config/credentials.json`.
+- **Google Sheets** — `services/sheets_service.py`, `pipeline/delivery/`;
+  сервисный аккаунт `config/credentials.json`.
 - **LLM** — `services/gpt_service.py`: Gemini (`GEMINI_API_KEY`,
   `GEMINI_MODEL`, по умолчанию `gemini-2.5-flash`) → OpenRouter
   (`OPENROUTER_API_KEY`) → `g4f`.

@@ -36,7 +36,8 @@ src/
                 telegramPostEdit — api + hooks + view
   hooks/        useOffset, useTableSort, useDebouncedValue, useFocusGameRow
   lib/          format, tags, recommenders, games, csrf, apiError, cn
-  pages/        StatsPage, GameDetailPage, AdminPage, PlaceholderPage
+  pages/        StatsPage, GameDetailPage, AdminPage, PlaceholderPage,
+                PrivacyPage, NotFoundPage
   styles/       подключение шрифтов
   types/        прикладные типы
 e2e/            Playwright
@@ -58,23 +59,40 @@ e2e/            Playwright
 | `/releases` | `StatsPage section="releases"` | готово |
 | `/recommendations` | `StatsPage section="recommendations"` | готово |
 | `/hltb` | `StatsPage section="hltb"` | готово |
-| `/commands` | `PlaceholderPage` | заглушка |
+| `/bot/commands` | `BotPage section="commands"` | готово |
 | `/events` | `PlaceholderPage` | заглушка |
 | `/interactive` | `PlaceholderPage` | заглушка |
 | `/admin` | `ProtectedRoute → /admin/management` | admin |
 | `/admin/management` | `AdminPage section="management"` | admin |
 | `/admin/connections` | `AdminPage section="connections"` | admin |
 | `/admin/telegram` | `AdminPage section="telegram"` | admin |
+| `/privacy` | `PrivacyPage` | публичный |
 | `*` | `NotFoundPage` | |
 
-Навигация описана в `src/config/nav.ts`: вкладка «Статистика» включена,
-«Команды»/«Ивенты»/«Интерактив» выключены. Разделы статистики:
-`games`, `streams`, `releases`, `recommendations`, `hltb`. Админ-разделы:
+Навигация описана в `src/config/nav.ts`: вкладки «Статистика» и «Бот»
+включены, «Ивенты»/«Интерактив» выключены. Разделы статистики:
+`games`, `streams`, `releases`, `recommendations`, `hltb`. Раздел бота:
+`commands` (реестр `bot_commands`). Админ-разделы:
 `management`, `connections`, `telegram`; Telegram-подразделы — `start`,
 `during`, `end` (по умолчанию `end`).
 
 `ProtectedRoute requireAdmin` проверяет `is_admin`/capabilities из
 `/auth/me`; при отсутствии сессии отправляет на Twitch OAuth.
+
+## Вход и Политика конфиденциальности
+
+- `/privacy` (`src/pages/PrivacyPage.tsx`) — публичная страница политики
+  конфиденциальности, доступна без входа и без боковой панели разделов.
+- Ссылка на политику живёт в левом нижнем углу `SectionPanel` (на широких
+  экранах) и в подвале `AppLayout` (`md:hidden`) — на узких экранах.
+- Для неавторизованных `AuthControls` рендерит `LoginMenu`: кнопка
+  «Войти через Twitch» раскрывает выпадающий лист с кнопкой «Войти» и
+  галочкой согласия. Пока галочка не отмечена, «Войти» заблокирована;
+  ссылка на политику открывается в новой вкладке. Закрытие — `Escape` или
+  клик вне листа.
+- `RecommendGameModal` (предложение игры) использует тот же гейт: вход
+  заблокирован, пока не отмечено согласие, ссылка на политику открывается в
+  новой вкладке.
 
 ## API-клиент
 

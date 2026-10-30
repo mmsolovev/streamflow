@@ -19,6 +19,7 @@ from backend.config import get_backend_settings
 from backend.routers import (
     admin,
     auth,
+    bot_commands,
     games,
     health,
     hltb,
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(streams.router, prefix=prefix)
     app.include_router(releases.router, prefix=prefix)
     app.include_router(recommendations.router, prefix=prefix)
+    app.include_router(bot_commands.router, prefix=prefix)
     app.include_router(meta.router, prefix=prefix)
     app.include_router(auth.router, prefix=prefix)
     app.include_router(admin.router, prefix=prefix)

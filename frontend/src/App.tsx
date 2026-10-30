@@ -7,6 +7,7 @@ import { BotPage } from '@/pages/BotPage'
 import { GameDetailPage } from '@/pages/GameDetailPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
+import { PrivacyPage } from '@/pages/PrivacyPage'
 import { StatsPage } from '@/pages/StatsPage'
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="releases" element={<StatsPage section="releases" />} />
         <Route path="recommendations" element={<StatsPage section="recommendations" />} />
         <Route path="hltb" element={<StatsPage section="hltb" />} />
+        <Route path="privacy" element={<PrivacyPage />} />
         <Route path="bot" element={<Navigate to="/bot/commands" replace />} />
         <Route path="bot/commands" element={<BotPage section="commands" />} />
         <Route

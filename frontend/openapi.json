@@ -1291,6 +1291,201 @@
         }
       }
     },
+    "/api/v1/bot-commands": {
+      "get": {
+        "tags": ["bot-commands"],
+        "summary": "List Bot Commands",
+        "description": "Список команд из реестра `bot_commands`.",
+        "operationId": "list_bot_commands_api_v1_bot_commands_get",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(asc|desc)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_BotCommandView_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["bot-commands"],
+        "summary": "Create Bot Command",
+        "description": "Добавляет команду в реестр. Доступно только администраторам.",
+        "operationId": "create_bot_command_api_v1_bot_commands_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotCommandCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotCommandView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bot-commands/{command_id}": {
+      "patch": {
+        "tags": ["bot-commands"],
+        "summary": "Update Bot Command State",
+        "description": "Переключает видимость/активность команды. Только для администраторов.",
+        "operationId": "update_bot_command_state_api_v1_bot_commands__command_id__patch",
+        "parameters": [
+          {
+            "name": "command_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Command Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotCommandStateUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotCommandView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/meta/channel": {
       "get": {
         "tags": ["meta"],
@@ -1576,6 +1771,92 @@
   },
   "components": {
     "schemas": {
+      "BotCommandCreateIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Description"
+          },
+          "bot_name": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Bot Name",
+            "default": "self"
+          }
+        },
+        "type": "object",
+        "required": ["name", "description"],
+        "title": "BotCommandCreateIn",
+        "description": "Новая команда другого бота (ручное добавление в реестр)."
+      },
+      "BotCommandStateUpdateIn": {
+        "properties": {
+          "is_visible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Visible"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "BotCommandStateUpdateIn",
+        "description": "Частичное обновление флагов команды (только администратор)."
+      },
+      "BotCommandView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "bot_name": {
+            "type": "string",
+            "title": "Bot Name"
+          },
+          "is_visible": {
+            "type": "boolean",
+            "title": "Is Visible"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": ["id", "name", "description", "bot_name", "is_visible", "is_active"],
+        "title": "BotCommandView",
+        "description": "Команда Twitch-бота из реестра `bot_commands`."
+      },
       "ChannelInfo": {
         "properties": {
           "login": {
@@ -2516,6 +2797,57 @@
         "type": "object",
         "required": ["game_id", "interested"],
         "title": "InterestUpdateOut"
+      },
+      "Page_BotCommandView_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BotCommandView"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "total_all": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total All"
+          },
+          "aggregates": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregates"
+          }
+        },
+        "type": "object",
+        "required": ["items", "total", "limit", "offset"],
+        "title": "Page[BotCommandView]"
       },
       "Page_GameStream_": {
         "properties": {

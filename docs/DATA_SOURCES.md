@@ -45,14 +45,15 @@ runtime-метрики и Telegram-анонсы.
 
 ## Google Sheets
 
-- Сервис: `services/sheets_service.py`, `pipeline/delivery/*`,
-  `pipeline/ingest/google_sheets_reader.py`.
+- Сервис: `services/sheets_service.py`, `pipeline/delivery/*`.
 - Авторизация — service account `config/credentials.json`; шаблон
   `config/credentials.example.json`.
 - Таблица: `GAMES_SHEET_URL`; листы `ИГРЫ`, `СТРИМЫ`, `РЕЛИЗЫ`, `СОВЕТЫ`, `БОТ`.
-- `sync_sheets.py` пишет из PostgreSQL; `sheets_games.py` сохраняет ручные
-  колонки (оценка, статус прохождения, интерес) при безопасной синхронизации.
-- Обратная синхронизация ручных колонок — `google_sheets_reader.py`.
+- `sync_sheets.py` пишет из PostgreSQL. Листы — только витрина: флаги
+  «Понравилось», «Пройдено» и «Интересует» берутся из `streamer_games` и
+  никогда не считываются из таблицы. Меняются они только через backend.
+- Колонки с флагами закрыты protected range в Sheets: кликнуть и изменить их
+  нельзя (кроме владельца таблицы, который может снять защиту).
 
 ## LLM
 

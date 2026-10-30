@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CheckCircle2, Search, User, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import {
@@ -51,6 +51,8 @@ export function RecommendGameModal({ open, onClose }: RecommendGameModalProps) {
   const [note, setNote] = useState('')
   const [success, setSuccess] = useState<SuccessInfo | null>(null)
   const [activeField, setActiveField] = useState<'game' | 'user'>('game')
+  // Согласие с Политикой конфиденциальности — обязательное условие входа.
+  const [loginAgreed, setLoginAgreed] = useState(false)
 
   // Введённый/выбранный никнейм (отображаемое имя) и его login для отправки.
   const [userText, setUserText] = useState<string | null>(null)
@@ -106,6 +108,7 @@ export function RecommendGameModal({ open, onClose }: RecommendGameModalProps) {
   }
 
   function goToTarget(target: TargetList, gameId: number | null) {
+    setLoginAgreed(false)
     onClose()
     const path = TARGET_PATH[target]
     if (location.pathname === path) {
@@ -154,7 +157,10 @@ export function RecommendGameModal({ open, onClose }: RecommendGameModalProps) {
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              setLoginAgreed(false)
+              onClose()
+            }}
             className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
             aria-label="Закрыть"
           >
@@ -201,10 +207,30 @@ export function RecommendGameModal({ open, onClose }: RecommendGameModalProps) {
                 <button
                   type="button"
                   onClick={goToLogin}
-                  className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90"
+                  disabled={!loginAgreed}
+                  className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-black transition-opacity enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Войти через Twitch
                 </button>
+                <label className="flex cursor-pointer items-start gap-2 text-xs leading-snug text-[var(--text-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={loginAgreed}
+                    onChange={(event) => setLoginAgreed(event.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+                  />
+                  <span>
+                    Я согласен с{' '}
+                    <Link
+                      to="/privacy"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[var(--text)] underline decoration-white/30 underline-offset-2 transition-colors hover:decoration-white/70"
+                    >
+                      Политикой конфиденциальности
+                    </Link>
+                  </span>
+                </label>
               </div>
             ) : (
               <>

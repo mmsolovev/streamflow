@@ -71,8 +71,7 @@ pipeline/
 │   │                                #     + sliding-window rate limiter (4 req/s)
 │   │                                #     + in-memory TTL cache (1h)
 │   ├── hltb_client.py               #   HowLongToBeat: время прохождения игры
-│   ├── twitchtracker_parser.py      #   TwitchTracker HTML→dataclass (стримы, игры)
-│   └── google_sheets_reader.py      #   Google Sheets: ручные колонки (liked,completed)
+│   └── twitchtracker_parser.py      #   TwitchTracker HTML→dataclass (стримы, игры)
 │
 ├── transform/                       # Трансформация — чистые функции, без I/O
 │   ├── utils_transform.py           #   Нормализация строк, жанров, дедупликация
@@ -81,7 +80,7 @@ pipeline/
 │   ├── games_transform.py           #   Решение, какие поля GameMeta нужно обогатить
 │   ├── igdb_transform.py            #   Парсинг IGDB payload: даты, платформы, жанры
 │   ├── twitchtracker_transform.py   #   Склейка дубликатов игр из нескольких HTML-страниц
-│   ├── sheets_transform.py          #   Нормализация для Google Sheets (padding/bool)
+│   ├── sheets_transform.py          #   Нормализация строк для Google Sheets (padding)
 │   └── recommendations_transform.py #   Статусы рекомендаций (upcoming/released/streamed)
 │
 ├── load/                            # Загрузка — пишет в PostgreSQL (через SQLAlchemy async)
@@ -96,7 +95,7 @@ pipeline/
 ├── delivery/                        # Доставка — выгружает данные вовне
 │   ├── sheets_utils.py              #   Shared: upload_table, get_or_create_worksheet
 │   ├── sheets_header.py             #   Шапка "Tabula Streams" (мерж ячеек, тема)
-│   ├── sheets_games.py              #   Лист ИГРЫ (sync + safe-sync с сохранением ручных колонок)
+│   ├── sheets_games.py              #   Лист ИГРЫ (sync + safe-sync)
 │   ├── sheets_streams.py            #   Лист СТРИМЫ
 │   ├── sheets_releases.py           #   Лист РЕЛИЗЫ (с обратным отсчётом)
 │   ├── sheets_recommendations.py    #   Лист СОВЕТЫ
@@ -350,7 +349,7 @@ runtime.Collector
 | Решение | Где реализовано |
 |---|---|
 | **Pipeline как CLI** | Все оркестраторы — `python -m pipeline.orchestrator.*`. Нет встроенного планировщика |
-| **Safe-sync с Sheets** | `sync_games_safe()` / `sync_streams_safe()` — сохраняет ручные колонки H,J |
+| **Safe-sync с Sheets** | `sync_games_safe()` / `sync_streams_safe()` — пишут лист только при изменениях; флаги «Понравилось/Пройдено/Интересует» берутся из БД и не считываются из Sheets |
 | **Sliding-window rate limiter** | `_SlidingWindowRateLimiter` в `ingest/igdb_api.py` (4 req/s для IGDB) |
 | **Debounced sheets sync** | `RecommendationSheetsSyncScheduler` (15s debounce после `!рек`) |
 | **Kill-switch** | `runtime.BOT_ENABLED` — блокирует все команды кроме `!старт` |

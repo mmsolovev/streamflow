@@ -407,6 +407,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bot-commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Bot Commands
+         * @description Список команд из реестра `bot_commands`.
+         */
+        get: operations["list_bot_commands_api_v1_bot_commands_get"];
+        put?: never;
+        /**
+         * Create Bot Command
+         * @description Добавляет команду в реестр. Доступно только администраторам.
+         */
+        post: operations["create_bot_command_api_v1_bot_commands_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bot-commands/{command_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Bot Command State
+         * @description Переключает видимость/активность команды. Только для администраторов.
+         */
+        patch: operations["update_bot_command_state_api_v1_bot_commands__command_id__patch"];
+        trace?: never;
+    };
     "/api/v1/meta/channel": {
         parameters: {
             query?: never;
@@ -920,6 +964,49 @@ export interface components {
             created_at: string;
         };
         /**
+         * BotCommandCreateIn
+         * @description Новая команда другого бота (ручное добавление в реестр).
+         */
+        BotCommandCreateIn: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Bot Name
+             * @default self
+             */
+            bot_name: string;
+        };
+        /**
+         * BotCommandStateUpdateIn
+         * @description Частичное обновление флагов команды (только администратор).
+         */
+        BotCommandStateUpdateIn: {
+            /** Is Visible */
+            is_visible?: boolean | null;
+            /** Is Active */
+            is_active?: boolean | null;
+        };
+        /**
+         * BotCommandView
+         * @description Команда Twitch-бота из реестра `bot_commands`.
+         */
+        BotCommandView: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Bot Name */
+            bot_name: string;
+            /** Is Visible */
+            is_visible: boolean;
+            /** Is Active */
+            is_active: boolean;
+        };
+        /**
          * ChannelInfo
          * @description Данные канала — для сайдбара (логин, имя, аватар).
          */
@@ -1224,6 +1311,23 @@ export interface components {
             game_id: number;
             /** Interested */
             interested: boolean;
+        };
+        /** Page[BotCommandView] */
+        Page_BotCommandView_: {
+            /** Items */
+            items: components["schemas"]["BotCommandView"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total All */
+            total_all?: number | null;
+            /** Aggregates */
+            aggregates?: {
+                [key: string]: number;
+            } | null;
         };
         /** Page[GameStream] */
         Page_GameStream_: {
@@ -2531,6 +2635,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecommendationSearchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_bot_commands_api_v1_bot_commands_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                sort?: string | null;
+                direction?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_BotCommandView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_bot_command_api_v1_bot_commands_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BotCommandCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BotCommandView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_bot_command_state_api_v1_bot_commands__command_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                command_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BotCommandStateUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BotCommandView"];
                 };
             };
             /** @description Validation Error */

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import app
 from backend.deps import get_current_user, get_session, get_streamer_id
+from backend.repositories import bot_commands as bot_commands_repo
 from backend.repositories import games as games_repo
 from backend.repositories import hltb as hltb_repo
 from backend.repositories import recommendations as recs_repo
@@ -178,6 +179,73 @@ class WebApiTests(unittest.TestCase):
             response = self.client.get(f"{PREFIX}/streams")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["duration_hours"], 2.0)
+
+    def test_list_bot_commands(self):
+        items = [
+            {
+                "id": 1,
+                "name": "игры",
+                "description": "Статистика по игре",
+                "bot_name": "self",
+                "is_visible": True,
+                "is_active": True,
+            }
+        ]
+        with patch.object(
+            bot_commands_repo,
+            "list_bot_commands",
+            AsyncMock(return_value=(items, 1, 1, {"total": 1, "bots": 1})),
+        ):
+            response = self.client.get(f"{PREFIX}/bot-commands")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["aggregates"], {"total": 1, "bots": 1})
+        self.assertEqual(body["items"][0]["bot_name"], "self")
+
+    def test_add_bot_command_requires_admin(self):
+        app.dependency_overrides[get_current_user] = lambda: REGULAR_USER
+        response = self.client.post(
+            f"{PREFIX}/bot-commands",
+            json={"name": "points", "description": "Баллы", "bot_name": "StreamElements"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_update_bot_command_state(self):
+        command = SimpleNamespace(
+            id=5,
+            name="gpt",
+            description="Вопрос к LLM",
+            bot_name="self",
+            is_visible=True,
+            is_active=True,
+        )
+        session = FakeSession(game=command)
+        app.dependency_overrides[get_session] = _session_dep(session)
+
+        response = self.client.patch(
+            f"{PREFIX}/bot-commands/5", json={"is_visible": False}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["is_visible"])
+        self.assertTrue(body["is_active"])
+        self.assertFalse(command.is_visible)
+        self.assertTrue(session.committed)
+
+    def test_update_bot_command_not_found(self):
+        response = self.client.patch(
+            f"{PREFIX}/bot-commands/999", json={"is_active": False}
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"]["code"], "not_found")
+
+    def test_update_bot_command_requires_admin(self):
+        app.dependency_overrides[get_current_user] = lambda: REGULAR_USER
+        response = self.client.patch(
+            f"{PREFIX}/bot-commands/5", json={"is_active": False}
+        )
+        self.assertEqual(response.status_code, 403)
 
     def test_list_hltb(self):
         items = [{
