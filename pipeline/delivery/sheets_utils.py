@@ -60,6 +60,66 @@ def get_or_create_worksheet(client, sheet_name: str, *, rows: str = "1000", cols
         return spreadsheet.add_worksheet(title=sheet_name, rows=rows, cols=cols)
 
 
+def protect_columns(
+    sheet,
+    column_indexes,
+    *,
+    description: str,
+    start_row: int = 9,
+    end_row: int = 1000,
+) -> None:
+    """
+    Makes the given columns read-only in the Sheets UI so they cannot be edited
+    by accident (only the spreadsheet owner can still change them).
+
+    Idempotent: a protection with exactly the same range is not added twice.
+    """
+    metadata = sheet.spreadsheet.fetch_sheet_metadata()
+    existing = set()
+    for grid_sheet in metadata.get("sheets", []):
+        if grid_sheet.get("properties", {}).get("sheetId") != sheet.id:
+            continue
+        for protected in grid_sheet.get("protectedRanges", []) or []:
+            grid_range = protected.get("range") or {}
+            existing.add(
+                (
+                    grid_range.get("startRowIndex"),
+                    grid_range.get("endRowIndex"),
+                    grid_range.get("startColumnIndex"),
+                    grid_range.get("endColumnIndex"),
+                )
+            )
+
+    requests = []
+    for column_index in column_indexes:
+        grid_range = (start_row - 1, end_row, column_index, column_index + 1)
+        if grid_range in existing:
+            continue
+        requests.append(
+            {
+                "addProtectedRange": {
+                    "protectedRange": {
+                        "range": {
+                            "sheetId": sheet.id,
+                            "startRowIndex": grid_range[0],
+                            "endRowIndex": grid_range[1],
+                            "startColumnIndex": grid_range[2],
+                            "endColumnIndex": grid_range[3],
+                        },
+                        "description": description,
+                        "warningOnly": False,
+                    }
+                }
+            }
+        )
+
+    if requests:
+        try:
+            sheet.spreadsheet.batch_update({"requests": requests})
+        except Exception as exc:  # защита колонок не должна ломать синхронизацию
+            print(f"Warning: failed to protect columns {column_indexes}: {exc}")
+
+
 def build_hyperlink_formula(url, label: str = "Steam") -> str:
     normalized_url = str(url or "").strip()
     if not normalized_url:
@@ -140,6 +200,7 @@ __all__ = [
     "format_rating_value",
     "get_client",
     "get_or_create_worksheet",
+    "protect_columns",
     "upload_table",
 ]
 

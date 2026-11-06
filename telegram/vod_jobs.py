@@ -12,11 +12,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import TelegramAnnouncementVod
+from database.models import StreamRecording, TelegramAnnouncementVod
 
 
 # Интервал между попытками при инфраструктурной ошибке. Растёт, чтобы не
@@ -55,31 +55,59 @@ async def create_job(
     stream_started_at: datetime | None,
     stream_ended_at: datetime | None,
     check_delay_seconds: int,
+    stream_db_id: int | None = None,
 ) -> int | None:
     """Ставит задачу в очередь. Повторный вызов для того же стрима — no-op.
 
     Возвращает id созданной задачи либо None, если задача уже была.
     Идемпотентность обеспечивает UNIQUE(stream_id): при повторном
     `stream.offline` или реконнекте задача не задваивается.
+
+    Задача создаётся и без анонса: запись VOD нужна сайту независимо от
+    Telegram. `check_at` ставится всегда, иначе такая задача никогда не
+    попала бы в обработку.
     """
     started = to_naive_utc(stream_started_at) or _now()
-    check_at = None
-    if announcement_id is not None:
-        check_at = _now() + timedelta(seconds=max(check_delay_seconds, 0))
+    now = _now()
+    # VOD появляется не мгновенно, поэтому первая проверка отложена.
+    check_at = now + timedelta(seconds=max(check_delay_seconds, 0))
+
+    existing_result = await session.execute(
+        select(TelegramAnnouncementVod).where(
+            TelegramAnnouncementVod.stream_id == str(stream_id)
+        )
+    )
+    existing = existing_result.scalars().first()
+    if existing is not None:
+        # Дозаполняем то, чего не было при первом создании: строку streams
+        # мог создать runtime уже после постановки задачи, а анонс — найтись
+        # позже. Уже выбранный админом пост не перезаписываем.
+        if stream_db_id is not None and existing.stream_db_id is None:
+            existing.stream_db_id = int(stream_db_id)
+        if announcement_id is not None and existing.announcement_id is None:
+            existing.announcement_id = int(announcement_id)
+            if existing.status == "pending_selection":
+                existing.status = "waiting"
+            if existing.check_at is None:
+                existing.check_at = check_at
+        elif existing.check_at is None and existing.status == "waiting":
+            existing.check_at = check_at
+        existing.updated_at = now
+        return None
 
     statement = (
         pg_insert(TelegramAnnouncementVod)
         .values(
             announcement_id=announcement_id,
             stream_id=str(stream_id),
+            stream_db_id=stream_db_id,
             stream_started_at=started,
             stream_ended_at=to_naive_utc(stream_ended_at),
-            status="waiting" if announcement_id is not None else "pending_selection",
+            status="waiting",
             attempts=0,
-            # VOD появляется не мгновенно, поэтому первая проверка отложена.
             check_at=check_at,
-            created_at=_now(),
-            updated_at=_now(),
+            created_at=now,
+            updated_at=now,
         )
         .on_conflict_do_nothing(constraint="uq_telegram_announcement_vods_stream_id")
         .returning(TelegramAnnouncementVod.id)
@@ -106,8 +134,8 @@ async def claim_due(
     result = await session.execute(
         select(TelegramAnnouncementVod)
         .where(
-            TelegramAnnouncementVod.status == "waiting",
-            TelegramAnnouncementVod.announcement_id.is_not(None),
+            TelegramAnnouncementVod.status.in_(("waiting", "pending_selection")),
+            TelegramAnnouncementVod.check_at.is_not(None),
             TelegramAnnouncementVod.check_at <= moment,
         )
         .order_by(TelegramAnnouncementVod.check_at.asc())
@@ -145,9 +173,44 @@ async def jobs_for_announcement(
 
 
 async def resolved_urls(session: AsyncSession, announcement_id: int) -> list[str]:
-    """Ссылки на найденные VOD, хронологически."""
-    jobs = await jobs_for_announcement(session, announcement_id)
-    return [job.vod_url for job in jobs if job.vod_url and job.status != "no_vod"]
+    """Ссылки на найденные VOD, хронологически.
+
+    Основной путь — `recording_id`. Для старых задач, где связь ещё не
+    проставлена, берём все доступные записи стрима (`stream_db_id`): у
+    одного стрима их может быть несколько после реконнектов.
+    """
+    result = await session.execute(
+        select(TelegramAnnouncementVod, StreamRecording)
+        .outerjoin(
+            StreamRecording,
+            or_(
+                StreamRecording.id == TelegramAnnouncementVod.recording_id,
+                and_(
+                    TelegramAnnouncementVod.recording_id.is_(None),
+                    StreamRecording.stream_id == TelegramAnnouncementVod.stream_db_id,
+                    StreamRecording.source == "twitch",
+                    StreamRecording.is_available.is_(True),
+                ),
+            ),
+        )
+        .where(
+            TelegramAnnouncementVod.announcement_id == announcement_id,
+            TelegramAnnouncementVod.status != "no_vod",
+        )
+        .order_by(
+            TelegramAnnouncementVod.stream_started_at.asc(),
+            StreamRecording.id.asc(),
+        )
+    )
+
+    seen: set[str] = set()
+    urls: list[str] = []
+    for _job, recording in result.all():
+        url = recording.url if recording is not None else None
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+    return urls
 
 
 async def request_publish(session: AsyncSession, job_id: int) -> None:
@@ -202,21 +265,22 @@ async def mark_resolved(
     session: AsyncSession,
     *,
     job_id: int,
-    vod_url: str,
-    duration_minutes: int | None = None,
-    recorded_at: datetime | None = None,
+    recording_id: int | None = None,
+    stream_db_id: int | None = None,
 ) -> None:
+    values: dict = {
+        "status": "resolved",
+        "last_error": None,
+        "updated_at": _now(),
+    }
+    if recording_id is not None:
+        values["recording_id"] = int(recording_id)
+    if stream_db_id is not None:
+        values["stream_db_id"] = int(stream_db_id)
     await session.execute(
         update(TelegramAnnouncementVod)
         .where(TelegramAnnouncementVod.id == job_id)
-        .values(
-            status="resolved",
-            vod_url=vod_url,
-            duration_minutes=duration_minutes,
-            recorded_at=to_naive_utc(recorded_at),
-            last_error=None,
-            updated_at=_now(),
-        )
+        .values(**values)
     )
 
 

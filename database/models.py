@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     SmallInteger,
     String,
     Table,
@@ -33,10 +34,16 @@ class Game(Base):
     name = Column(Text, nullable=False, unique=True)
     slug = Column(Text, unique=True)
     game_type = Column(String(20))
+    # Twitch category id: переименование категории не должно создавать новую игру.
+    twitch_category_id = Column(Text)
     parent_game_id = Column(Integer, ForeignKey("games.id"))
     franchise_id = Column(Integer, ForeignKey("games_franchises.id"))
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
+
+    __table_args__ = (
+        Index("ix_games_twitch_category_id", "twitch_category_id"),
+    )
 
     aliases = relationship("GameAlias", back_populates="game", cascade="all, delete-orphan")
     stream_games = relationship("StreamGame", back_populates="game", cascade="all, delete-orphan")
@@ -269,12 +276,20 @@ class CommandUsageLog(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     streamer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     command_id = Column(Integer, ForeignKey("bot_commands.id"), nullable=False)
+    # Стрим, во время которого вызвана команда; NULL для вызовов вне стрима.
+    stream_id = Column(Integer, ForeignKey("streams.id"))
+    # Алиас, которым фактически вызвали команду (может отличаться от name).
+    invoked_name = Column(Text)
+    # Twitch message id — связь с chat_messages.twitch_message_id.
+    twitch_message_id = Column(Text)
     created_at = Column(DateTime, nullable=False)
     __table_args__ = (
         Index("ix_command_usage_logs_user_id", "user_id"),
         Index("ix_command_usage_logs_command_id", "command_id"),
         Index("ix_command_usage_logs_streamer_id", "streamer_id"),
         Index("ix_command_usage_logs_created_at", "created_at"),
+        Index("ix_command_usage_logs_stream_id", "stream_id"),
+        Index("ix_command_usage_logs_twitch_message_id", "twitch_message_id"),
     )
 
 
@@ -285,11 +300,43 @@ class ChatMessage(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     streamer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
+    # Twitch message id: дедуп повторных доставок EventSub.
+    twitch_message_id = Column(Text)
+    # streams.id; NULL, если сообщение пришло вне активного стрима.
+    stream_id = Column(Integer, ForeignKey("streams.id"))
+    # Логируется только основной канал; колонка — для диагностики.
+    channel_login = Column(Text)
+    is_command = Column(Boolean, default=False)
+    reply_parent_message_id = Column(Text)
+    # Точечное удаление по запросу (переписка с пользователем, chat clear).
+    deleted_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False)
     __table_args__ = (
         Index("ix_chat_messages_user_id", "user_id"),
         Index("ix_chat_messages_streamer_id", "streamer_id"),
         Index("ix_chat_messages_created_at", "created_at"),
+        Index("ix_chat_messages_stream_created", "stream_id", "created_at"),
+        Index("ix_chat_messages_user_created", "user_id", "created_at"),
+        UniqueConstraint(
+            "twitch_message_id", name="uq_chat_messages_twitch_message_id"
+        ),
+    )
+
+
+class StreamChatParticipant(Base):
+    """Присутствие пользователя на конкретном стриме (по сообщениям чата)."""
+
+    __tablename__ = "stream_chat_participants"
+
+    id = Column(BigInteger, primary_key=True)
+    stream_id = Column(Integer, ForeignKey("streams.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    first_message_at = Column(DateTime)
+    last_message_at = Column(DateTime)
+    messages_count = Column(Integer, default=0, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("stream_id", "user_id", name="uq_stream_chat_participants_stream_user"),
+        Index("ix_stream_chat_participants_user_last", "user_id", "last_message_at"),
     )
 
 
@@ -571,12 +618,22 @@ class StreamRecording(Base):
     stream_id = Column(Integer, ForeignKey("streams.id"), nullable=False)
     source = Column(String(20), nullable=False)
     url = Column(Text, nullable=False)
+    # Twitch broadcast id: у одного стрима может быть несколько записей,
+    # если трансляция рвалась и стример перезапускал broadcast.
+    twitch_stream_id = Column(Text)
+    twitch_video_id = Column(Text)
     duration_minutes = Column(Integer)
     recorded_at = Column(DateTime)
+    # Истёкшие записи не удаляем: False скрывает VOD на сайте, но оставляет
+    # историю и связь с постом Telegram.
+    is_available = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime)
+    updated_at = Column(DateTime)
     __table_args__ = (
         Index("ix_stream_recordings_stream_id", "stream_id"),
         Index("ix_stream_recordings_source", "source"),
+        Index("ix_stream_recordings_twitch_video_id", "twitch_video_id"),
+        Index("ix_stream_recordings_twitch_stream_id", "twitch_stream_id"),
     )
 
     stream = relationship("Stream", back_populates="stream_recordings")
@@ -693,6 +750,11 @@ class GameStats(Base):
     streams_count = Column(Integer)
     last_stream = Column(DateTime)
     synced_at = Column(DateTime, nullable=False)
+    # Провенанс: когда поле в последний раз писал TwitchTracker / runtime.
+    tt_synced_at = Column(DateTime)
+    runtime_synced_at = Column(DateTime)
+    # Последний батч изменений (stats_change_batches), применивший строку.
+    last_change_batch_id = Column(BigInteger, ForeignKey("stats_change_batches.id"))
 
     game = relationship("Game", back_populates="game_stats")
 
@@ -721,18 +783,58 @@ class GameAlias(Base):
 # =====================================================
 
 
+class StreamRuntimeSession(Base):
+    """Одна коллекторская сессия на строку `streams`.
+
+    Reconnect не создаёт вторую сессию: при новом Twitch stream_id в пределах
+    окна обновляется `twitch_stream_id`, а сессия продолжает тот же эфир.
+    """
+
+    __tablename__ = "stream_runtime_sessions"
+
+    id = Column(BigInteger, primary_key=True)
+    stream_id = Column(Integer, ForeignKey("streams.id"), nullable=False, unique=True)
+    twitch_stream_id = Column(Text, nullable=False)
+    broadcaster_id = Column(BigInteger)
+    # collecting | finalized | aggregating | aggregated | failed | cancelled | skipped
+    status = Column(String(20), nullable=False, default="collecting", server_default="collecting")
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime)
+    finalized_at = Column(DateTime)
+    finalize_reason = Column(Text)
+    last_sample_at = Column(DateTime)
+    samples_count = Column(Integer, nullable=False, default=0, server_default="0")
+    collector_version = Column(Integer, nullable=False, default=3, server_default="3")
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    __table_args__ = (
+        Index("ix_stream_runtime_sessions_status", "status"),
+        Index("ix_stream_runtime_sessions_twitch_stream_id", "twitch_stream_id"),
+        Index("ix_stream_runtime_sessions_status_started", "status", "started_at"),
+    )
+
+    stream = relationship("Stream")
+
+
 class StreamRuntimeSample(Base):
     __tablename__ = "stream_runtime_samples"
 
     id = Column(Integer, primary_key=True)
     stream_id = Column(Integer, ForeignKey("streams.id"), nullable=False)
+    stream_session_id = Column(BigInteger, ForeignKey("stream_runtime_sessions.id"))
     sampled_at = Column(DateTime, nullable=False)
     viewers = Column(Integer)
     followers = Column(Integer)
     title = Column(Text)
     category_name = Column(Text)
+    category_id = Column(Text)
+    # sampling.loop / bootstrap / stream.online / channel.update / stream.finalize
+    viewers_source = Column(String(30))
     __table_args__ = (
         Index("ix_stream_runtime_samples_stream_sampled", "stream_id", "sampled_at"),
+        UniqueConstraint(
+            "stream_id", "sampled_at", name="uq_stream_runtime_samples_stream_sampled"
+        ),
     )
 
 
@@ -741,13 +843,111 @@ class StreamRuntimeBucket(Base):
 
     id = Column(Integer, primary_key=True)
     stream_id = Column(Integer, ForeignKey("streams.id"), nullable=False)
-    bucket_start = Column(DateTime)
+    stream_session_id = Column(BigInteger, ForeignKey("stream_runtime_sessions.id"))
+    bucket_start = Column(DateTime, nullable=False)
     bucket_end = Column(DateTime)
     avg_viewers = Column(Integer)
     max_viewers = Column(Integer)
     followers_gained = Column(Integer)
+    duration_hours = Column(Numeric(6, 4))
+    hours_watched = Column(Numeric(10, 2))
+    # Инкрементальный upsert: avg = viewers_sum / sample_count.
+    viewers_sum = Column(BigInteger, nullable=False, default=0, server_default="0")
+    sample_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # Фолловеры на границах бакета: followers_gained = last - first.
+    followers_first = Column(Integer)
+    followers_last = Column(Integer)
     __table_args__ = (
         Index("ix_stream_runtime_buckets_stream_start", "stream_id", "bucket_start"),
+        UniqueConstraint(
+            "stream_id", "bucket_start", name="uq_stream_runtime_buckets_stream_start"
+        ),
+    )
+
+
+class StreamStatsJob(Base):
+    """Очередь отложенной агрегации game_stats после конца стрима."""
+
+    __tablename__ = "stream_stats_jobs"
+
+    id = Column(BigInteger, primary_key=True)
+    stream_session_id = Column(
+        BigInteger,
+        ForeignKey("stream_runtime_sessions.id"),
+        nullable=False,
+        unique=True,
+    )
+    stream_id = Column(Integer, ForeignKey("streams.id"), nullable=False)
+    check_at = Column(DateTime, nullable=False)
+    # pending | processing | done | failed | cancelled
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    last_error = Column(Text)
+    locked_at = Column(DateTime)
+    locked_by = Column(Text)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
+    __table_args__ = (
+        Index("ix_stream_stats_jobs_status_check_at", "status", "check_at"),
+        Index("ix_stream_stats_jobs_stream_id", "stream_id"),
+    )
+
+    session = relationship("StreamRuntimeSession")
+
+
+# =====================================================
+# STATS CHANGE HISTORY
+# =====================================================
+
+
+class StatsChangeBatch(Base):
+    """Один прогон записи статистики: TT-страница, runtime-агрегация, откат."""
+
+    __tablename__ = "stats_change_batches"
+
+    id = Column(BigInteger, primary_key=True)
+    # runtime | twitchtracker | manual | rollback
+    source = Column(String(20), nullable=False)
+    # apply | rollback
+    action = Column(String(20), nullable=False, default="apply", server_default="apply")
+    reason = Column(Text)
+    stream_id = Column(Integer, ForeignKey("streams.id"))
+    stream_session_id = Column(BigInteger)
+    # applied | partially_reverted | reverted
+    status = Column(String(20), nullable=False, default="applied", server_default="applied")
+    changes_count = Column(Integer, nullable=False, default=0, server_default="0")
+    reverted_by_batch_id = Column(BigInteger, ForeignKey("stats_change_batches.id"))
+    created_at = Column(DateTime)
+    applied_at = Column(DateTime)
+    meta = Column(JSONB)
+    __table_args__ = (
+        Index("ix_stats_change_batches_source_created", "source", "created_at"),
+        Index("ix_stats_change_batches_stream_id", "stream_id"),
+    )
+
+
+class StatsChangeLog(Base):
+    """Построчное изменение поля статистики для истории и отката."""
+
+    __tablename__ = "stats_change_log"
+
+    id = Column(BigInteger, primary_key=True)
+    batch_id = Column(BigInteger, ForeignKey("stats_change_batches.id"), nullable=False)
+    # game_stats | stream | stream_game
+    entity = Column(String(30), nullable=False)
+    entity_id = Column(BigInteger, nullable=False)
+    field = Column(String(40), nullable=False)
+    old_value = Column(Text)
+    new_value = Column(Text)
+    changed_at = Column(DateTime)
+    __table_args__ = (
+        Index("ix_stats_change_log_batch_id", "batch_id"),
+        Index(
+            "ix_stats_change_log_entity_changed",
+            "entity",
+            "entity_id",
+            "changed_at",
+        ),
     )
 
 
@@ -823,9 +1023,11 @@ class TelegramAnnouncementVod(Base):
     stream_ended_at = Column(DateTime)
     # pending_selection | waiting | resolved | no_vod | ready | applying | edited | edit_failed | failed | undone
     status = Column(String(20), nullable=False, default="waiting")
-    vod_url = Column(Text)
-    duration_minutes = Column(Integer)
-    recorded_at = Column(DateTime)
+    # Связь с записью: единственное хранилище URL — stream_recordings.
+    # Один стрим может иметь несколько записей (реконнекты), задача хранит
+    # ту, которую нашла для своего broadcast.
+    stream_db_id = Column(Integer, ForeignKey("streams.id"), nullable=True)
+    recording_id = Column(BigInteger, ForeignKey("stream_recordings.id"), nullable=True)
     check_at = Column(DateTime)
     attempts = Column(Integer, default=0)
     last_error = Column(Text)
@@ -848,9 +1050,12 @@ class TelegramAnnouncementVod(Base):
         UniqueConstraint("stream_id", name="uq_telegram_announcement_vods_stream_id"),
         Index("ix_telegram_announcement_vods_status_check_at", "status", "check_at"),
         Index("ix_telegram_announcement_vods_stream_id", "stream_id"),
+        Index("ix_telegram_announcement_vods_stream_db_id", "stream_db_id"),
+        Index("ix_telegram_announcement_vods_recording_id", "recording_id"),
     )
 
     announcement = relationship("TelegramAnnouncement", back_populates="vods")
+    recording = relationship("StreamRecording", foreign_keys=[recording_id])
 
 
 class TelegramPostEditSettings(Base):

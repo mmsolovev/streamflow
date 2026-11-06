@@ -53,8 +53,18 @@ async def log_command_usage(
     user: User,
     streamer: User,
     command_name: str,
+    *,
+    stream_id: int | None = None,
+    invoked_name: str | None = None,
+    twitch_message_id: str | None = None,
+    created_at=None,
 ) -> None:
-    """Insert a row into command_usage_logs."""
+    """Insert a row into command_usage_logs.
+
+    `invoked_name` — алиас, которым фактически вызвали команду; `stream_id` —
+    стрим, во время которого это произошло; `twitch_message_id` связывает
+    запись с `chat_messages`.
+    """
     result = await session.execute(select(BotCommand).where(BotCommand.name == command_name))
     cmd = result.scalar_one_or_none()
 
@@ -67,7 +77,10 @@ async def log_command_usage(
             user_id=user.id,
             streamer_id=streamer.id,
             command_id=cmd.id,
-            created_at=_utcnow(),
+            stream_id=stream_id,
+            invoked_name=invoked_name or command_name,
+            twitch_message_id=twitch_message_id,
+            created_at=created_at or _utcnow(),
         )
     )
     await session.flush()

@@ -73,6 +73,13 @@
   --accent: #bf1313;
 }
 
+/* Раздел «Команды» — фиолетовый акцент Twitch-бота. */
+[data-section='commands'] {
+  --section-bg: #18171f;
+  --card-bg: #24212e;
+  --accent: #a970ff;
+}
+
 /* Раздел «Telegram» — своя палитра (синий Telegram). */
 [data-section='telegram'] {
   --section-bg: #171d21;

@@ -104,20 +104,32 @@ function makeColumns(
       key: 'vod',
       label: 'Запись',
       align: 'center',
-      filterValue: (stream) => Boolean(stream.vod_url),
-      render: (stream) =>
-        stream.vod_url ? (
-          <a
-            href={stream.vod_url}
-            target="_blank"
-            rel="noreferrer"
-            className="font-social text-[#994cff] transition-opacity hover:opacity-80"
-          >
-            Twitch
-          </a>
+      filterValue: (stream) =>
+        Boolean(stream.vod_urls?.length || stream.vod_url),
+      render: (stream) => {
+        const vodUrls = stream.vod_urls?.length
+          ? stream.vod_urls
+          : stream.vod_url
+            ? [stream.vod_url]
+            : []
+        return vodUrls.length ? (
+          <span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            {vodUrls.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-social text-[#994cff] transition-opacity hover:opacity-80"
+              >
+                Twitch
+              </a>
+            ))}
+          </span>
         ) : (
           <span className="text-[var(--text-muted)]">—</span>
-        ),
+        )
+      },
     },
     {
       key: 'clips',

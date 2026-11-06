@@ -31,6 +31,8 @@ def _view(item: dict) -> StreamView:
         tags=item["tags"],
         participants=item["participants"],
         vod_url=item["vod_url"],
+        vod_urls=item.get("vod_urls")
+        or ([item["vod_url"]] if item["vod_url"] else []),
         avg_viewers=item["avg_viewers"],
         max_viewers=item["max_viewers"],
     )

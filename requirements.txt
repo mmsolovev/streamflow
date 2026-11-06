@@ -16,5 +16,8 @@ python-dotenv==1.2.1
 SQLAlchemy[asyncio]==2.0.48
 twitchio==3.3.2
 cryptography
+# IANA-база часовых поясов: на Windows её нет в системе, а без неё
+# ZoneInfo("Europe/Moscow") падает. Нужна для нормализации времени TT.
+tzdata
 
 protobuf

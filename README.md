@@ -81,8 +81,9 @@ Twitch-бот для стримерского чата, локальной ав�
 ```
 
 Помимо ETL, в проекте есть потребители данных из `PostgreSQL`: Twitch-бот,
-EventSub/`runtime`-сборщик live-метрик, веб-бэкенд [backend/](backend)
-(`FastAPI`) и React-фронтенд [frontend/](frontend).
+EventSub/`runtime`-сборщик live-метрик (сессии, сэмплы и агрегаты пишутся в
+PostgreSQL), веб-бэкенд [backend/](backend) (`FastAPI`) и React-фронтенд
+[frontend/](frontend).
 
 ### 1. Ingest (Сбор)
 - **Что делает:** Собирает "сырые" данные из внешних источников.
@@ -122,6 +123,9 @@ EventSub/`runtime`-сборщик live-метрик, веб-бэкенд [backen
 - `parse_streams_json.py`: Парсит JSON-файлы с информацией о стримах.
 - `import_igdb_releases.py`: Импортирует информацию о релизах игр из IGDB.
 - `enrich_descriptions_with_gpt.py`: Обогащает описания с помощью GPT.
+- `aggregate_streams.py`: Догоняет отложенную агрегацию `game_stats`
+  (`--due`, `--stream`, `--all`, `--drift`).
+- `rollback_stats.py`: Откатывает батч истории статистики (`--batch`/`--stream`).
 
 ## Google Sheets как UI
 
@@ -212,7 +216,15 @@ EventSub/`runtime`-сборщик live-метрик, веб-бэкенд [backen
 - `GAMES_SHEET_URL` для публичной ссылки на таблицу в ответах `!игры` и `!стримы`;
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`, `TWITCH_SCOPE` для веб-входа (OAuth);
 - `BACKEND_*` (`BACKEND_HOST`, `BACKEND_PORT`, `BACKEND_CORS_ORIGINS`, `BACKEND_FRONTEND_URL`, cookie/CSRF) для веб-бэкенда;
-- `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID` для Telegram-анонсов.
+- `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID` для Telegram-анонсов;
+- `TWITCH_PRIMARY_CHANNEL` — основной канал для EventSub, статистики и чата;
+- `STREAM_RUNTIME_SAMPLE_SECONDS`, `STREAM_STATS_AGGREGATION_DELAY_SECONDS`,
+  `STREAM_STATS_WORKER_ENABLED` — сбор и отложенная агрегация статистики;
+- `CHAT_LOG_ENABLED`, `CHAT_LOG_RETENTION_DAYS` (`0` — хранить бессрочно),
+  `CHAT_LOG_BATCH_SIZE`, `CHAT_LOG_FLUSH_SECONDS` — запись чата и команд;
+- `TWITCHTRACKER_IMPORT_ENABLED` — включение импорта TwitchTracker;
+- `TWITCHTRACKER_TIMEZONE` — часовой пояс времени на TwitchTracker (по умолчанию
+  `Europe/Moscow`); используется при переводе в UTC.
 
 Примеры:
 - [.env.example](.env.example)
@@ -277,7 +289,8 @@ docker compose up -d --build backend
 ## Данные и ограничения
 
 - Бот подключается к каналу(ам), указанным в `TWITCH_CHANNEL` или `TWITCH_CHANNELS` (через запятую).
-  Первый канал в `TWITCH_CHANNELS` считается основным (EventSub/статистика/анонсы).
+  Основной канал для EventSub/статистики/чата/анонсов задаётся `TWITCH_PRIMARY_CHANNEL`.
+- Статистика и сообщения чата собираются только для основного канала; остальные каналы нужны боту только для проверок команд.
 - Некоторые команды доступны только модераторам или staff-ролям (см. `docs/CHAT_COMMANDS.md`).
 - Без `Google Sheets` интеграции бот продолжит работать, но ответы `!игры` и `!стримы` будут без полезной ссылки на таблицу.
 - Без `storage/info.json` команда `!инфо` использует пример из репозитория.

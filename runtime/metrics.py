@@ -69,9 +69,42 @@ def recalculate_all_metrics(session: StreamSession):
         _populate_games_summary(session)
 
 
+def _follower_points(follower_samples: list[dict]) -> list[tuple[datetime, int]]:
+    points: list[tuple[datetime, int]] = []
+    for sample in follower_samples:
+        ts = parse_iso(sample.get("sampled_at"))
+        if ts is None:
+            continue
+        try:
+            val = int(sample.get("followers_total"))
+        except (TypeError, ValueError):
+            continue
+        points.append((ts, val))
+    points.sort(key=lambda p: p[0])
+    return points
+
+
+def _follower_delta(
+    points: list[tuple[datetime, int]], start: datetime, end: datetime
+) -> int | None:
+    """Прирост фолловеров по сэмплам total: last(end) - last(start)."""
+    if not points or end < start:
+        return None
+    times = [t for t, _ in points]
+    start_idx = bisect_right(times, start) - 1
+    end_idx = bisect_right(times, end) - 1
+    start_value = points[start_idx][1] if start_idx >= 0 else points[0][1]
+    end_value = points[end_idx][1] if end_idx >= 0 else points[0][1]
+    if end_idx < start_idx:
+        return None
+    return max(0, end_value - start_value)
+
+
 def _recalculate_segment_follow_metrics(session: StreamSession):
     segments = session.get("game_segments", [])
-    follow_events = session.get("metrics", {}).get("follow_events", [])
+    metrics = session.get("metrics", {})
+    follow_events = metrics.get("follow_events", [])
+    follower_samples = metrics.get("follower_samples", [])
 
     for segment in segments:
         segment["followers_gained"] = 0
@@ -80,20 +113,33 @@ def _recalculate_segment_follow_metrics(session: StreamSession):
     if not segments:
         return
 
-    for event in follow_events:
-        followed_at = parse_iso(event.get("followed_at"))
-        if followed_at is None:
-            continue
+    # Точные follow-события приоритетнее: они не зависят от частоты сэмплов.
+    # Если их нет (runtime не персистит события), считаем по сэмплам total.
+    if follow_events:
+        for event in follow_events:
+            followed_at = parse_iso(event.get("followed_at"))
+            if followed_at is None:
+                continue
 
+            for segment in segments:
+                started_at = parse_iso(segment.get("started_at"))
+                ended_at = parse_iso(segment.get("ended_at"))
+                if started_at is None or ended_at is None:
+                    continue
+
+                if started_at <= followed_at <= ended_at:
+                    segment["followers_gained"] += 1
+                    break
+    else:
+        points = _follower_points(follower_samples)
         for segment in segments:
             started_at = parse_iso(segment.get("started_at"))
             ended_at = parse_iso(segment.get("ended_at"))
             if started_at is None or ended_at is None:
                 continue
-
-            if started_at <= followed_at <= ended_at:
-                segment["followers_gained"] += 1
-                break
+            delta = _follower_delta(points, started_at, ended_at)
+            if delta is not None:
+                segment["followers_gained"] = delta
 
     for segment in segments:
         started_at = parse_iso(segment.get("started_at"))
@@ -103,7 +149,9 @@ def _recalculate_segment_follow_metrics(session: StreamSession):
 
         duration_hours = (ended_at - started_at).total_seconds() / 3600
         if duration_hours > 0:
-            segment["followers_per_hour"] = round(segment["followers_gained"] / duration_hours, 2)
+            segment["followers_per_hour"] = round(
+                segment["followers_gained"] / duration_hours, 2
+            )
 
 
 def _populate_games_summary(session: StreamSession):
@@ -115,6 +163,7 @@ def _populate_games_summary(session: StreamSession):
     metrics = session["metrics"]
     viewer_samples = metrics.get("viewer_samples", [])
     follow_events = metrics.get("follow_events", []) or []
+    follower_points = _follower_points(metrics.get("follower_samples", []))
     segments = session.get("game_segments", []) or []
 
     order: list[str] = []
@@ -141,6 +190,8 @@ def _populate_games_summary(session: StreamSession):
             per_game[k] = {
                 "category_id": seg.get("category_id"),
                 "category_name": seg.get("category_name"),
+                "started_at": seg_start,
+                "ended_at": seg_end,
                 "duration_minutes": 0.0,
                 "avg_viewers": None,
                 "peak_viewers": None,
@@ -149,6 +200,12 @@ def _populate_games_summary(session: StreamSession):
                 "followers_per_hour": 0.0,
             }
             order.append(k)
+
+        entry = per_game[k]
+        if seg_start < entry["started_at"]:
+            entry["started_at"] = seg_start
+        if seg_end > entry["ended_at"]:
+            entry["ended_at"] = seg_end
 
         duration_minutes = (seg_end - seg_start).total_seconds() / 60.0
         
@@ -173,14 +230,19 @@ def _populate_games_summary(session: StreamSession):
             cur_peak = per_game[k]["peak_viewers"]
             per_game[k]["peak_viewers"] = peak if cur_peak is None else max(cur_peak, peak)
 
-        gained = 0
-        for ev in follow_events:
-            f_at = parse_iso(ev.get("followed_at"))
-            if f_at is None:
-                continue
-            if seg_start <= f_at <= seg_end:
-                gained += 1
-        per_game[k]["followers_gained"] += gained
+        if follow_events:
+            gained = 0
+            for ev in follow_events:
+                f_at = parse_iso(ev.get("followed_at"))
+                if f_at is None:
+                    continue
+                if seg_start <= f_at <= seg_end:
+                    gained += 1
+            entry["followers_gained"] += gained
+        else:
+            delta = _follower_delta(follower_points, seg_start, seg_end)
+            if delta is not None:
+                entry["followers_gained"] += delta
 
     summary: list[dict] = []
     unique_names: list[str] = []
@@ -191,6 +253,8 @@ def _populate_games_summary(session: StreamSession):
         g["hours_watched"] = round(g["hours_watched"], 2)
         g["avg_viewers"] = round((g["hours_watched"] / dur_hours), 2) if dur_hours > 0 else None
         g["followers_per_hour"] = round((g["followers_gained"] / dur_hours), 2) if dur_hours > 0 else 0.0
+        g["started_at"] = _iso_dt(g["started_at"])
+        g["ended_at"] = _iso_dt(g["ended_at"])
         summary.append(g)
 
         nm = g.get("category_name")
@@ -199,6 +263,12 @@ def _populate_games_summary(session: StreamSession):
 
     session["games_summary"] = summary
     session["games_unique"] = unique_names
+
+
+def _iso_dt(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
 
 
 def _viewer_points(viewer_samples: list[dict]) -> list[tuple[datetime, int]]:

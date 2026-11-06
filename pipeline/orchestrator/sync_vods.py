@@ -1,15 +1,14 @@
-"""
-Standalone script: sync stream_recordings with current Twitch VODs.
+"""Синхронизация `stream_recordings` с архивом Twitch.
 
-Usage:
+Запуск:
     python -m pipeline.orchestrator.sync_vods
 
-Actions:
-  1. Fetch all current VODs from Twitch API.
-  2. Remove stale stream_recordings whose URL is no longer in the API response.
-  3. Update existing recordings: fill duration_minutes / recorded_at if missing.
-  4. For streams that have no Twitch recording yet, try to match by time range
-     (VOD created_at within ±6h of stream start) and add it.
+Правила:
+  1. Точное совпадение: VOD `stream_id` == `streams.external_id`. Это
+     единственный надёжный способ отличить записи реконнектов.
+  2. Fallback по времени — только для legacy-стримов без записи (и строк
+     без `external_id`): раньше связь определялась по широкому окну.
+  3. Записи, которых больше нет в архиве, не удаляются: `is_available=False`.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 
 import aiohttp
@@ -32,206 +31,188 @@ from database.db import AsyncSessionLocal
 from database.models import Stream, StreamRecording
 from pipeline.ingest.twitch_api import TwitchTokenExpiredError, fetch_user_id, fetch_vods
 from pipeline.transform.streams_transform import build_vods_index, pick_vod_candidates
+from services import recording_service
 
 _LOG_FMT = "%(asctime)s | %(levelname)-5s | %(name)s | %(message)s"
 logging.basicConfig(level=logging.INFO, format=_LOG_FMT, handlers=[logging.StreamHandler()])
 _log = logging.getLogger("sync_vods")
 
 
-def _parse_vod_duration(value: str | None) -> int | None:
-    """Parse Twitch VOD duration string like '7h29m15s' or '1h5m' to minutes."""
-    if not value:
-        return None
-    s = str(value).strip().lower()
-    total = 0
-    current = ""
-    for ch in s:
-        if ch.isdigit() or ch == ".":
-            current += ch
-        elif ch == "h":
-            total += int(float(current) * 60) if current else 0
-            current = ""
-        elif ch == "m":
-            total += int(current) if current else 0
-            current = ""
-        elif ch == "s":
-            current = ""
-    return total if total > 0 else None
+def _vod_key(vod: dict) -> str:
+    return str(vod.get("id") or "").strip()
 
 
-async def _fetch_vods(http: aiohttp.ClientSession) -> tuple[list[dict], set[str]]:
-    """Fetch all VODs from Twitch API. Returns (vods, urls)."""
+def _vod_broadcast(vod: dict) -> str:
+    return str(vod.get("stream_id") or "").strip()
+
+
+def _stream_end(stream: Stream):
+    if stream.ended_at:
+        return stream.ended_at
+    if stream.duration_minutes:
+        return stream.started_at + timedelta(minutes=stream.duration_minutes)
+    return stream.started_at + timedelta(hours=12)
+
+
+async def _fetch_vods(http: aiohttp.ClientSession) -> list[dict]:
     token = settings.TWITCH_ACCESS_TOKEN
     client_id = settings.CLIENT_ID
     channel = settings.TWITCH_PRIMARY_CHANNEL
 
     if not (client_id and token and channel):
         _log.error("Missing CLIENT_ID / TWITCH_ACCESS_TOKEN / TWITCH_PRIMARY_CHANNEL")
-        return [], set()
+        return []
 
     try:
-        user_id = await fetch_user_id(http, client_id=client_id, access_token=token, channel_login=channel)
+        user_id = await fetch_user_id(
+            http, client_id=client_id, access_token=token, channel_login=channel
+        )
     except TwitchTokenExpiredError:
         from services.token_service import try_refresh_token
 
         new_token = await try_refresh_token()
         if not new_token:
             _log.error("Token refresh failed")
-            return [], set()
+            return []
         settings.TWITCH_ACCESS_TOKEN = new_token
         token = new_token
-        user_id = await fetch_user_id(http, client_id=client_id, access_token=token, channel_login=channel)
+        user_id = await fetch_user_id(
+            http, client_id=client_id, access_token=token, channel_login=channel
+        )
 
-    vods = await fetch_vods(http, client_id=client_id, access_token=token, user_id=user_id)
-    urls = {str(v.get("url") or "").strip() for v in vods}
-    urls.discard("")
-    _log.info("Fetched %d VOD(s), %d unique URL(s)", len(vods), len(urls))
-    return vods, urls
-
-
-def _build_vod_lookup(vods: list[dict]) -> dict[str, dict]:
-    """Build url -> vod dict lookup for quick access."""
-    lookup: dict[str, dict] = {}
-    for v in vods:
-        url = str(v.get("url") or "").strip()
-        if url:
-            lookup[url] = v
-    return lookup
+    vods = await fetch_vods(
+        http, client_id=client_id, access_token=token, user_id=user_id
+    )
+    _log.info("Fetched %d VOD(s)", len(vods))
+    return vods
 
 
 async def run() -> None:
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as http:
-        vods, vod_urls = await _fetch_vods(http)
+        vods = await _fetch_vods(http)
 
-    if not vod_urls:
+    if not vods:
         _log.warning("No VODs fetched, nothing to sync.")
         return
 
-    vod_lookup = _build_vod_lookup(vods)
     vods_by_date = build_vods_index(vods)
+    vod_by_broadcast: dict[str, dict] = {}
+    for vod in vods:
+        broadcast = _vod_broadcast(vod)
+        if not broadcast:
+            continue
+        existing = vod_by_broadcast.get(broadcast)
+        # При дублях одной обработки берём самую длинную запись.
+        if existing is None or (recording_service.parse_duration_minutes(
+            vod.get("duration")
+        ) or 0) > (recording_service.parse_duration_minutes(
+            existing.get("duration")
+        ) or 0):
+            vod_by_broadcast[broadcast] = vod
 
     async with AsyncSessionLocal() as session:
-        # --- 1. Remove stale recordings ---
-        result = await session.execute(
-            select(StreamRecording).where(StreamRecording.source == "twitch")
-        )
-        all_recordings = result.scalars().all()
+        streams = (
+            await session.execute(
+                select(Stream)
+                .where(Stream.started_at.isnot(None))
+                .order_by(Stream.started_at.desc())
+            )
+        ).scalars().all()
+        streams_by_external = {
+            str(stream.external_id): stream
+            for stream in streams
+            if stream.external_id
+        }
 
-        stale_count = 0
-        kept_count = 0
-        for rec in all_recordings:
-            if rec.url and rec.url not in vod_urls:
-                _log.info("  - Removing stale: %s", rec.url[:80])
-                await session.delete(rec)
-                stale_count += 1
-            else:
-                kept_count += 1
-        _log.info("Stale cleanup: removed %d, kept %d", stale_count, kept_count)
-
-        # --- 2. Update existing recordings: fill missing duration_minutes / recorded_at ---
-        result = await session.execute(
-            select(StreamRecording).where(StreamRecording.source == "twitch")
-        )
-        existing = result.scalars().all()
-
-        updated = 0
-        for rec in existing:
-            if not rec.url or rec.url not in vod_lookup:
+        # --- 1. Точное совпадение по Twitch broadcast id ------------------
+        exact = 0
+        used_vod_ids: set[str] = set()
+        for broadcast, vod in vod_by_broadcast.items():
+            stream = streams_by_external.get(broadcast)
+            if stream is None:
                 continue
-            vod = vod_lookup[rec.url]
-            changed = False
+            recording = await recording_service.upsert_from_vod(
+                session, stream_id=int(stream.id), vod=vod
+            )
+            if recording is not None:
+                exact += 1
+                vod_id = _vod_key(vod)
+                if vod_id:
+                    used_vod_ids.add(vod_id)
+                _log.info(
+                    "  = VOD for stream %s (%s): %s",
+                    stream.id,
+                    broadcast,
+                    recording.url,
+                )
+        _log.info("Exact broadcast matches: %d", exact)
 
-            if rec.duration_minutes is None:
-                dur = _parse_vod_duration(vod.get("duration"))
-                if dur is not None:
-                    rec.duration_minutes = dur
-                    changed = True
-
-            if rec.recorded_at is None:
-                raw = vod.get("created_at")
-                if raw:
-                    try:
-                        rec.recorded_at = datetime.fromisoformat(
-                            str(raw).replace("Z", "+00:00")
-                        ).replace(tzinfo=None)
-                        changed = True
-                    except (ValueError, TypeError):
-                        pass
-
-            if changed:
-                updated += 1
-
-        _log.info("Updated %d existing recording(s) with missing fields", updated)
-
-        # --- 3. Add missing recordings for streams without one ---
-        streams_result = await session.execute(
-            select(Stream).where(Stream.started_at.isnot(None)).order_by(Stream.started_at.desc())
-        )
-        streams = streams_result.scalars().all()
-
+        # --- 2. Fallback по времени для legacy-стримов ---------------------
         rec_result = await session.execute(
-            select(StreamRecording.stream_id).where(StreamRecording.source == "twitch")
+            select(StreamRecording.stream_id).where(
+                StreamRecording.source == "twitch"
+            )
         )
-        streams_with_recording = {row[0] for row in rec_result.all()}
-
-        all_rec_result = await session.execute(
-            select(StreamRecording.url).where(StreamRecording.source == "twitch")
-        )
-        existing_rec_urls = {row[0] for row in all_rec_result.all()}
+        streams_with_recording = {int(row[0]) for row in rec_result.all()}
 
         added = 0
-        for stream in streams:
+        for stream in reversed(streams):  # хронологически, как раньше
             if stream.id in streams_with_recording:
                 continue
 
-            if stream.ended_at:
-                stream_end = stream.ended_at
-            elif stream.duration_minutes:
-                stream_end = stream.started_at + timedelta(minutes=stream.duration_minutes)
-            else:
-                stream_end = stream.started_at + timedelta(hours=12)
-
-            vod_window_start = stream.started_at - timedelta(hours=6)
-            vod_window_end = stream_end + timedelta(hours=6)
-
-            candidates = pick_vod_candidates(vods_by_date=vods_by_date, stream_date=stream.started_at.date())
+            window_start = stream.started_at - timedelta(hours=6)
+            window_end = _stream_end(stream) + timedelta(hours=6)
+            candidates = pick_vod_candidates(
+                vods_by_date=vods_by_date,
+                stream_date=stream.started_at.date(),
+            )
 
             for vod in candidates:
-                url = str(vod.get("url") or "").strip()
-                if not url or url in existing_rec_urls:
+                vod_id = _vod_key(vod)
+                if vod_id and vod_id in used_vod_ids:
+                    continue
+                fields = recording_service.fields_from_vod(vod)
+                recorded_at = fields["recorded_at"]
+                if recorded_at is None:
+                    continue
+                if not (window_start <= recorded_at <= window_end):
                     continue
 
-                recorded_at_raw = vod.get("created_at")
-                recorded_at = None
-                if recorded_at_raw:
-                    try:
-                        recorded_at = datetime.fromisoformat(
-                            str(recorded_at_raw).replace("Z", "+00:00")
-                        ).replace(tzinfo=None)
-                    except (ValueError, TypeError):
-                        pass
+                recording = await recording_service.upsert_from_vod(
+                    session, stream_id=int(stream.id), vod=vod
+                )
+                if recording is None:
+                    continue
+                streams_with_recording.add(int(stream.id))
+                if vod_id:
+                    used_vod_ids.add(vod_id)
+                added += 1
+                _log.info(
+                    "  + Legacy VOD for stream %s (%s): %s",
+                    stream.id,
+                    stream.started_at.date(),
+                    recording.url,
+                )
+                break
 
-                if recorded_at and (vod_window_start <= recorded_at <= vod_window_end):
-                    duration_minutes = _parse_vod_duration(vod.get("duration"))
-                    session.add(StreamRecording(
-                        stream_id=stream.id,
-                        source="twitch",
-                        url=url,
-                        duration_minutes=duration_minutes,
-                        recorded_at=recorded_at,
-                        created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                    ))
-                    streams_with_recording.add(stream.id)
-                    existing_rec_urls.add(url)
-                    _log.info(
-                        "  + Added VOD for stream %s (%s): %s (%dmin)",
-                        stream.id, stream.started_at.date(), url[:70], duration_minutes or 0,
-                    )
-                    added += 1
-                    break
+        _log.info("Legacy time-based additions: %d", added)
 
-        _log.info("Added %d new VOD recording(s)", added)
+        # --- 3. Истёкшие записи: скрыть, но не удалять ---------------------
+        hidden = await recording_service.mark_missing_unavailable(
+            session,
+            keep_urls={
+                str(vod.get("url") or "").strip()
+                for vod in vods
+                if str(vod.get("url") or "").strip()
+            },
+            keep_video_ids={
+                str(vod.get("id") or "").strip()
+                for vod in vods
+                if str(vod.get("id") or "").strip()
+            },
+        )
+        _log.info("Marked unavailable: %d recording(s)", hidden)
 
         await session.commit()
         _log.info("Done. Committed.")

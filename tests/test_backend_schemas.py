@@ -1,6 +1,7 @@
 """Tests for web schemas (Pydantic DTOs)."""
 import unittest
 
+from backend.schemas.bot_command import BotCommandCreateIn, BotCommandStateUpdateIn
 from backend.schemas.common import Page
 from backend.schemas.game import GameStateUpdateIn, GameView
 from backend.schemas.recommendation import RecommendationView
@@ -75,6 +76,17 @@ class SchemaTests(unittest.TestCase):
             recommenders_count=0,
         )
         self.assertFalse(view.interested)
+
+    def test_bot_command_create_normalizes_name_and_defaults_bot(self):
+        body = BotCommandCreateIn(name="  !Points  ", description="  Баллы  ")
+        self.assertEqual(body.name, "points")
+        self.assertEqual(body.description, "Баллы")
+        self.assertEqual(body.bot_name, "self")
+
+    def test_bot_command_state_update_allows_partial_flags(self):
+        only_visible = BotCommandStateUpdateIn(is_visible=False)
+        self.assertFalse(only_visible.is_visible)
+        self.assertIsNone(only_visible.is_active)
 
     def test_recommendation_view(self):
         view = RecommendationView(

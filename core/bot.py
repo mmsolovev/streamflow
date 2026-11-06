@@ -8,10 +8,11 @@ from core.context import SafeContext
 from core.registry import load_commands
 
 from database.db import AsyncSessionLocal
-from services.command_usage_service import ensure_bot_commands, log_command_usage
+from runtime.aggregation_jobs import StatsAggregationWorker
+from services.chat_log_service import ChatLogService
+from services.command_usage_service import ensure_bot_commands
 from services.deferred_service import RecommendationSheetsSyncScheduler
 from services.eventsub_service import EventSubService
-from services.user_service import get_or_create_user, get_or_create_user_by_login
 from telegram.service import TelegramService
 
 
@@ -29,6 +30,8 @@ class Bot(commands.Bot):
         self.eventsub_service = EventSubService(self)
         self.recommendation_sheets_sync_scheduler = RecommendationSheetsSyncScheduler()
         self.telegram_service = TelegramService()
+        self.stats_aggregation_worker = StatsAggregationWorker()
+        self.chat_log_service = ChatLogService()
 
         # Правка анонсов вешается на финализацию runtime-сессии, а не на
         # stream.offline: так покрываются ещё и superseded/recovered-сценарии
@@ -73,6 +76,16 @@ class Bot(commands.Bot):
         except Exception as exc:
             print(f"[Telegram] start failed: {exc}")
 
+        try:
+            await self.stats_aggregation_worker.start()
+        except Exception as exc:
+            print(f"[StatsWorker] start failed: {exc}")
+
+        try:
+            await self.chat_log_service.start()
+        except Exception as exc:
+            print(f"[ChatLog] start failed: {exc}")
+
         print(f"Bot connected as {self.bot_id} to {settings.TWITCH_CHANNELS or [settings.TWITCH_PRIMARY_CHANNEL]}")
         print(f"Commands loaded: {list(self.commands.keys())}")
         print(f"[EventSub] subscriptions: {self.eventsub_service.subscriptions}")
@@ -96,19 +109,16 @@ class Bot(commands.Bot):
             if not payload.text.casefold().startswith(f"{self._get_prefix}старт".casefold()):
                 return
 
+        self.chat_log_service.enqueue_message(
+            payload, is_command=payload.text.startswith(self._get_prefix)
+        )
+
         await self.process_commands(payload)
 
     async def event_command_invoked(self, context):
-        try:
-            async with AsyncSessionLocal() as session:
-                user = await get_or_create_user(session, context.author)
-
-                streamer = await get_or_create_user_by_login(session, context.channel.name)
-
-                await log_command_usage(session, user, streamer, context.command.name)
-                await session.commit()
-        except Exception as exc:
-            print(f"[CMD] logging error: {exc}")
+        # Логируются только успешные вызовы: событие приходит после выполнения
+        # команды. Запись идёт через очередь чата, чтобы не задерживать ответ.
+        self.chat_log_service.enqueue_command(context)
 
     async def event_command_error(self, payload):
         context = payload.context

@@ -109,6 +109,7 @@ async def list_streams(
             .where(
                 StreamRecording.stream_id == Stream.id,
                 StreamRecording.source == "twitch",
+                StreamRecording.is_available.is_(True),
             )
             .exists()
         )
@@ -200,6 +201,7 @@ async def list_streams(
         if "IRL" in (stream.title or "") or "IRL" in game_names:
             tags.append("IRL")
 
+        vod_urls = vod_by_stream.get(stream.id, [])
         items.append({
             "id": stream.id,
             "started_at": stream.started_at,
@@ -209,7 +211,8 @@ async def list_streams(
             "games": [game.name for game in games],
             "tags": tags,
             "participants": user_names,
-            "vod_url": vod_by_stream.get(stream.id),
+            "vod_url": vod_urls[0] if vod_urls else None,
+            "vod_urls": vod_urls,
             "avg_viewers": stream.avg_viewers,
             "max_viewers": stream.max_viewers,
         })
@@ -224,6 +227,7 @@ async def list_streams(
                     .where(
                         StreamRecording.stream_id == Stream.id,
                         StreamRecording.source == "twitch",
+                        StreamRecording.is_available.is_(True),
                     )
                     .exists()
                 )
@@ -285,6 +289,7 @@ async def get_stream(session: AsyncSession, stream_id: int) -> dict | None:
     if "IRL" in (stream.title or "") or "IRL" in game_names:
         tags.append("IRL")
 
+    vod_urls = vod_by_stream.get(stream.id, [])
     return {
         "id": stream.id,
         "started_at": stream.started_at,
@@ -294,7 +299,8 @@ async def get_stream(session: AsyncSession, stream_id: int) -> dict | None:
         "games": [game.name for game in games],
         "tags": tags,
         "participants": user_names,
-        "vod_url": vod_by_stream.get(stream.id),
+        "vod_url": vod_urls[0] if vod_urls else None,
+        "vod_urls": vod_urls,
         "avg_viewers": stream.avg_viewers,
         "max_viewers": stream.max_viewers,
     }
@@ -354,7 +360,8 @@ async def _genres_by_game_map(session: AsyncSession, stream_ids: list[int]) -> d
     return mapping
 
 
-async def _vods_map(session: AsyncSession, stream_ids: list[int]) -> dict[int, str]:
+async def _vods_map(session: AsyncSession, stream_ids: list[int]) -> dict[int, list[str]]:
+    """Все записи стримов по источникам Twitch, в порядке добавления."""
     if not stream_ids:
         return {}
     result = await session.execute(
@@ -362,12 +369,15 @@ async def _vods_map(session: AsyncSession, stream_ids: list[int]) -> dict[int, s
         .where(
             StreamRecording.stream_id.in_(stream_ids),
             StreamRecording.source == "twitch",
+            StreamRecording.is_available.is_(True),
         )
         .order_by(StreamRecording.id.asc())
     )
-    mapping: dict[int, str] = {}
+    mapping: dict[int, list[str]] = {}
     for stream_id, url in result.all():
-        mapping.setdefault(stream_id, url)
+        urls = mapping.setdefault(stream_id, [])
+        if url and url not in urls:
+            urls.append(url)
     return mapping
 
 async def add_stream_participant(

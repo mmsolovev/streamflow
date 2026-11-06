@@ -1,121 +1,185 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 
+import type { BotCommandView } from '@/api/types'
+import { EntityList } from '@/components/entity/EntityList'
+import type { EntityColumn } from '@/components/entity/types'
 import { SectionHeader } from '@/components/layout/SectionHeader'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ErrorState } from '@/components/ui/ErrorState'
+import { FlagToggle } from '@/components/ui/FlagToggle'
+import { Pagination } from '@/components/ui/Pagination'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { TableSkeleton } from '@/components/ui/Skeleton'
-import { cn } from '@/lib/cn'
+import { StatChip } from '@/components/ui/StatChip'
 import { useAuth } from '@/features/auth/context'
 import { AddBotCommandModal } from '@/features/bot/AddBotCommandModal'
+import {
+  useBotCommandsList,
+  useUpdateBotCommandState,
+} from '@/features/bot/useBotCommands'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useOffset, useResetOffsetOn } from '@/hooks/useOffset'
+import { useTableSort } from '@/hooks/useTableSort'
+import { formatNumber } from '@/lib/format'
 
-interface BotCommandRow {
-  id: number
-  botName: string
-  name: string
-  description: string
-  access: string
-  isExternal: boolean
+const PAGE_SIZE = 50
+
+const GRID = `minmax(120px, 0.7fr) minmax(340px, 3.4fr) minmax(150px, 0.9fr) 110px 120px`
+
+/** Команда основного бота в реестре хранится как `self`. */
+function botLabel(botName: string): string {
+  return botName === 'self' ? 'mishgan_sol' : botName
 }
 
-const MOCK_COMMANDS: BotCommandRow[] = [
-  {
-    id: 1,
-    botName: 'self',
-    name: '!игры',
-    description: 'Статистика по игре',
-    access: 'все',
-    isExternal: false,
-  },
-  {
-    id: 2,
-    botName: 'self',
-    name: '!рек',
-    description: 'Рекомендация/голос; управление рекомендациями',
-    access: 'все',
-    isExternal: false,
-  },
-  {
-    id: 3,
-    botName: 'self',
-    name: '!фильм',
-    description: 'Текущий фильм; управление для админов',
-    access: 'все',
-    isExternal: false,
-  },
-  {
-    id: 4,
-    botName: 'self',
-    name: '!команды',
-    description: 'Справка по командам',
-    access: 'все',
-    isExternal: false,
-  },
-  {
-    id: 5,
-    botName: 'StreamElements',
-    name: '!points',
-    description: 'Просмотр баллов',
-    access: 'все',
-    isExternal: true,
-  },
-]
-
-function groupByBot(rows: BotCommandRow[]) {
-  const groups: Record<string, BotCommandRow[]> = {}
-  for (const row of rows) {
-    if (!groups[row.botName]) groups[row.botName] = []
-    groups[row.botName].push(row)
-  }
-  return groups
-}
-
+/** Раздел «Команды»: реестр `bot_commands` одной таблицей-«островками». */
 export function BotCommandsView() {
-  const { isAuthenticated } = useAuth()
+  const { isAdmin } = useAuth()
+  const stateMutation = useUpdateBotCommandState()
+  const { mutate: updateState, isPending, variables } = stateMutation
+  const busyCommandId = isPending ? variables?.commandId : undefined
+  const [offset, setOffset] = useOffset()
   const [search, setSearch] = useState('')
-  const [openAdd, setOpenAdd] = useState(false)
+  const debouncedSearch = useDebouncedValue(search)
+  const [addOpen, setAddOpen] = useState(false)
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return MOCK_COMMANDS
-    return MOCK_COMMANDS.filter(
-      (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.description.toLowerCase().includes(q) ||
-        r.botName.toLowerCase().includes(q),
-    )
-  }, [search])
+  const columns = useMemo<EntityColumn<BotCommandView>[]>(
+    () => [
+      {
+        key: 'name',
+        label: 'Команда',
+        align: 'center',
+        defaultDir: 'asc',
+        sortValue: (command) => command.name.toLowerCase(),
+        render: (command) => (
+          <span className="min-w-0 truncate text-[var(--text)]">
+            {command.name.startsWith('!') ? command.name : `!${command.name}`}
+          </span>
+        ),
+      },
+      {
+        key: 'description',
+        label: 'Описание',
+        sortValue: (command) => command.description.toLowerCase(),
+        render: (command) => (
+          <span className="min-w-0 text-[var(--text)]">{command.description}</span>
+        ),
+      },
+      {
+        key: 'bot',
+        label: 'Бот',
+        align: 'center',
+        sortValue: (command) => command.bot_name.toLowerCase(),
+        render: (command) => (
+          <span className="min-w-0 truncate text-[var(--text)]">
+            {botLabel(command.bot_name)}
+          </span>
+        ),
+      },
+      {
+        key: 'visible',
+        label: 'Показывать',
+        align: 'center',
+        render: (command) => (
+          <FlagToggle
+            value={command.is_visible}
+            label="Показывать в списке команд"
+            onChange={
+              isAdmin
+                ? (next) =>
+                    updateState({
+                      commandId: command.id,
+                      patch: { is_visible: next },
+                    })
+                : undefined
+            }
+            busy={busyCommandId === command.id}
+          />
+        ),
+      },
+      {
+        key: 'access',
+        label: 'Доступность',
+        align: 'center',
+        render: (command) => (
+          <FlagToggle
+            value={command.is_active}
+            label="Команда доступна"
+            onChange={
+              isAdmin
+                ? (next) =>
+                    updateState({
+                      commandId: command.id,
+                      patch: { is_active: next },
+                    })
+                : undefined
+            }
+            busy={busyCommandId === command.id}
+          />
+        ),
+      },
+    ],
+    [isAdmin, busyCommandId, updateState],
+  )
 
-  const groups = useMemo(() => groupByBot(filtered), [filtered])
-  const botNames = Object.keys(groups).sort((a, b) => (a === 'self' ? -1 : b === 'self' ? 1 : a.localeCompare(b)))
-  const total = filtered.length
+  const { sortKey, sortDir, onSort } = useTableSort([], columns, {
+    key: 'name',
+    dir: 'asc',
+  })
+
+  // Поиск, сортировка и пагинация — на сервере.
+  const query = useBotCommandsList({
+    search: debouncedSearch.trim() || undefined,
+    sort: sortKey,
+    direction: sortDir,
+    limit: PAGE_SIZE,
+    offset,
+  })
+
+  useResetOffsetOn(setOffset, [debouncedSearch, sortKey, sortDir])
+
+  const pageItems = query.data?.items ?? []
+  const total = query.data?.total ?? 0
+  const totalAll = query.data?.total_all ?? 0
+  const aggregates = query.data?.aggregates
 
   return (
-    <div className="flex flex-1 flex-col" data-section="commands">
+    <div className="flex flex-1 flex-col">
       <SectionHeader
         title="Команды"
-        subtitle={`Показано ${total} команд`}
-        hint={
-          <>
-            Информация о команде{' '}
-            <span className="font-social text-[var(--accent)]">!команды</span>
-          </>
+        subtitle={
+          query.isSuccess
+            ? `Показано ${formatNumber(total)} из ${formatNumber(totalAll)}`
+            : 'Реестр команд бота'
+        }
+        stats={
+          query.isSuccess ? (
+            <>
+              <StatChip label="Всего" value={formatNumber(totalAll)} />
+              <StatChip label="Ботов" value={formatNumber(aggregates?.bots ?? 0)} />
+            </>
+          ) : undefined
         }
         action={
           <button
             type="button"
-            onClick={() => setOpenAdd(true)}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
-              isAuthenticated
-                ? 'bg-[var(--accent)] font-medium text-black hover:opacity-90'
-                : 'border border-[var(--accent)] text-[var(--accent)] hover:opacity-80',
-            )}
+            onClick={() => setAddOpen(true)}
+            disabled={!isAdmin}
+            title={isAdmin ? undefined : 'Добавлять команды могут только администраторы'}
+            className="flex items-center gap-1.5 rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus className="h-4 w-4" />
             Добавить команду
           </button>
+        }
+        hint={
+          <>
+            Команда бота:{' '}
+            <span className="font-social text-[var(--accent)]">
+              !команды [название команды]
+            </span>{' '}
+            — написать в чат Twitch для получения краткого описания команды
+          </>
         }
       >
         <SearchInput
@@ -126,67 +190,34 @@ export function BotCommandsView() {
         />
       </SectionHeader>
 
-      <div className="flex flex-1 flex-col gap-4 p-6" style={{ background: '#18171F' }}>
-        {botNames.length === 0 ? (
-          <EmptyState hint="Команды не найдены." />
-        ) : (
-          botNames.map((botName) => (
-            <div
-              key={botName}
-              className="overflow-hidden rounded-lg border"
-              style={{ background: '#24212E', borderColor: 'rgba(169, 112, 255, 0.3)' }}
-            >
-              <div
-                className="flex items-center gap-2 border-b px-4 py-2"
-                style={{ borderColor: 'rgba(169, 112, 255, 0.2)' }}
-              >
-                <div
-                  className="h-2 w-2 rounded-full"
-                  style={{ background: '#A970FF' }}
-                />
-                <span className="text-sm font-medium uppercase tracking-wide" style={{ color: '#A970FF' }}>
-                  {botName === 'self' ? 'Mishgan Bot' : botName}
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {groups[botName].length}
-                </span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b" style={{ borderColor: 'rgba(169, 112, 255, 0.15)' }}>
-                      <th className="px-4 py-2 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                        Команда
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                        Описание
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                        Доступ
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groups[botName].map((cmd) => (
-                      <tr
-                        key={cmd.id}
-                        className="border-b transition-colors hover:bg-white/[0.02]"
-                        style={{ borderColor: 'rgba(169, 112, 255, 0.1)' }}
-                      >
-                        <td className="px-4 py-2 font-social text-[var(--accent)]">{cmd.name}</td>
-                        <td className="px-4 py-2 text-[var(--text)]">{cmd.description}</td>
-                        <td className="px-4 py-2 text-[var(--text-muted)]">{cmd.access}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      {query.isLoading ? (
+        <TableSkeleton columns={5} />
+      ) : query.isError ? (
+        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+      ) : pageItems.length === 0 ? (
+        <EmptyState hint="Измените поисковый запрос." />
+      ) : (
+        <div className="flex flex-1 flex-col p-6">
+          <EntityList
+            columns={columns}
+            rows={pageItems}
+            rowKey={(command) => command.id}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={onSort}
+            gridTemplate={GRID}
+            minWidth="900px"
+          />
+          <Pagination
+            total={total}
+            limit={PAGE_SIZE}
+            offset={offset}
+            onChange={setOffset}
+          />
+        </div>
+      )}
 
-      {openAdd ? <AddBotCommandModal open onClose={() => setOpenAdd(false)} /> : null}
+      {addOpen ? <AddBotCommandModal open onClose={() => setAddOpen(false)} /> : null}
     </div>
   )
 }

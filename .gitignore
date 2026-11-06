@@ -225,6 +225,8 @@ __marimo__/
 /storage/streams.json
 /storage/games.json
 /storage/holidays.json
+/storage/holydays_raw.json
+/storage/holydays_temp.txt
 /storage/pages/
 
 !/storage/cache/*.example.json

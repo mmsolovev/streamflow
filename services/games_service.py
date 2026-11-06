@@ -9,6 +9,7 @@ from database.db import AsyncSessionLocal
 from database.models import Game, GameStats, StreamGame, streamer_games
 from services.user_service import find_user_by_login
 from utils.time_format import format_hours_minutes
+from utils.time_utils import utc_to_tracker
 
 
 MAX_VISIBLE_SUGGESTIONS = 3
@@ -75,7 +76,9 @@ def _extract_number_tokens(value: str) -> set[str]:
 def _format_date(value) -> str:
     if not value:
         return "н/д"
-    return value.strftime("%d.%m.%Y")
+    # last_stream хранится в UTC, а в чате нужна привычная дата канала.
+    local = utc_to_tracker(value) or value
+    return local.strftime("%d.%m.%Y")
 
 
 def _format_status(liked: bool | None, completed: bool | None) -> str | None:

@@ -15,6 +15,7 @@ from database.models import Game, Stream, StreamGame
 from pipeline.ingest.twitchtracker_parser import TwitchTrackerStreamRow
 from pipeline.load.load_participants import sync_stream_participants_from_title
 from pipeline.load.load_stream_games import sync_stream_games
+from utils.time_utils import tracker_to_utc
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,19 +53,26 @@ async def sync_streams(
     stats = SyncStats()
 
     for data in streams_data:
+        # Внешний id остаётся по локальной дате TT (legacy-идентичность),
+        # а в БД пишется UTC, как у runtime.
         external_id = data.date.isoformat()
         desired_external_ids.add(external_id)
+        started_at_utc = tracker_to_utc(data.date) or data.date
 
-        stream = existing_by_external_id.get(external_id) or existing_by_date.get(data.date)
+        stream = (
+            existing_by_external_id.get(external_id)
+            or existing_by_date.get(data.date)
+            or existing_by_date.get(started_at_utc)
+        )
         created = False
 
         if stream is None:
-            stream = Stream(external_id=external_id, started_at=data.date)
+            stream = Stream(external_id=external_id, started_at=started_at_utc)
             session.add(stream)
             await session.flush()
             created = True
             existing_by_external_id[external_id] = stream
-            existing_by_date[data.date] = stream
+            existing_by_date[started_at_utc] = stream
 
         changed = created
 
@@ -72,8 +80,8 @@ async def sync_streams(
             stream.external_id = external_id
             changed = True
 
-        if stream.started_at != data.date:
-            stream.started_at = data.date
+        if stream.started_at != started_at_utc:
+            stream.started_at = started_at_utc
             changed = True
 
         if stream.title != data.title:

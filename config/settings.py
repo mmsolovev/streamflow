@@ -59,6 +59,46 @@ RAWG_API_KEY = os.getenv("RAWG_API_KEY")
 GAMES_SHEET_URL = os.getenv("GAMES_SHEET_URL")
 STREAM_RUNTIME_SAMPLE_SECONDS = int(os.getenv("STREAM_RUNTIME_SAMPLE_SECONDS", "60"))
 
+# =====================================================
+# RUNTIME STATS: самосбор статистики стримов
+# =====================================================
+# Задержка перед пересчётом game_stats после конца стрима (11 минут: VOD и
+# хвост событий уже пришли). Воркер живёт в процессе бота; CLI-догон —
+# pipeline.orchestrator.aggregate_streams.
+STREAM_STATS_AGGREGATION_DELAY_SECONDS = int(
+    os.getenv("STREAM_STATS_AGGREGATION_DELAY_SECONDS", "660")
+)
+STREAM_STATS_WORKER_INTERVAL_SECONDS = int(
+    os.getenv("STREAM_STATS_WORKER_INTERVAL_SECONDS", "30")
+)
+STREAM_STATS_WORKER_ENABLED = _parse_bool(
+    os.getenv("STREAM_STATS_WORKER_ENABLED"), default=True
+)
+# Окно, в котором новый Twitch stream_id считается тем же эфиром (реконнект).
+STREAM_RECONNECT_WINDOW_SECONDS = int(os.getenv("STREAM_RECONNECT_WINDOW_SECONDS", "660"))
+# Стримы короче этого порога не агрегируются в game_stats (нет данных).
+STREAM_MIN_AGGREGATE_SECONDS = int(os.getenv("STREAM_MIN_AGGREGATE_SECONDS", "60"))
+
+# =====================================================
+# CHAT LOG: сообщения чата основного канала
+# =====================================================
+# Пишется только основной канал (TWITCH_PRIMARY_CHANNEL). Остальные каналы из
+# TWITCH_CHANNELS нужны только для проверок команд.
+CHAT_LOG_ENABLED = _parse_bool(os.getenv("CHAT_LOG_ENABLED"), default=True)
+# 0 = хранить бессрочно. Ночная чистка появляется только при значении > 0.
+CHAT_LOG_RETENTION_DAYS = int(os.getenv("CHAT_LOG_RETENTION_DAYS", "0"))
+CHAT_LOG_BATCH_SIZE = int(os.getenv("CHAT_LOG_BATCH_SIZE", "50"))
+CHAT_LOG_FLUSH_SECONDS = int(os.getenv("CHAT_LOG_FLUSH_SECONDS", "5"))
+
+# TwitchTracker остаётся страховкой и источником avg_viewers /
+# followers_per_hour. Флаг позволяет отключить импорт, не удаляя код.
+TWITCHTRACKER_IMPORT_ENABLED = _parse_bool(
+    os.getenv("TWITCHTRACKER_IMPORT_ENABLED"), default=True
+)
+# TwitchTracker показывает время канала без зоны. Все его timestamp-поля
+# переводятся в UTC по этому поясу, иначе TT и runtime расходятся на часы.
+TWITCHTRACKER_TIMEZONE = os.getenv("TWITCHTRACKER_TIMEZONE", "Europe/Moscow").strip()
+
 BOT_PREFIX = "!"
 SIGN="MrDestructoid"
 COOLDOWN = 60

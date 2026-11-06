@@ -1,4 +1,4 @@
-import { goToLogin } from '@/features/auth/api'
+import { LoginMenu } from '@/features/auth/LoginMenu'
 import { useAuth } from '@/features/auth/context'
 import { UserMenu } from '@/features/auth/UserMenu'
 
@@ -11,15 +11,7 @@ export function AuthControls() {
   }
 
   if (!user) {
-    return (
-      <button
-        type="button"
-        onClick={goToLogin}
-        className="font-social text-sm tracking-wide text-[var(--accent)] transition-opacity hover:opacity-80"
-      >
-        Войти через Twitch
-      </button>
-    )
+    return <LoginMenu />
   }
 
   return <UserMenu user={user} />

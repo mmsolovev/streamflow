@@ -85,6 +85,7 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 | GET | `/recommendations/filters` | фильтры рекомендаций |
 | GET | `/recommendations/search` | поиск игры для рекомендации |
 | GET | `/hltb` | игры с HLTB-данными |
+| GET | `/bot-commands` | команды из реестра `bot_commands` |
 | GET | `/meta/channel` | информация о канале |
 | GET | `/meta/genres`, `/meta/platforms` | справочники |
 | GET | `/users/search?q=` | поиск пользователей |
@@ -102,6 +103,8 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 | DELETE | `/recommendations/{game_id}` | `RECOMMEND` | — |
 | POST | `/hltb/lookup` | `EDIT_TABLES` | `{url: str}` |
 | POST | `/hltb` | `EDIT_TABLES` | `{url: str, game_id?: int}` |
+| POST | `/bot-commands` | `ADMIN_COMMANDS` | `{name: str, description: str, bot_name?: str}` |
+| PATCH | `/bot-commands/{command_id}` | `ADMIN_COMMANDS` | `{is_visible?: bool, is_active?: bool}` |
 | POST | `/auth/logout` | любой вошедший | — |
 
 `POST /recommendations` возвращает `outcome`: `created`, `voted`,

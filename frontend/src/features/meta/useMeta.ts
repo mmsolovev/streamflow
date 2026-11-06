@@ -18,11 +18,12 @@ export function usePlatforms() {
   })
 }
 
-/** Данные канала (аватар, имя) — для боковых панелей. */
+/** Данные канала (аватар, имя) и статус эфира — для боковых панелей. */
 export function useChannel() {
   return useQuery({
     queryKey: ['meta', 'channel'],
     queryFn: getChannel,
-    staleTime: 60 * 60_000,
+    staleTime: 60_000,
+    refetchInterval: 15_000,
   })
 }

@@ -292,6 +292,119 @@ async def get_or_create_user_by_login(session: AsyncSession, login: str) -> User
     return user
 
 
+async def get_or_create_users_bulk(
+    session: AsyncSession,
+    identities: list[tuple[str | None, str, str | None]],
+) -> dict[str, User]:
+    """Bulk resolve users for chat logging.
+
+    `identities` — `(twitch_user_id, login, display_name)`. Возвращает словарь
+    `key -> User`, где key — `twitch_user_id`, если он есть, иначе login.
+    HTTP-обогащение не запускается: в чате это лишние запросы к Twitch.
+
+    Никнейм меняется по тем же правилам, что и в `_ensure_current_profile`:
+    старый профиль закрывается, открывается новый текущий.
+    """
+    now = _utcnow()
+    normalized: list[tuple[str, str | None, str, str | None]] = []
+    for twitch_user_id, login, display_name in identities:
+        twitch_user_id = str(twitch_user_id) if twitch_user_id else None
+        login = (login or "").strip()
+        if not login and not twitch_user_id:
+            continue
+        normalized.append((twitch_user_id or login, twitch_user_id, login, display_name))
+
+    ids = {item[1] for item in normalized if item[1]}
+    logins = {item[2] for item in normalized if item[2]}
+
+    users_by_id: dict[str, User] = {}
+    if ids:
+        rows = await session.execute(select(User).where(User.twitch_user_id.in_(ids)))
+        users_by_id = {
+            str(user.twitch_user_id): user
+            for user in rows.scalars().all()
+            if user.twitch_user_id
+        }
+
+    users_by_login: dict[str, User] = {}
+    if logins:
+        rows = await session.execute(
+            select(UserProfile.login, User)
+            .join(User, User.id == UserProfile.user_id)
+            .where(UserProfile.login.in_(logins), UserProfile.is_current.is_(True))
+        )
+        users_by_login = {login: user for login, user in rows.all()}
+
+    resolved_ids = {
+        int(user.id)
+        for user in list(users_by_id.values()) + list(users_by_login.values())
+        if user.id is not None
+    }
+    profiles_by_user: dict[int, UserProfile] = {}
+    if resolved_ids:
+        rows = await session.execute(
+            select(UserProfile).where(
+                UserProfile.user_id.in_(resolved_ids),
+                UserProfile.is_current.is_(True),
+            )
+        )
+        profiles_by_user = {int(profile.user_id): profile for profile in rows.scalars().all()}
+
+    result: dict[str, User] = {}
+    new_profiles: dict[str, tuple[User, str, str | None]] = {}
+
+    for key, twitch_user_id, login, display_name in normalized:
+        user = users_by_id.get(twitch_user_id) if twitch_user_id else None
+        if user is None and login:
+            user = users_by_login.get(login)
+
+        if user is None:
+            user = User(twitch_user_id=twitch_user_id, created_at=now)
+            session.add(user)
+            users_by_id[twitch_user_id or login] = user
+            if login:
+                new_profiles[key] = (user, login, display_name)
+            result[key] = user
+            continue
+
+        if user.twitch_user_id is None and twitch_user_id:
+            user.twitch_user_id = twitch_user_id
+
+        profile = profiles_by_user.get(int(user.id))
+        if profile is not None and profile.login == login:
+            profile.display_name = display_name or profile.display_name
+            profile.last_seen_at = now
+            profile.updated_at = now
+        else:
+            if profile is not None:
+                profile.is_current = False
+                profile.last_seen_at = now
+                profile.updated_at = now
+            if login:
+                new_profiles[key] = (user, login, display_name)
+
+        result[key] = user
+
+    if new_profiles:
+        await session.flush()  # ids новых User
+        for user, login, display_name in new_profiles.values():
+            session.add(
+                UserProfile(
+                    user_id=user.id,
+                    login=login,
+                    display_name=display_name or f"@{login}",
+                    twitch_url=_twitch_url(login),
+                    first_seen_at=now,
+                    last_seen_at=now,
+                    is_current=True,
+                    updated_at=now,
+                )
+            )
+
+    await session.flush()
+    return result
+
+
 async def _enrich_user_from_twitch(twitch_user_id: str) -> None:
     """Background task: fetch full profile from Twitch API and update DB.
 

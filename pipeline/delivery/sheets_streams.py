@@ -15,9 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from utils.time_utils import utc_to_tracker
+
 
 def _stream_display_date(stream: Stream) -> str:
-    return stream.started_at.strftime("%d.%m.%Y\n%H:%M")
+    """Время в таблице — по часовому поясу канала, а не UTC."""
+    started_at = utc_to_tracker(stream.started_at)
+    return started_at.strftime("%d.%m.%Y\n%H:%M") if started_at else ""
 
 
 async def _build_stream_row(session: AsyncSession, stream: Stream) -> list:
@@ -71,7 +75,11 @@ async def _build_stream_row(session: AsyncSession, stream: Stream) -> list:
 
     vod_result = await session.execute(
         select(StreamRecording.url)
-        .where(StreamRecording.stream_id == stream.id, StreamRecording.source == "twitch")
+        .where(
+            StreamRecording.stream_id == stream.id,
+            StreamRecording.source == "twitch",
+            StreamRecording.is_available.is_(True),
+        )
         .limit(1)
     )
     vod_url = vod_result.scalar_one_or_none()

@@ -28,10 +28,15 @@ from pipeline.delivery.sheets_utils import (
     comparable_row,
     get_client,
     get_or_create_worksheet as _get_or_create_worksheet,
+    protect_columns,
 )
-from pipeline.transform.sheets_transform import normalize_row as _normalize_row, parse_sheet_bool
+from pipeline.transform.sheets_transform import normalize_row as _normalize_row
 from services.recommendations_service import refresh_recommendation_lifecycle
 from sqlalchemy import select, func
+
+# F — «Интересует». Управляется только на сайте.
+_RELEASES_FLAG_COLUMNS = (5,)
+_RELEASES_FLAG_PROTECTION = "Флаг «Интересует» меняется только на сайте"
 
 
 def _format_releases_sheet(sheet, row_count):
@@ -77,8 +82,8 @@ def _format_releases_sheet(sheet, row_count):
                         "sheetId": sheet.id,
                         "startRowIndex": row - 1,
                         "endRowIndex": row,
-                        "startColumnIndex": 5,
-                        "endColumnIndex": 6,
+                        "startColumnIndex": _RELEASES_FLAG_COLUMNS[0],
+                        "endColumnIndex": _RELEASES_FLAG_COLUMNS[0] + 1,
                     },
                     "rule": {
                         "condition": {"type": "BOOLEAN"},
@@ -186,9 +191,19 @@ def _release_comparable_row(row):
     return comparable
 
 
-def _build_release_row(data, manual_columns=None):
+def _release_expected_row(data) -> list[str]:
+    """
+    Comparable view of a sheet row: the 👍 formula column is replaced with the
+    value Google Sheets renders for the flag stored in the database.
+    """
+    row = _build_release_row(data)
+    row[6] = "👍" if data.get("streamer_interested", False) else ""
+    return _release_comparable_row(row)
+
+
+def _build_release_row(data):
     steam = build_hyperlink_formula(data.get("steam_url"))
-    row = [
+    return [
         _format_release_value(data.get("release_date")),
         _format_release_delta(data.get("release_date")),
         data["name"],
@@ -202,11 +217,6 @@ def _build_release_row(data, manual_columns=None):
         build_tags_text(data.get("platforms_text"), data.get("genres_text")),
         build_recommenders_text(data.get("recommenders") or []),
     ]
-
-    if manual_columns is not None:
-        row[6:10] = manual_columns
-
-    return row
 
 
 async def _get_game_tags(session, game_id: int) -> tuple[str, str]:
@@ -257,45 +267,8 @@ async def sync_releases_safe() -> None:
     values = sheet.get_all_values()
     data_rows = values[8:] if len(values) > 8 else []
 
-    existing = {}
-    for row in data_rows:
-        normalized_row = _normalize_row(row, 12)
-        title = normalized_row[2]
-        if title:
-            existing[title] = normalized_row
-
     async with AsyncSessionLocal() as session:
         streamer_id = await resolve_primary_streamer_id(session)
-        # Sync streamer_interested from sheet back to DB
-        for game_name, row in existing.items():
-            result = await session.execute(
-                select(Game).where(Game.name == game_name).limit(1)
-            )
-            game = result.scalar_one_or_none()
-            if not game:
-                continue
-            normalized_row = _normalize_row(row, 12)
-            sheet_value = parse_sheet_bool(normalized_row[5])
-            if sheet_value is True:
-                await session.execute(
-                    streamer_games.update()
-                    .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == streamer_id)
-                    .values(interested=True)
-                )
-            elif sheet_value is False:
-                sg_result = await session.execute(
-                    select(streamer_games.c.interested)
-                    .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == streamer_id)
-                    .limit(1)
-                )
-                current = sg_result.scalar_one_or_none()
-                if current is False:
-                    await session.execute(
-                        streamer_games.update()
-                        .where(streamer_games.c.game_id == game.id, streamer_games.c.streamer_id == streamer_id)
-                        .values(interested=False)
-                    )
-        await session.flush()
 
         # Query upcoming games: release_date in future OR unknown, with at least one recommender
         now = datetime.utcnow()
@@ -355,13 +328,19 @@ async def sync_releases_safe() -> None:
         rows.append(row)
 
     current_rows = [_release_comparable_row(row) for row in data_rows]
-    comparable_final_rows = [_release_comparable_row(row) for row in rows]
+    comparable_final_rows = [_release_expected_row(data) for data in dataset_rows]
 
     if current_rows != comparable_final_rows:
         sheet.batch_clear(["A9:L1000"])
         if rows:
             _format_releases_sheet(sheet, len(rows))
             sheet.update("A9", rows, value_input_option="USER_ENTERED")
+
+    protect_columns(
+        sheet,
+        _RELEASES_FLAG_COLUMNS,
+        description=_RELEASES_FLAG_PROTECTION,
+    )
 
     print(f"Releases synced: {len(rows)}")
 

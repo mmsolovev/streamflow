@@ -9,6 +9,7 @@ from config.settings import GAMES_SHEET_URL
 from database.db import AsyncSessionLocal
 from database.models import Stream, StreamGame
 from utils.time_format import format_hours_minutes
+from utils.time_utils import tracker_to_utc, utc_to_tracker
 
 
 @dataclass
@@ -27,7 +28,9 @@ def _doc_suffix() -> str:
 def _format_datetime(value) -> str:
     if not value:
         return "н/д"
-    return value.strftime("%d.%m.%Y %H:%M")
+    # В БД naive UTC, в чате показываем привычное время канала.
+    local = utc_to_tracker(value) or value
+    return local.strftime("%d.%m.%Y %H:%M")
 
 
 def _format_duration(value: int | None) -> str:
@@ -131,8 +134,14 @@ def _parse_date(value: str) -> datetime | None:
 
 async def _load_streams_for_date(target_date: datetime) -> list[StreamLookupResult]:
     async with AsyncSessionLocal() as session:
-        day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(days=1)
+        # Пользователь вводит дату по времени канала; в БД — UTC.
+        day_start = tracker_to_utc(
+            target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        )
+        day_end = tracker_to_utc(
+            target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            + timedelta(days=1)
+        )
 
         q = (
             select(Stream)
