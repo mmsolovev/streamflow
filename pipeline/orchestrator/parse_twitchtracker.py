@@ -10,8 +10,7 @@ Pipeline:
    a. Upsert stream (find by Twitch id / start time, update metrics, write external_id)
    b. Upsert title changes into stream_titles
    c. Upsert stream_games with per-game metrics
-   d. Increment game_stats.duration_minutes for each game
-4. Recompute GameStats.streams_count
+4. Recompute game_stats for affected games (idempotent, no additive increment)
 5. Enrich new games with IGDB + HLTB (immediate)
 """
 
@@ -33,11 +32,9 @@ from pipeline.transform.streams_transform import (
 )
 from pipeline.transform.stream_page_transform import resolve_external_id
 from pipeline.load.load_stream_page import (
-    increment_game_stats_minutes,
     upsert_stream_from_page,
     upsert_stream_games_from_page,
     upsert_stream_titles,
-    update_streams_count,
 )
 from pipeline.load.load_game_meta import (
     apply_igdb_patch,
@@ -47,6 +44,7 @@ from pipeline.load.load_game_meta import (
 )
 from pipeline.ingest.hltb_client import search_best
 from pipeline.ingest.igdb_api import fetch_igdb_metadata
+from services.stats_aggregation_service import recompute_game_stats
 from sqlalchemy import select
 
 
@@ -113,22 +111,73 @@ async def _sync_vod_recordings(
     streams: list[Stream],
     vods_by_date: dict,
     vod_urls_all: set[str],
+    vods: list[dict] | None = None,
 ) -> int:
-    """Match ALL VODs to streams by time range and write to stream_recordings.
+    """Привязать VOD к стримам и записать в `stream_recordings`.
 
-    A VOD is matched if its created_at falls between stream.started_at and stream.ended_at
-    (or started_at + duration if ended_at is missing).
-    Returns count added.
+    Сначала точное совпадение `vod.stream_id` == `streams.external_id`,
+    затем fallback по времени для стримов, у которых записи ещё нет.
+    Возвращает число добавленных/обновлённых записей.
     """
-    from datetime import datetime as dt, timedelta, timezone
+    from datetime import timedelta
 
+    from services import recording_service
+
+    vods_by_broadcast: dict[str, dict] = {}
+    for vod in vods or []:
+        broadcast = str(vod.get("stream_id") or "").strip()
+        if broadcast:
+            vods_by_broadcast[broadcast] = vod
+
+    streams_by_external = {
+        str(stream.external_id): stream
+        for stream in streams
+        if stream.external_id
+    }
+
+    matched_streams: set[int] = set()
+    used_vod_ids: set[str] = set()
     added = 0
+
+    # --- 1. Точное совпадение по broadcast id -----------------------------
+    for broadcast, vod in vods_by_broadcast.items():
+        stream = streams_by_external.get(broadcast)
+        if stream is None:
+            continue
+        recording = await recording_service.upsert_from_vod(
+            session, stream_id=int(stream.id), vod=vod
+        )
+        if recording is None:
+            continue
+        matched_streams.add(int(stream.id))
+        vod_id = str(vod.get("id") or "").strip()
+        if vod_id:
+            used_vod_ids.add(vod_id)
+        added += 1
+        _log(f"  = VOD for stream id={stream.id}: {recording.url[:70]}")
+
+    # --- 2. Fallback по времени для стримов без записи --------------------
+    # Записи, уже привязанные ранее, не трогаем: повторный импорт не должен
+    # добавлять второй VOD к тому же стриму. У стрима с реконнектами записи
+    # приходят точным совпадением по broadcast id.
+    if streams:
+        existing_result = await session.execute(
+            select(StreamRecording.stream_id).where(
+                StreamRecording.source == "twitch",
+                StreamRecording.stream_id.in_([int(item.id) for item in streams]),
+            )
+        )
+        matched_streams.update(
+            int(row[0]) for row in existing_result.all() if row[0] is not None
+        )
+
     for stream in streams:
+        if int(stream.id) in matched_streams:
+            continue
         if not stream.started_at:
             _log(f"  Stream id={stream.id}: no started_at, skipping VOD match")
             continue
 
-        # Determine stream end time
         if stream.ended_at:
             stream_end = stream.ended_at
         elif stream.duration_minutes:
@@ -136,102 +185,52 @@ async def _sync_vod_recordings(
         else:
             stream_end = stream.started_at + timedelta(hours=12)
 
-        # Twitch API returns VOD created_at in UTC, stream.started_at is local time.
-        # Use a wide window to account for timezone offset.
+        # Широкое окно — страховка для legacy-строк, где время могло быть
+        # записано в локальной зоне.
         vod_window_start = stream.started_at - timedelta(hours=6)
         vod_window_end = stream_end + timedelta(hours=6)
-
-        _log(f"  Stream id={stream.id}: {stream.started_at} -> {stream_end}")
-        _log(f"  VOD window: {vod_window_start} -> {vod_window_end}")
-
-        # Get existing recording URLs for this stream
-        rec_result = await session.execute(
-            select(StreamRecording.url).where(
-                StreamRecording.stream_id == stream.id,
-                StreamRecording.source == "twitch",
-            )
-        )
-        existing_urls = {row[0] for row in rec_result.all()}
 
         candidates = pick_vod_candidates(
             vods_by_date=vods_by_date,
             stream_date=stream.started_at.date(),
         )
-        _log(f"  VOD candidates for {stream.started_at.date()}: {len(candidates)}")
-
-        matched = 0
         for vod in candidates:
-            url = str(vod.get("url") or "").strip()
-            if not url or url in existing_urls:
+            vod_id = str(vod.get("id") or "").strip()
+            if vod_id and vod_id in used_vod_ids:
+                continue
+            fields = recording_service.fields_from_vod(vod)
+            recorded_at = fields["recorded_at"]
+            if recorded_at is None or not (
+                vod_window_start <= recorded_at <= vod_window_end
+            ):
                 continue
 
-            # Parse VOD created_at
-            recorded_at_raw = vod.get("created_at")
-            recorded_at = None
-            if recorded_at_raw:
-                try:
-                    recorded_at = dt.fromisoformat(str(recorded_at_raw).replace("Z", "+00:00")).replace(tzinfo=None)
-                except (ValueError, TypeError):
-                    pass
+            recording = await recording_service.upsert_from_vod(
+                session, stream_id=int(stream.id), vod=vod
+            )
+            if recording is None:
+                continue
+            matched_streams.add(int(stream.id))
+            if vod_id:
+                used_vod_ids.add(vod_id)
+            added += 1
+            _log(
+                f"  + Legacy VOD for stream id={stream.id}: "
+                f"{recording.url[:70]} ({fields['duration_minutes']}min)"
+            )
+            break
 
-            # Match: VOD created_at falls within wide window
-            in_range = recorded_at and (vod_window_start <= recorded_at <= vod_window_end)
-            if in_range:
-                duration_minutes = _parse_vod_duration(vod.get("duration"))
-                session.add(StreamRecording(
-                    stream_id=stream.id,
-                    source="twitch",
-                    url=url,
-                    duration_minutes=duration_minutes,
-                    recorded_at=recorded_at,
-                    created_at=dt.now(timezone.utc).replace(tzinfo=None),
-                ))
-                existing_urls.add(url)
-                _log(f"  + VOD: {url[:70]}... ({duration_minutes}min, recorded_at={recorded_at})")
-                added += 1
-                matched += 1
-            else:
-                _log(f"    VOD skip: url={url[:50]}... recorded_at={recorded_at} (not in range)")
-
-        if matched == 0 and candidates:
-            _log(f"  No VOD matched for stream id={stream.id}")
-
-    # --- Cleanup: remove stale VOD recordings not in current Twitch API response ---
+    # --- 3. Истёкшие записи: скрыть, но не удалять ------------------------
     if vod_urls_all:
-        stale_result = await session.execute(
-            select(StreamRecording).where(StreamRecording.source == "twitch")
+        hidden = await recording_service.mark_missing_unavailable(
+            session,
+            keep_urls=vod_urls_all,
+            keep_video_ids=used_vod_ids,
         )
-        stale_count = 0
-        for rec in stale_result.scalars().all():
-            if rec.url and rec.url not in vod_urls_all:
-                _log(f"  - Removing stale VOD: {rec.url[:70]}...")
-                await session.delete(rec)
-                stale_count += 1
-        if stale_count:
-            _log(f"  Removed {stale_count} stale VOD recording(s)")
+        if hidden:
+            _log(f"  Marked {hidden} unavailable VOD recording(s)")
 
     return added
-
-
-def _parse_vod_duration(value: str | None) -> int | None:
-    """Parse Twitch VOD duration string like '7h29m15s' or '1h5m' to minutes."""
-    if not value:
-        return None
-    s = str(value).strip().lower()
-    total = 0
-    current = ""
-    for ch in s:
-        if ch.isdigit() or ch == ".":
-            current += ch
-        elif ch == "h":
-            total += int(float(current) * 60) if current else 0
-            current = ""
-        elif ch == "m":
-            total += int(current) if current else 0
-            current = ""
-        elif ch == "s":
-            current = ""
-    return total if total > 0 else None
 
 
 async def _enrich_new_games(
@@ -327,6 +326,10 @@ async def _enrich_new_games(
 async def run() -> int:
     from services.token_service import ensure_valid_token
 
+    if not settings.TWITCHTRACKER_IMPORT_ENABLED:
+        _log("TwitchTracker import disabled by TWITCHTRACKER_IMPORT_ENABLED")
+        return 0
+
     try:
         new_token = await ensure_valid_token()
         settings.TWITCH_ACCESS_TOKEN = new_token
@@ -371,6 +374,7 @@ async def run() -> int:
 
     # Fetch VODs from Twitch API
     vods_by_date: dict = {}
+    raw_vods: list[dict] = []
     vod_urls_all: set[str] = set()
     if settings.CLIENT_ID and settings.TWITCH_ACCESS_TOKEN and settings.TWITCH_PRIMARY_CHANNEL:
         _log("Fetching VODs from Twitch API...")
@@ -405,7 +409,6 @@ async def run() -> int:
         titles_added = 0
         stream_games_updated = 0
         processed_game_ids: set[int] = set()
-        all_hours: list[tuple[str, int]] = []
         processed_streams: list[Stream] = []
 
         for page in parsed_pages:
@@ -424,9 +427,6 @@ async def run() -> int:
 
             stream_games_updated += await upsert_stream_games_from_page(session, stream, page, game_cache)
 
-            hours = await increment_game_stats_minutes(session, page, game_cache)
-            all_hours.extend(hours)
-
             for entry in page.games:
                 game = game_cache.get(entry.name)
                 if game:
@@ -434,11 +434,17 @@ async def run() -> int:
 
         _log("\nSyncing VOD recordings...")
         vod_recordings_added = await _sync_vod_recordings(
-            session, processed_streams, vods_by_date, vod_urls_all,
+            session, processed_streams, vods_by_date, vod_urls_all, raw_vods,
         )
 
-        _log("\nUpdating streams_count...")
-        streams_count_updated = await update_streams_count(session, only_game_ids=processed_game_ids)
+        _log("\nRecomputing game_stats from stream_games...")
+        stats_batch = await recompute_game_stats(
+            session,
+            processed_game_ids,
+            source="twitchtracker",
+            reason="parse_twitchtracker",
+        )
+        stats_changes = getattr(stats_batch, "changes_count", 0)
 
         _log("Enriching games (IGDB + HLTB)...")
         games_enriched, fields_updated, hltb_calls, igdb_calls = await _enrich_new_games(
@@ -453,14 +459,7 @@ async def run() -> int:
         _log(f"  Titles -> added: {titles_added}")
         _log(f"  Stream games -> updated fields: {stream_games_updated}")
         _log(f"  VOD recordings -> added: {vod_recordings_added}")
-        if all_hours:
-            _log("  Minutes added:")
-            for name, mins in all_hours:
-                _log(f"    {name}: +{mins}m")
-        if streams_count_updated:
-            _log("  streams_count updated:")
-            for name, old, new in streams_count_updated:
-                _log(f"    {name}: {old} -> {new}")
+        _log(f"  game_stats -> changed fields: {stats_changes}")
         _log(f"  Games enriched: {games_enriched} ({hltb_calls} HLTB, {igdb_calls} IGDB calls)")
         _log("Done!")
         return 1 if rejected_pages else 0

@@ -89,7 +89,7 @@ pipeline/
 │   ├── load_stream_games.py         #   StreamGame association (порядок игр в стриме)
 │   ├── load_games.py                #   Game get_or_create + GameAlias
 │   ├── load_game_meta.py            #   GameMetadataIGDB / GameMetadataHLTB: обогащение
-│   ├── load_game_stats.py           #   GameStats upsert (из TwitchTracker)
+│   ├── load_game_stats.py           #   TT-поля GameStats: avg_viewers, followers_per_hour
 │   └── load_recommendations.py      #   game_recommendations CRUD + streamer_games
 │
 ├── delivery/                        # Доставка — выгружает данные вовне
@@ -123,9 +123,9 @@ IGDB API ──► import_igdb_releases ──► PostgreSQL (game_recommendatio
                           ▼
             import_json_to_db.py
               │
-              ├── sync_streams()          ← streams.json
+              ├── sync_streams()           ← streams.json
               ├── sync_game_stats()        ← games.json
-              ├── sync_stream_vod_urls()   ← Twitch API
+              ├── _sync_vods()             ← Twitch API (stream_recordings)
               ├── enrich_game_meta()       ← HLTB + IGDB
               └── compute_stream_genres()  ← по заголовкам
                           │
@@ -168,10 +168,11 @@ services/                          # Бизнес-логика, вызываем
 
 runtime/                           # Сбор live-метрик стрима
   ├── collector.py                 # Оркестратор: жизненный цикл сессии, обработка событий
+  ├── repository.py                # PostgreSQL-слой: сессии, сэмплы, бакеты, финализация
+  ├── aggregation_jobs.py          # Очередь/воркер отложенного пересчёта game_stats
   ├── session.py                   # Структуры данных (TypedDict) для сессии
   ├── sampler.py                   # Сбор данных (Twitch API: live stream, followers)
-  ├── metrics.py                   # Вычисление метрик (viewer count, HLTB, etc.)
-  ├── storage.py                   # Чтение/запись JSON-файлов сессий
+  ├── metrics.py                   # Вычисление метрик (viewer count, сегменты игр)
   └── utils.py                     # Вспомогательные чистые функции (даты, etc.)
 ```
 
@@ -267,14 +268,17 @@ game_stats                       │ alias        │
 | Clips | `clips`, `clip_tags` |
 | Calendar | `calendar_days`, `holidays`, `famous_persons` |
 | Bot | `bot_commands`, `bot_command_aliases`, `command_usage_logs` |
-| Chat | `chat_messages`, `vip_history` |
+| Chat | `chat_messages`, `stream_chat_participants`, `vip_history` |
 | Auth | `twitch_authorizations`, `twitch_streamer_authorizations`, `web_sessions`, `user_restrictions`, `moderation_audit` |
 | Rewards | `twitch_rewards`, `twitch_reward_redemptions` |
-| Analytics | `stream_runtime_samples`, `stream_runtime_buckets` |
-
-Таблицы `stream_runtime_*` объявлены в схеме, но текущий `runtime`-коллектор
-пишет сессии в JSON, а не в БД.
+| Analytics | `stream_runtime_sessions`, `stream_runtime_samples`, `stream_runtime_buckets`, `stream_stats_jobs` |
+| History | `stats_change_batches`, `stats_change_log` |
 | Telegram | `telegram_announcements`, `telegram_announcement_vods`, `telegram_post_edit_settings`, `telegram_post_edit_operations` |
+
+Runtime-коллектор пишет сессии, сэмплы и бакеты в PostgreSQL. `streams`,
+`stream_titles` и `stream_games` — источник детализации; `game_stats`
+пересчитывается из них идемпотентно, а `avg_viewers` / `followers_per_hour`
+остаются за TwitchTracker.
 
 ### Миграции
 
@@ -295,6 +299,9 @@ game_stats                       │ alias        │
 - `0014_roles_permissions` — роли, capability, ограничения пользователей, аудит
 - `0015_drop_plaintext_twitch_tokens` — только зашифрованные токены
 - `0016_drop_legacy_user_permissions` — удаление старых permission-флагов
+- `0017_runtime_self_collection` — runtime-сессии/сэмплы/бакеты, очередь агрегации, провенанс
+- `0018_stats_history` — батчи и построчный лог изменений статистики
+- `0019_chat_and_command_logs` — чат, команды, присутствие на стриме
 
 ```bash
 # Применить все миграции
@@ -330,17 +337,40 @@ Twitch EventSub WebSocket
        ├── channel.follow.v2 ─────────────────────────► eventsub_service
        │                                                └──► runtime.Collector.handle_follow()
        │
-       └── ... (raid, shoutout)
+       ├── channel.chat.message ──────────────────────► event_message
+       │                                                └──► ChatLogService.enqueue_message()
+       │
+       └── ... (raid, shoutout, успешные команды)
 
 runtime.Collector
   ├── sampling_loop()              каждые N секунд
   │    ├── runtime.Sampler.fetch_live_stream()     Twitch API (viewers, title, game)
   │    ├── runtime.Sampler.fetch_followers_count() Twitch API (total followers)
+  │    ├── runtime.repository.insert_sample()      stream_runtime_samples/buckets
   │    └── runtime.Metrics.recalculate_all_metrics()
   │
-  ├── active session (in-memory)   ► runtime.Storage.save_active_session()
-  └── completed sessions           ► runtime.Storage.append_completed_session()
+  ├── active session   ► stream_runtime_sessions (status=collecting)
+  └── stream.offline   ► finalize_session()
+                         ├── streams / stream_titles / stream_games
+                         └── stream_stats_jobs (check_at = ended_at + 660s)
+
+StatsAggregationWorker (в процессе бота)
+  └── claim_due() ──► recompute_stream_game_stats()
+                       ├── game_stats (идемпотентно из stream_games)
+                       └── stats_change_batches / stats_change_log
+
+ChatLogService (в процессе бота)
+  └── flush_events() ──► chat_messages + stream_chat_participants
+                          + command_usage_logs (successful commands only)
 ```
+
+- Идентичность стрима: `streams.external_id`; при реконнекте сессия
+  переиспользуется, `external_id` не перезаписывается.
+- `game_segments`, `title_history` восстанавливаются из сэмплов на финализации —
+  отдельного JSON-состояния нет.
+- Задержка агрегации нужна, чтобы TwitchTracker успел записать
+  `avg_viewers` / `followers_per_hour`; runtime эти поля не трогает.
+- Чат и команды логируются только для `TWITCH_PRIMARY_CHANNEL` (Tabula).
 
 ---
 
@@ -355,6 +385,11 @@ runtime.Collector
 | **Kill-switch** | `runtime.BOT_ENABLED` — блокирует все команды кроме `!старт` |
 | **VOD matching** | `streams_transform.py` — по дате ±1 день + пересечение title |
 | **Game segments** | `runtime.Collector` — сегменты игр внутри стрима с метриками |
+| **Self-collected stats** | `runtime/repository.py` — сессии/сэмплы в PostgreSQL, `streams`/`stream_games` как источник детализации |
+| **Idempotent game_stats** | `services/stats_aggregation_service.py` — пересчёт из `stream_games`, без аддитивных инкрементов |
+| **Deferred aggregation** | `stream_stats_jobs` + `runtime/aggregation_jobs.py` — TT успевает записать avg/followers |
+| **Stats history & rollback** | `services/stats_history.py` + `pipeline/orchestrator/rollback_stats.py` |
+| **Chat log** | `services/chat_log_service.py` — батчи, дедуп по `twitch_message_id`, только основной канал |
 
 ---
 
@@ -365,12 +400,13 @@ runtime.Collector
 ─────────────────────────────────────────────────────────────────────────
 Циркулярные зависимости               pipeline ↔ services    Выделить shared/core
 Конфиг — плоские глобальные переменные config/settings.py    pydantic-settings
-Нет тестов                            Весь проект            tests/ покрывают backend/authz/telegram
+Нет тестов                            Весь проект            tests/ покрывают backend/authz/telegram и чистую логику runtime
 Ручной ввод данных только в Sheets    Sheets UI              Веб-приложение backend/ + frontend/
 ```
 
-Тесты покрывают backend API/схемы/репозитории, authz и Telegram (`tests/`).
-ETL и runtime проверяются в основном вручную.
+Тесты покрывают backend API/схемы/репозитории, authz, Telegram и чистую логику
+runtime (метрики, история, очередь задач, чат). Запросы к PostgreSQL и ETL
+по-прежнему проверяются вручную.
 
 ---
 

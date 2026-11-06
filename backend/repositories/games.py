@@ -83,6 +83,7 @@ async def _game_streams(
             .where(
                 StreamRecording.stream_id.in_([row[0] for row in rows]),
                 StreamRecording.source == "twitch",
+                StreamRecording.is_available.is_(True),
             )
             .order_by(StreamRecording.id.asc())
         )

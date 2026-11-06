@@ -200,6 +200,8 @@ docs/                     профильная документация
 - Владелец: `OWNER_TWITCH_USER_ID`, `OWNER_TWITCH_LOGIN`.
 - Рекомендации: `RECOMMENDATIONS_LIMIT`, `RECOMMENDATIONS_STREAMER_LOGIN`.
 - Runtime: `STREAM_RUNTIME_SAMPLE_SECONDS`.
+- TwitchTracker: `TWITCHTRACKER_IMPORT_ENABLED`, `TWITCHTRACKER_TIMEZONE`
+  (по умолчанию `Europe/Moscow`; время TT переводится в naive UTC).
 - Веб: `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`,
   `TWITCH_SCOPE`, `TWITCH_STREAMER_SCOPE`, `BACKEND_*`,
   `TOKEN_ENCRYPTION_KEY`.

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 
 from twitchio.ext import commands
 
+from database.db import AsyncSessionLocal
+from runtime import repository
 from services.command_registry import register_command
-from runtime.storage import ACTIVE_SESSION_FILE
 from utils.cooldowns import check_cooldown
 from utils.delays import human_delay
 from utils.time_format import format_duration_compact
@@ -21,13 +21,13 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
 
 
-def _load_active_session() -> dict | None:
-    if not ACTIVE_SESSION_FILE.exists():
-        return None
-    try:
-        return json.loads(ACTIVE_SESSION_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+async def _load_active_session() -> dict | None:
+    """Активная runtime-сессия из PostgreSQL (JSON-хранилище больше не используется)."""
+    async with AsyncSessionLocal() as db:
+        sessions = await repository.get_collecting_sessions(db)
+        if not sessions:
+            return None
+        return await repository.build_session_snapshot(db, sessions[-1])
 
 
 def _build_time_message(session: dict) -> str | None:
@@ -82,7 +82,7 @@ def setup(bot):
         if not check_cooldown(ctx, "время", 5):
             return
 
-        session = _load_active_session()
+        session = await _load_active_session()
         if not session or session.get("status") != "active":
             await human_delay()
             await ctx.send("Сейчас стрим не идет")

@@ -460,7 +460,7 @@ export interface paths {
         };
         /**
          * Get Channel
-         * @description Данные канала: логин, отображаемое имя и аватар (`profile_image_url`).
+         * @description Данные канала: логин, отображаемое имя, аватар и статус эфира.
          */
         get: operations["get_channel_api_v1_meta_channel_get"];
         put?: never;
@@ -1019,6 +1019,11 @@ export interface components {
             profile_image_url?: string | null;
             /** Twitch Url */
             twitch_url?: string | null;
+            /**
+             * Is Live
+             * @default false
+             */
+            is_live: boolean;
         };
         /**
          * GameCandidate
@@ -1768,6 +1773,11 @@ export interface components {
             participants: components["schemas"]["StreamParticipant"][];
             /** Vod Url */
             vod_url: string | null;
+            /**
+             * Vod Urls
+             * @default []
+             */
+            vod_urls: string[];
             /** Avg Viewers */
             avg_viewers: number | null;
             /** Max Viewers */

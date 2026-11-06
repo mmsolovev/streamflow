@@ -18,3 +18,4 @@ class ChannelInfo(BaseModel):
     display_name: str
     profile_image_url: str | None = None
     twitch_url: str | None = None
+    is_live: bool = False

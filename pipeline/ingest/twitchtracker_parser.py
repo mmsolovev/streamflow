@@ -8,6 +8,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from utils.time_utils import tracker_to_utc
+
 
 @dataclass(frozen=True, slots=True)
 class TwitchTrackerStreamRow:
@@ -354,15 +356,24 @@ def _parse_k_number(value: str) -> int:
 
 
 def _parse_stream_timestamp(value: str) -> datetime | None:
-    """Parse 'Thu, Aug 13, 12:45' → datetime (year defaults to today)."""
+    """Parse 'Thu, Aug 13, 12:45' → naive UTC datetime.
+
+    TwitchTracker показывает время канала без зоны, поэтому после разбора
+    переводим его в UTC (`TWITCHTRACKER_TIMEZONE`). Год в строке отсутствует,
+    берём текущий.
+    """
     try:
         parts = value.split(", ", 1)
         date_str = parts[1] if len(parts) > 1 else value
-        # Format without year: "Aug 13, 12:45"
-        dt = datetime.strptime(date_str, "%b %d, %H:%M")
-        # Assume current year since TwitchTracker omits it
+        # Год TwitchTracker не отдаёт — подставляем текущий. Явный `%Y`
+        # обязателен: без него Python 3.14 предупреждает, а 3.15 откажется
+        # разбирать дату (и 29 февраля сломается).
         from datetime import date as _date
-        return dt.replace(year=_date.today().year)
+
+        local_dt = datetime.strptime(
+            f"{_date.today().year} {date_str}", "%Y %b %d, %H:%M"
+        )
+        return tracker_to_utc(local_dt)
     except (ValueError, IndexError):
         return None
 

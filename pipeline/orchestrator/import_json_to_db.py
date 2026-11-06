@@ -29,6 +29,7 @@ from pipeline.ingest.twitchtracker_parser import load_games_json, load_streams_j
 from pipeline.load.load_game_stats import sync_game_stats, update_streams_count
 from pipeline.load.load_game_meta import apply_igdb_patch, apply_hltb_patch, select_igdb_enrichment_candidates
 from pipeline.load.load_streams import sync_streams
+from services import recording_service
 from sqlalchemy import select
 
 
@@ -121,10 +122,9 @@ async def _sync_vods(session, *, only_stream_ids: set[int] | None = None) -> tup
 
     vod_urls = {str(v.get("url") or "").strip() for v in vods}
     vod_urls.discard("")
+    vod_video_ids = {str(v.get("id") or "").strip() for v in vods}
+    vod_video_ids.discard("")
     vods_by_date = build_vods_index(vods)
-
-    removed = 0
-    matched = 0
 
     if only_stream_ids:
         ids = [int(i) for i in only_stream_ids if int(i) > 0]
@@ -137,37 +137,74 @@ async def _sync_vods(session, *, only_stream_ids: set[int] | None = None) -> tup
     result = await session.execute(q)
     streams = result.scalars().all()
 
-    from database.models import StreamRecording
-    for stream in streams:
-        rec_result = await session.execute(
-            select(StreamRecording).where(StreamRecording.stream_id == stream.id, StreamRecording.source == "twitch")
-        )
-        existing_rec = rec_result.scalar_one_or_none()
-        if existing_rec and existing_rec.url and existing_rec.url not in vod_urls:
-            await session.delete(existing_rec)
-            removed += 1
+    # Точное совпадение по broadcast id: записей у стрима может быть
+    # несколько (реконнекты), поэтому не полагаемся на «одна запись».
+    vods_by_broadcast: dict[str, dict] = {}
+    for vod in vods:
+        broadcast = str(vod.get("stream_id") or "").strip()
+        if broadcast and broadcast != "0":
+            vods_by_broadcast[broadcast] = vod
 
-    for stream in streams:
-        rec_result = await session.execute(
-            select(StreamRecording).where(StreamRecording.stream_id == stream.id, StreamRecording.source == "twitch")
-        )
-        existing_rec = rec_result.scalar_one_or_none()
-        if existing_rec:
+    streams_by_external = {
+        str(stream.external_id): stream for stream in streams if stream.external_id
+    }
+
+    matched = 0
+    used_vod_ids: set[str] = set()
+    for broadcast, vod in vods_by_broadcast.items():
+        stream = streams_by_external.get(broadcast)
+        if stream is None:
             continue
+        recording = await recording_service.upsert_from_vod(
+            session, stream_id=int(stream.id), vod=vod
+        )
+        if recording is None:
+            continue
+        matched += 1
+        vod_id = str(vod.get("id") or "").strip()
+        if vod_id:
+            used_vod_ids.add(vod_id)
+
+    # Fallback по времени — только для стримов без записи (legacy-строки).
+    for stream in streams:
         if not stream.started_at:
             continue
+        existing = await recording_service.urls_for_stream(
+            session, int(stream.id), available_only=False
+        )
+        if existing:
+            continue
 
-        stream_view = StreamForVodMatch(id=int(stream.id), date=stream.started_at, title=stream.title)
-        candidates = pick_vod_candidates(vods_by_date=vods_by_date, stream_date=stream.started_at.date())
+        stream_view = StreamForVodMatch(
+            id=int(stream.id), date=stream.started_at, title=stream.title
+        )
+        candidates = pick_vod_candidates(
+            vods_by_date=vods_by_date, stream_date=stream.started_at.date()
+        )
         for vod in candidates:
-            if is_match(stream_view, vod):
-                url = str(vod.get("url") or "").strip()
-                if url:
-                    session.add(StreamRecording(stream_id=stream.id, source="twitch", url=url))
-                    matched += 1
-                break
+            vod_id = str(vod.get("id") or "").strip()
+            if vod_id and vod_id in used_vod_ids:
+                continue
+            if not is_match(stream_view, vod):
+                continue
+            recording = await recording_service.upsert_from_vod(
+                session, stream_id=int(stream.id), vod=vod
+            )
+            if recording is None:
+                continue
+            matched += 1
+            if vod_id:
+                used_vod_ids.add(vod_id)
+            break
 
-    return (removed, matched)
+    # Истёкшие записи не удаляем: скрываем на сайте, историю сохраняем.
+    hidden = await recording_service.mark_missing_unavailable(
+        session,
+        keep_urls=vod_urls,
+        keep_video_ids=vod_video_ids,
+    )
+
+    return (hidden, matched)
 
 
 async def _enrich_games_meta(
@@ -337,10 +374,10 @@ async def run() -> int:
 
         _log("JSON import to DB:")
         _log(f"Streams -> added: {stream_stats.added}, updated: {stream_stats.updated}, unchanged: {stream_stats.unchanged}, deleted: {stream_stats.deleted}")
-        _log(f"Game stats -> added: {game_stats.added}, updated: {game_stats.updated}, unchanged: {game_stats.unchanged}, deleted: {game_stats.deleted}")
+        _log(f"Game stats -> added: {game_stats.added}, updated: {game_stats.updated}, unchanged: {game_stats.unchanged}, deleted: {game_stats.deleted}, TT divergences: {game_stats.divergences}")
         _log(f"GameStats.streams_count updated rows: {streams_count_updated}")
         _log("Post-import enrichment:")
-        _log(f"VOD sync -> removed outdated: {vod_removed}, matched new: {vod_matched}")
+        _log(f"VOD sync -> hidden expired: {vod_removed}, matched new: {vod_matched}")
         _log(f"Games metadata -> updated games: {games_updated}, updated fields: {games_fields_updated}, hltb calls: {hltb_calls}, igdb calls: {igdb_calls}")
         _log("Done!")
         return 0

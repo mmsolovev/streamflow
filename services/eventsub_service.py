@@ -13,6 +13,7 @@ from runtime.collector import RuntimeStreamCollector
 from services import chat_sender
 from services.token_service import validate_token
 from utils.logger import get_logger
+from utils.time_utils import utc_to_tracker
 
 
 class EventSubService:
@@ -209,7 +210,7 @@ class EventSubService:
             "category_name": data.category_name,
             "category_id": data.category_id,
         }
-        self.collector.handle_channel_update(data)
+        await self.collector.handle_channel_update(data)
 
         if changes:
             self.logger.info("[EventSub] channel.update for %s: %s", data.broadcaster.name, ", ".join(changes))
@@ -409,7 +410,9 @@ class EventSubService:
     def _format_date(value) -> str:
         if not value:
             return "н/д"
-        return value.strftime("%d.%m.%Y")
+        # В БД naive UTC; в чате показываем дату по времени канала.
+        local = utc_to_tracker(value) or value
+        return local.strftime("%d.%m.%Y")
 
     @staticmethod
     def _format_hltb_for_game_change(summary: str) -> str | None:

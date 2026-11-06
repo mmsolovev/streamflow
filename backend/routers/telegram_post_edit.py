@@ -23,6 +23,7 @@ from backend.schemas.telegram_post_edit import (
     VodCheckOut,
 )
 from database.models import TelegramAnnouncement, TelegramAnnouncementVod
+from services import recording_service
 from telegram import announcements, post_edit, post_edit_store, vod_jobs
 from telegram.entities import utf16_to_index
 from telegram.vod_service import fetch_vod_for_stream
@@ -44,7 +45,7 @@ def _settings_view(row) -> PostEditSettingsView:
 
 
 def _run_view(row) -> PostEditRunView:
-    run, stream = row
+    run, stream, recording = row
     return PostEditRunView(
         id=run.id,
         stream_id=run.stream_id,
@@ -53,7 +54,7 @@ def _run_view(row) -> PostEditRunView:
         stream_ended_at=run.stream_ended_at,
         announcement_id=run.announcement_id,
         status=run.status,
-        vod_url=run.vod_url,
+        vod_url=recording.url if recording is not None else None,
         last_error=run.last_error,
         selected_by_admin=bool(run.selected_by_admin),
         check_at=run.check_at,
@@ -111,15 +112,15 @@ async def _build_state(session, *, run_id: int | None) -> PostStreamView:
     media_kind = None
     urls: list[str] = []
     if target_row is not None:
-        run, _stream = target_row
+        run, _stream, target_recording = target_row
         if run.announcement_id is not None:
             post = await repo.get_announcement(session, run.announcement_id)
             if post is not None and all(item.id != post.id for item in posts):
                 posts.append(post)
             media_kind = post.media_kind if post else None
             urls = await repo.urls_for_announcement(session, run.announcement_id)
-        elif run.vod_url:
-            urls = [run.vod_url]
+        elif target_recording is not None:
+            urls = [target_recording.url]
 
     try:
         text, entities = post_edit.render_preview(template, urls, media_kind=media_kind)
@@ -202,7 +203,7 @@ async def set_target(
     row = await repo.get_run(session, body.run_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стрим не найден.")
-    run, _stream = row
+    run, _stream, _recording = row
     if run.status in {"applying", "edited"} and run.announcement_id != body.announcement_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -238,7 +239,7 @@ async def publish_now(
     row = await repo.get_run(session, body.run_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стрим не найден.")
-    run, _stream = row
+    run, _stream, _recording = row
     if run.announcement_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Сначала выберите пост.")
     if run.status in {"applying"}:
@@ -267,7 +268,7 @@ async def undo(
     row = await repo.get_run(session, body.run_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стрим не найден.")
-    run, _stream = row
+    run, _stream, _recording = row
     operation = await repo.latest_applied_operation(session, run.id)
     if operation is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нет правки для отмены.")
@@ -288,7 +289,7 @@ async def restore_original(
     row = await repo.get_run(session, body.run_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стрим не найден.")
-    run, _stream = row
+    run, _stream, _recording = row
     if run.announcement_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Сначала выберите пост.")
     if run.status == "applying":
@@ -320,7 +321,7 @@ async def check_vod(
     row = await repo.get_run(session, body.run_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стрим не найден.")
-    run, _stream = row
+    run, _stream, _recording = row
     checked_at = datetime.utcnow()
 
     if not settings.CLIENT_ID or not settings.TWITCH_PRIMARY_CHANNEL:
@@ -350,13 +351,32 @@ async def check_vod(
         )
 
     run.last_checked_at = checked_at
-    await session.commit()
     if vod is None or not vod.get("url"):
+        await session.commit()
         return VodCheckOut(
             available=False,
             error="VOD not found in channel archive",
             checked_at=checked_at,
         )
+
+    stream_db_id = await recording_service.ensure_stream(
+        session,
+        stream_db_id=run.stream_db_id,
+        twitch_stream_id=run.stream_id,
+        started_at=run.stream_started_at,
+        ended_at=run.stream_ended_at,
+    )
+    if run.stream_db_id is None:
+        run.stream_db_id = stream_db_id
+    recording = await recording_service.upsert_from_vod(
+        session,
+        stream_id=stream_db_id,
+        vod=vod,
+    )
+    if recording is not None and run.recording_id is None:
+        run.recording_id = recording.id
+    await session.commit()
+
     return VodCheckOut(
         available=True,
         vod_url=vod.get("url"),

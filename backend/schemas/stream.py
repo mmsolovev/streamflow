@@ -29,6 +29,7 @@ class StreamView(BaseModel):
     tags: list[str]
     participants: list[StreamParticipant]
     vod_url: Optional[str]
+    vod_urls: list[str] = []
     avg_viewers: Optional[int]
     max_viewers: Optional[int]
 

@@ -49,7 +49,7 @@ from aiogram.types import LinkPreviewOptions, Message, MessageEntity, Update  # 
 
 import config.settings as settings  # noqa: E402
 from database.db import AsyncSessionLocal  # noqa: E402
-from database.models import TelegramAnnouncementVod  # noqa: E402
+from database.models import StreamRecording  # noqa: E402
 from pipeline.ingest.twitch_api import (  # noqa: E402
     TwitchTokenExpiredError,
     fetch_user_id,
@@ -167,9 +167,15 @@ async def vod_url_from_db() -> str | None:
     """
     async with AsyncSessionLocal() as session:
         rows = await session.execute(
-            select(TelegramAnnouncementVod.vod_url, TelegramAnnouncementVod.recorded_at)
-            .where(TelegramAnnouncementVod.vod_url.is_not(None))
-            .order_by(TelegramAnnouncementVod.recorded_at.desc().nullslast())
+            select(StreamRecording.url)
+            .where(
+                StreamRecording.source == "twitch",
+                StreamRecording.is_available.is_(True),
+            )
+            .order_by(
+                StreamRecording.recorded_at.desc().nullslast(),
+                StreamRecording.id.desc(),
+            )
             .limit(1)
         )
         url = rows.scalars().first()

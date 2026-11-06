@@ -34,6 +34,7 @@ from database.models import (
     TelegramAnnouncementVod,
     TelegramPostEditOperation,
 )
+from services import recording_service
 from telegram import announcements, post_edit, post_edit_store, vod_jobs
 from telegram.handlers import router as channel_router
 from telegram.matcher import (
@@ -270,11 +271,15 @@ class TelegramService:
 
         async with AsyncSessionLocal() as session:
             job = await vod_jobs.get_by_id(session, job_id)
-            if job is None or job.announcement_id is None:
+            if job is None:
                 return
 
-            vod_url = job.vod_url
-            if not vod_url:
+            recording = (
+                await recording_service.get_by_id(session, job.recording_id)
+                if job.recording_id
+                else None
+            )
+            if recording is None:
                 try:
                     vod = await fetch_vod_for_stream(
                         session=self._http,
@@ -288,14 +293,27 @@ class TelegramService:
                 if vod is None or not vod.get("url"):
                     await self._set_job_error(job_id, "VOD not found in channel archive")
                     return
-                vod_url = vod["url"]
+
+                stream_db_id = await self._ensure_stream_for_job(session, job)
+                recording = await recording_service.upsert_from_vod(
+                    session,
+                    stream_id=stream_db_id,
+                    vod=vod,
+                )
+                if recording is None:
+                    await self._set_job_error(job_id, "VOD has no URL")
+                    return
                 await vod_jobs.mark_resolved(
                     session,
                     job_id=job.id,
-                    vod_url=vod_url,
-                    duration_minutes=vod.get("duration_minutes"),
-                    recorded_at=normalize_dt(vod.get("published_at") or vod.get("created_at")),
+                    recording_id=recording.id,
+                    stream_db_id=stream_db_id,
                 )
+
+            if job.announcement_id is None:
+                # Запись сохранена для сайта; править нечего.
+                await session.commit()
+                return
 
             urls = await vod_jobs.resolved_urls(session, job.announcement_id)
             await self._apply_edit(session, job=job, vod_urls=urls)
@@ -529,6 +547,7 @@ class TelegramService:
                     session,
                     announcement_id=announcement_id,
                     stream_id=stream_id,
+                    stream_db_id=stream_session.get("stream_db_id"),
                     stream_started_at=started_at,
                     stream_ended_at=ended_at or started_at,
                     check_delay_seconds=delay_seconds,
@@ -680,9 +699,14 @@ class TelegramService:
         """Одна задача в своей сессии: поиск VOD, затем правка анонса."""
         async with AsyncSessionLocal() as session:
             job = await vod_jobs.get_by_id(session, job_id)
-            if job is None or job.status != "waiting":
+            if job is None or job.status not in ("waiting", "pending_selection"):
                 return
-            await self._process_job_in_session(session, job)
+            try:
+                await self._process_job_in_session(session, job)
+            finally:
+                # Ошибки поиска/отсутствие VOD тоже должны сохраниться:
+                # иначе задача будет вечно висеть с прошедшим check_at.
+                await session.commit()
 
     async def _process_job_in_session(self, session, job) -> None:
         """Одна задача: поиск VOD, затем правка анонса."""
@@ -697,72 +721,114 @@ class TelegramService:
             logger.warning("Telegram service is not started, skipping job %s", job.id)
             return
 
-        try:
-            vod = await fetch_vod_for_stream(
-                session=self._http,
-                channel_login=self.channel_login,
-                stream_id=job.stream_id,
-                client_id=settings.CLIENT_ID,
-            )
-        except VodLookupError as exc:
-            exhausted = await vod_jobs.mark_failed(
-                session,
-                job_id=job.id,
-                error=str(exc),
-                attempts=attempts,
-                max_attempts=self.max_attempts,
-            )
-            logger.warning(
-                "VOD check for stream %s failed (attempt %s/%s)%s: %s",
-                job.stream_id,
-                attempts,
-                self.max_attempts,
-                " and gave up" if exhausted else "",
-                exc,
-            )
-            return
-        except Exception as unexpected:
-            exhausted = await vod_jobs.mark_failed(
-                session,
-                job_id=job.id,
-                error=f"{type(unexpected).__name__}: {unexpected}",
-                attempts=attempts,
-                max_attempts=self.max_attempts,
-            )
-            logger.exception(
-                "Unexpected error checking VOD for stream %s (attempt %s/%s)",
-                job.stream_id,
-                attempts,
-                self.max_attempts,
-            )
-            if exhausted:
-                logger.warning("Giving up on stream %s", job.stream_id)
-            return
-
-        if vod is None or not vod.get("url"):
-            await vod_jobs.mark_no_vod(
-                session,
-                job_id=job.id,
-                reason="VOD not found in channel archive",
-                attempts=attempts,
-            )
-            logger.warning(
-                "No VOD for stream %s after %s attempts, announcement left untouched",
-                job.stream_id,
-                attempts,
-            )
-            return
-
-        await vod_jobs.mark_resolved(
-            session,
-            job_id=job.id,
-            vod_url=vod["url"],
-            duration_minutes=vod.get("duration_minutes"),
-            recorded_at=normalize_dt(vod.get("published_at") or vod.get("created_at")),
+        recording = (
+            await recording_service.get_by_id(session, job.recording_id)
+            if job.recording_id
+            else None
         )
+        if recording is None:
+            try:
+                vod = await fetch_vod_for_stream(
+                    session=self._http,
+                    channel_login=self.channel_login,
+                    stream_id=job.stream_id,
+                    client_id=settings.CLIENT_ID,
+                )
+            except VodLookupError as exc:
+                exhausted = await vod_jobs.mark_failed(
+                    session,
+                    job_id=job.id,
+                    error=str(exc),
+                    attempts=attempts,
+                    max_attempts=self.max_attempts,
+                )
+                logger.warning(
+                    "VOD check for stream %s failed (attempt %s/%s)%s: %s",
+                    job.stream_id,
+                    attempts,
+                    self.max_attempts,
+                    " and gave up" if exhausted else "",
+                    exc,
+                )
+                return
+            except Exception as unexpected:
+                exhausted = await vod_jobs.mark_failed(
+                    session,
+                    job_id=job.id,
+                    error=f"{type(unexpected).__name__}: {unexpected}",
+                    attempts=attempts,
+                    max_attempts=self.max_attempts,
+                )
+                logger.exception(
+                    "Unexpected error checking VOD for stream %s (attempt %s/%s)",
+                    job.stream_id,
+                    attempts,
+                    self.max_attempts,
+                )
+                if exhausted:
+                    logger.warning("Giving up on stream %s", job.stream_id)
+                return
+
+            if vod is None or not vod.get("url"):
+                await vod_jobs.mark_no_vod(
+                    session,
+                    job_id=job.id,
+                    reason="VOD not found in channel archive",
+                    attempts=attempts,
+                )
+                logger.warning(
+                    "No VOD for stream %s after %s attempts, announcement left untouched",
+                    job.stream_id,
+                    attempts,
+                )
+                return
+
+            stream_db_id = await self._ensure_stream_for_job(session, job)
+            recording = await recording_service.upsert_from_vod(
+                session,
+                stream_id=stream_db_id,
+                vod=vod,
+            )
+            if recording is None:
+                await vod_jobs.mark_failed(
+                    session,
+                    job_id=job.id,
+                    error="VOD has no URL",
+                    attempts=attempts,
+                    max_attempts=self.max_attempts,
+                )
+                return
+            await vod_jobs.mark_resolved(
+                session,
+                job_id=job.id,
+                recording_id=recording.id,
+                stream_db_id=stream_db_id,
+            )
+
+        if job.announcement_id is None:
+            # Запись сохранена для сайта, но править пост не нужно.
+            logger.info(
+                "VOD %s stored for stream %s without an announcement",
+                recording.url if recording else job.stream_id,
+                job.stream_id,
+            )
+            return
 
         urls = await vod_jobs.resolved_urls(session, job.announcement_id)
         await self._apply_edit(session, job=job, vod_urls=urls)
+
+    async def _ensure_stream_for_job(self, session, job) -> int:
+        """`streams.id` для задачи. Для старых задач строки может не быть."""
+        stream_db_id = await recording_service.ensure_stream(
+            session,
+            stream_db_id=job.stream_db_id,
+            twitch_stream_id=job.stream_id,
+            started_at=job.stream_started_at,
+            ended_at=job.stream_ended_at,
+        )
+        if job.stream_db_id is None:
+            job.stream_db_id = int(stream_db_id)
+        return int(stream_db_id)
 
     async def _apply_edit(self, session, *, job, vod_urls: list[str]) -> None:
         """Пересобирает текст подписи и правит пост."""

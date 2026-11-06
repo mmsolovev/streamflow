@@ -13,6 +13,7 @@ from backend.repositories import hltb as hltb_repo
 from backend.repositories import recommendations as recs_repo
 from backend.repositories import releases as releases_repo
 from backend.repositories import streams as streams_repo
+from backend.routers import meta as meta_router
 
 PREFIX = "/api/v1"
 
@@ -179,6 +180,19 @@ class WebApiTests(unittest.TestCase):
             response = self.client.get(f"{PREFIX}/streams")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["duration_hours"], 2.0)
+
+    def test_channel_info_offline_by_default(self):
+        response = self.client.get(f"{PREFIX}/meta/channel")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["is_live"])
+
+    def test_channel_info_online_from_collecting_session(self):
+        with patch.object(
+            meta_router, "_is_channel_live", AsyncMock(return_value=True)
+        ):
+            response = self.client.get(f"{PREFIX}/meta/channel")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["is_live"])
 
     def test_list_bot_commands(self):
         items = [

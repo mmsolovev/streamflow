@@ -20,6 +20,7 @@ from database.models import (
 )
 from config.settings import SPREADSHEET_NAME, GAMES_SHEET_NAME
 from services.streamer_service import resolve_primary_streamer_id
+from utils.time_utils import utc_to_tracker
 from pipeline.delivery.sheets_utils import (
     build_hyperlink_formula,
     comparable_row,
@@ -107,7 +108,7 @@ def _build_game_row(data):
     steam = build_hyperlink_formula(data.get("steam_url"))
 
     return [
-        format_dt(data["last_stream"]) if data["last_stream"] else "",
+        format_dt(utc_to_tracker(data["last_stream"])) if data["last_stream"] else "",
         int(data["streams_count"] or 0),
         data["name"],
         data["rank"],

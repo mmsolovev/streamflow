@@ -52,7 +52,9 @@ TELEGRAM_CHANNEL_ID=-100xxxxxxxxxx
    - если анонс не найден, задача получает `pending_selection` и ждёт выбора
      админа в веб-интерфейсе.
 4. **Поиск VOD.** Поллер (`process_due_jobs`) забирает задачи `claim_due` и
-   вызывает Twitch Helix для VOD по `stream_id`.
+   вызывает Twitch Helix для VOD по `stream_id`. Найденная запись пишется в
+   `stream_recordings` (единый реестр VOD для сайта и Telegram), а задача
+   хранит только `recording_id` и `stream_db_id`.
    - VOD найден → `mark_resolved`, затем правка поста;
    - VOD ещё нет → `no_vod`, пост не меняется;
    - сетевая/5xx ошибка → `mark_failed`, экспоненциальный retry до
@@ -65,7 +67,9 @@ TELEGRAM_CHANNEL_ID=-100xxxxxxxxxx
    undo/restore.
 
 Повторный VOD для того же поста (вторая трансляция после падения) добавляется
-к уже собранным ссылкам: `vod_jobs.resolved_urls(...)`.
+к уже собранным ссылкам: `vod_jobs.resolved_urls(...)`. У одного стрима может
+быть несколько записей (реконнекты); истёкшие VOD не удаляются, а скрываются
+на сайте (`is_available=false`).
 
 ## Шаблон правки
 

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import (
     Stream,
+    StreamRecording,
     TelegramAnnouncement,
     TelegramAnnouncementVod,
     TelegramPostEditOperation,
@@ -19,10 +20,20 @@ async def get_settings(session: AsyncSession) -> TelegramPostEditSettings:
     return await post_edit_store.get_settings(session)
 
 
+def _runs_query():
+    return (
+        select(TelegramAnnouncementVod, Stream, StreamRecording)
+        .outerjoin(Stream, Stream.external_id == TelegramAnnouncementVod.stream_id)
+        .outerjoin(
+            StreamRecording,
+            StreamRecording.id == TelegramAnnouncementVod.recording_id,
+        )
+    )
+
+
 async def list_runs(session: AsyncSession, limit: int = 30):
     result = await session.execute(
-        select(TelegramAnnouncementVod, Stream)
-        .outerjoin(Stream, Stream.external_id == TelegramAnnouncementVod.stream_id)
+        _runs_query()
         .order_by(
             TelegramAnnouncementVod.stream_ended_at.desc().nulls_last(),
             TelegramAnnouncementVod.id.desc(),
@@ -34,9 +45,7 @@ async def list_runs(session: AsyncSession, limit: int = 30):
 
 async def get_run(session: AsyncSession, run_id: int):
     result = await session.execute(
-        select(TelegramAnnouncementVod, Stream)
-        .outerjoin(Stream, Stream.external_id == TelegramAnnouncementVod.stream_id)
-        .where(TelegramAnnouncementVod.id == run_id)
+        _runs_query().where(TelegramAnnouncementVod.id == run_id)
     )
     return result.first()
 
