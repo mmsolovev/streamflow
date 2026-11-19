@@ -11,9 +11,9 @@ Runtime и TwitchTracker пишут детализацию (`streams`, `stream_g
 агрегат пересчитывается отсюда. Из-за этого повторный прогон даёт те же числа,
 а аддитивный инкремент минут больше не нужен.
 
-`avg_viewers` и `followers_per_hour` здесь не трогаются: их владелец —
-TwitchTracker (`pipeline/load/load_game_stats.py`), потому что из детализации
-эти значения не восстановить.
+`avg_viewers` и `followers_per_hour` выводятся из per-stream детализации,
+когда она полная. Исходная сводка с games page TwitchTracker хранится отдельно
+в `game_metadata_twitchtracker`.
 
 Каждый прогон, реально изменивший числа, оставляет батч в
 `stats_change_batches` / `stats_change_log` (см. `services/stats_history.py`).
@@ -48,6 +48,16 @@ async def _load_aggregates(
             func.count(func.distinct(StreamGame.stream_id)),
             func.max(Stream.started_at),
             func.max(StreamGame.peak_viewers),
+            func.sum(StreamGame.avg_viewers * StreamGame.duration_minutes),
+            func.sum(StreamGame.duration_minutes).filter(
+                StreamGame.avg_viewers.is_not(None)
+            ),
+            func.count().filter(StreamGame.avg_viewers.is_(None)),
+            func.sum(StreamGame.followers_gained),
+            func.sum(StreamGame.duration_minutes).filter(
+                StreamGame.followers_gained.is_not(None)
+            ),
+            func.count().filter(StreamGame.followers_gained.is_(None)),
             # Сколько строк детализации не содержит минут/пиков. Legacy-импорт
             # TwitchTracker оставил их NULL: это «нет данных», а не ноль.
             func.count().filter(StreamGame.duration_minutes.is_(None)),
@@ -65,6 +75,12 @@ async def _load_aggregates(
         streams_count,
         last_stream,
         max_viewers,
+        weighted_viewer_sum,
+        viewer_duration_minutes,
+        viewer_unknown_rows,
+        followers_gained,
+        follower_duration_minutes,
+        follower_unknown_rows,
         duration_unknown_rows,
         peak_unknown_rows,
     ) in result.all():
@@ -77,6 +93,12 @@ async def _load_aggregates(
             "streams_count": int(streams_count or 0),
             "last_stream": last_stream,
             "max_viewers": max_viewers,
+            "weighted_viewer_sum": float(weighted_viewer_sum or 0),
+            "viewer_duration_minutes": int(viewer_duration_minutes or 0),
+            "viewer_unknown_rows": int(viewer_unknown_rows or 0),
+            "followers_gained": int(followers_gained or 0),
+            "follower_duration_minutes": int(follower_duration_minutes or 0),
+            "follower_unknown_rows": int(follower_unknown_rows or 0),
             "duration_unknown_rows": int(duration_unknown_rows or 0),
             "peak_unknown_rows": int(peak_unknown_rows or 0),
         }
@@ -89,6 +111,12 @@ def _empty_aggregate() -> dict:
         "streams_count": 0,
         "last_stream": None,
         "max_viewers": None,
+        "weighted_viewer_sum": 0,
+        "viewer_duration_minutes": 0,
+        "viewer_unknown_rows": 0,
+        "followers_gained": 0,
+        "follower_duration_minutes": 0,
+        "follower_unknown_rows": 0,
         "duration_unknown_rows": 0,
         "peak_unknown_rows": 0,
     }
@@ -103,7 +131,8 @@ def build_target_values(row: Any, aggregate: dict) -> dict:
 
     - `duration_minutes` оставляем как есть (сумма известных строк — только
       нижняя граница);
-    - `max_viewers` не уменьшаем, но учитываем новые пики.
+    - `max_viewers` не уменьшаем, но учитываем новые пики;
+    - viewer/follower rates пересчитываем только при полной детализации.
 
     `streams_count` и `last_stream` всегда выводятся из детализации: для них
     NULL не нужен.
@@ -133,11 +162,46 @@ def build_target_values(row: Any, aggregate: dict) -> dict:
     else:
         max_viewers = computed_peak
 
+    computed_avg_viewers = None
+    viewer_minutes = int(aggregate.get("viewer_duration_minutes") or 0)
+    if (
+        not duration_unknown
+        and not int(aggregate.get("viewer_unknown_rows") or 0)
+        and viewer_minutes > 0
+    ):
+        computed_avg_viewers = int(
+            round(float(aggregate.get("weighted_viewer_sum") or 0) / viewer_minutes)
+        )
+    avg_viewers = (
+        computed_avg_viewers
+        if computed_avg_viewers is not None
+        else getattr(row, "avg_viewers", None)
+    )
+
+    computed_followers_per_hour = None
+    follower_minutes = int(aggregate.get("follower_duration_minutes") or 0)
+    if (
+        not duration_unknown
+        and not int(aggregate.get("follower_unknown_rows") or 0)
+        and follower_minutes > 0
+    ):
+        computed_followers_per_hour = round(
+            int(aggregate.get("followers_gained") or 0) * 60 / follower_minutes,
+            2,
+        )
+    followers_per_hour = (
+        computed_followers_per_hour
+        if computed_followers_per_hour is not None
+        else getattr(row, "followers_per_hour", None)
+    )
+
     return {
         "duration_minutes": duration_minutes,
         "streams_count": int(aggregate.get("streams_count") or 0),
         "last_stream": aggregate.get("last_stream"),
         "max_viewers": max_viewers,
+        "avg_viewers": avg_viewers,
+        "followers_per_hour": followers_per_hour,
     }
 
 

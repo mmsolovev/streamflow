@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 """
-Load layer: writes targeting `game_stats` table (GameStats).
+Load layer: writes TwitchTracker games-page snapshots.
 
-TwitchTracker — единственный источник `avg_viewers` и `followers_per_hour`:
-из детализации стримов их не восстановить. Остальные агрегаты
-(`duration_minutes`, `max_viewers`, `last_stream`, `streams_count`)
-пересчитываются из `stream_games` / `streams` в
-`services.stats_aggregation_service.py` и здесь не пишутся.
+The source snapshot is stored in `game_metadata_twitchtracker`. Calculated
+`game_stats` values are derived from stream-level detail by
+`services.stats_aggregation_service.py`.
 
 Расхождения между значениями TT и пересчитанными попадают только в историю
-изменений (`stats_change_batches.meta["tt_divergence"]`), чтобы не перетирать
-более точную детализацию.
+изменений (`stats_change_batches.meta["tt_divergence"]`).
 """
 
 from dataclasses import dataclass
@@ -20,7 +17,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import Game, GameStats, StreamGame
+from database.models import Game, GameMetadataTwitchTracker, GameStats, StreamGame
 from pipeline.ingest.twitchtracker_parser import TwitchTrackerGameRow
 from pipeline.load.load_games import get_or_create_game
 from services import stats_aggregation_service, stats_history
@@ -67,7 +64,9 @@ async def sync_game_stats(
     desired_game_ids: set[int] = set()
 
     now = _utcnow()
-    rows: list[tuple[GameStats, TwitchTrackerGameRow, bool]] = []
+    rows: list[
+        tuple[GameStats, GameMetadataTwitchTracker, TwitchTrackerGameRow, bool, bool]
+    ] = []
     for data in games_data:
         game = await get_or_create_game(session, game_cache, data.name, source="twitchtracker")
         desired_game_ids.add(int(game.id))
@@ -82,32 +81,43 @@ async def sync_game_stats(
             await session.flush()
             created = True
 
-        rows.append((game_stats, data, created))
+        metadata = await session.get(GameMetadataTwitchTracker, int(game.id))
+        metadata_created = metadata is None
+        if metadata is None:
+            metadata = GameMetadataTwitchTracker(
+                game_id=int(game.id),
+                synced_at=now,
+            )
+            session.add(metadata)
+
+        rows.append((game_stats, metadata, data, created, metadata_created))
 
     aggregates = await stats_aggregation_service.game_aggregates(
         session, desired_game_ids
     )
 
-    changes: list[tuple[str, int, str, object, object]] = []
     divergences: list[dict] = []
 
-    for game_stats, data, created in rows:
+    for game_stats, metadata, data, created, metadata_created in rows:
         game_id = int(game_stats.game_id)
 
-        # Только поля, которыми владеет TwitchTracker.
+        metadata_changed = metadata_created
         for field, new_value in (
+            ("rank", data.rank),
+            ("hours_streamed", data.hours_streamed),
             ("avg_viewers", data.avg_viewers),
+            ("max_viewers", data.max_viewers),
             ("followers_per_hour", data.followers_per_hour),
+            ("last_stream", data.last_stream),
         ):
-            old_value = getattr(game_stats, field, None)
+            old_value = getattr(metadata, field, None)
             if stats_history.serialize_value(old_value) != stats_history.serialize_value(
                 new_value
             ):
-                changes.append(
-                    (stats_history.ENTITY_GAME_STATS, game_id, field, old_value, new_value)
-                )
-                setattr(game_stats, field, new_value)
+                setattr(metadata, field, new_value)
+                metadata_changed = True
 
+        metadata.synced_at = now
         game_stats.synced_at = now
         game_stats.tt_synced_at = now
 
@@ -117,6 +127,8 @@ async def sync_game_stats(
             ("duration_minutes", tt_minutes),
             ("max_viewers", data.max_viewers),
             ("last_stream", data.last_stream),
+            ("avg_viewers", data.avg_viewers),
+            ("followers_per_hour", data.followers_per_hour),
         ):
             entry = _divergence(game_id, field, tt_value, aggregate.get(field))
             if entry is not None:
@@ -130,7 +142,7 @@ async def sync_game_stats(
                 deleted=stats.deleted,
                 divergences=stats.divergences,
             )
-        elif any(change[1] == game_id for change in changes):
+        elif metadata_changed:
             stats = SyncStats(
                 added=stats.added,
                 updated=stats.updated + 1,
@@ -150,7 +162,7 @@ async def sync_game_stats(
     meta = {"tt_divergence": divergences} if divergences else None
     batch = await stats_history.apply_changes(
         session,
-        changes,
+        [],
         source=stats_history.SOURCE_TWITCHTRACKER,
         reason="sync_game_stats",
         meta=meta,

@@ -30,6 +30,7 @@ class RuntimeStreamCollector:
         self.sampling_task: asyncio.Task | None = None
         self.followers_sampling_enabled = True
         self.finalize_listeners: list = []
+        self.online_listeners: list = []
 
     # ------------------------------------------------------------------
     # Listeners
@@ -55,6 +56,24 @@ class RuntimeStreamCollector:
             except Exception:
                 self.logger.exception(
                     "Finalize listener %s failed for session %s",
+                    getattr(listener, "__name__", listener),
+                    session.get("stream_id"),
+                )
+
+    def add_online_listener(self, listener):
+        """Подписывает потребителя на фактическое начало/возобновление эфира."""
+        if listener not in self.online_listeners:
+            self.online_listeners.append(listener)
+
+    async def _notify_online_listeners(self, session):
+        for listener in self.online_listeners:
+            try:
+                result = listener(session)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                self.logger.exception(
+                    "Online listener %s failed for stream %s",
                     getattr(listener, "__name__", listener),
                     session.get("stream_id"),
                 )
@@ -100,10 +119,19 @@ class RuntimeStreamCollector:
                     current.id,
                     live_stream.id,
                 )
+                if self.active_session.get("category_name"):
+                    await self._sync_runtime_category(
+                        category_name=self.active_session.get("category_name"),
+                        category_id=self.active_session.get("category_id"),
+                        source="collector.bootstrap.recovered",
+                    )
                 await self.capture_runtime_sample(
                     stream_snapshot=live_stream, reason="collector.bootstrap.recovered"
                 )
                 await self.ensure_sampling_started()
+                await self._notify_online_listeners(
+                    {"stream_id": str(live_stream.id), "started_at": live_stream.started_at}
+                )
                 return
 
             reason = (
@@ -130,6 +158,9 @@ class RuntimeStreamCollector:
             await self._start_session_from_stream(live_stream, source="bootstrap")
             await self.capture_runtime_sample(stream_snapshot=live_stream, reason="bootstrap")
             await self.ensure_sampling_started()
+            await self._notify_online_listeners(
+                {"stream_id": str(live_stream.id), "started_at": live_stream.started_at}
+            )
 
     # ------------------------------------------------------------------
     # Stream lifecycle
@@ -154,6 +185,13 @@ class RuntimeStreamCollector:
                     stream_snapshot=stream_snapshot, reason="stream.online.reconnect"
                 )
                 await self.ensure_sampling_started(initial_stream=stream_snapshot)
+                await self._notify_online_listeners(
+                    {
+                        "stream_id": stream_id,
+                        "started_at": getattr(stream_snapshot, "started_at", None)
+                        or getattr(data, "started_at", None),
+                    }
+                )
                 return
 
             self.logger.info(
@@ -185,6 +223,13 @@ class RuntimeStreamCollector:
             stream_snapshot=stream_snapshot, reason="stream.online"
         )
         await self.ensure_sampling_started()
+        await self._notify_online_listeners(
+            {
+                "stream_id": stream_id,
+                "started_at": getattr(stream_snapshot, "started_at", None)
+                or getattr(data, "started_at", None),
+            }
+        )
 
     async def handle_stream_offline(self, ended_at: str | None = None):
         if not self.active_session:
@@ -308,12 +353,49 @@ class RuntimeStreamCollector:
             )
             await db.commit()
 
-        self._apply_channel_update(
+        category_changed = self._apply_channel_update(
             title=data.title,
             category_name=data.category_name,
             category_id=category_id,
             changed_at=sampled_at,
         )
+        if category_changed:
+            await self._sync_runtime_category(
+                category_name=data.category_name,
+                category_id=category_id,
+                source="eventsub.channel_update",
+            )
+
+    async def _sync_runtime_category(
+        self,
+        *,
+        category_name: str | None,
+        category_id: str | None,
+        source: str,
+    ) -> None:
+        if not category_name:
+            return
+        try:
+            from services.game_metadata_service import sync_runtime_category
+
+            game_id = await sync_runtime_category(
+                category_id=category_id,
+                category_name=category_name,
+            )
+            self.logger.info(
+                "Runtime category synced: name=%r id=%s game_id=%s source=%s",
+                category_name,
+                category_id,
+                game_id,
+                source,
+            )
+        except Exception:
+            self.logger.exception(
+                "Failed to sync runtime category metadata: name=%r id=%s source=%s",
+                category_name,
+                category_id,
+                source,
+            )
 
     def handle_follow(self, data):
         """Follow-события не персистятся: прирост считается по сэмплам фолловеров.
@@ -336,9 +418,9 @@ class RuntimeStreamCollector:
         category_name: str | None,
         category_id: str | None,
         changed_at: datetime,
-    ) -> None:
+    ) -> bool:
         if not self.active_session:
-            return
+            return False
 
         session = self.active_session
         session["collector"]["updated_at"] = now_iso()
@@ -358,10 +440,15 @@ class RuntimeStreamCollector:
                 )
 
         if not category_name:
-            return
+            return False
 
-        if session.get("category_name") == category_name:
-            return
+        old_category_id = str(session.get("category_id") or "")
+        new_category_id = str(category_id or "")
+        if (
+            session.get("category_name") == category_name
+            and old_category_id == new_category_id
+        ):
+            return False
 
         session["category_name"] = category_name
         session["category_id"] = category_id
@@ -385,6 +472,7 @@ class RuntimeStreamCollector:
                 "source": "eventsub.channel_update",
             }
         )
+        return True
 
     # ------------------------------------------------------------------
     # Sampling
@@ -429,6 +517,8 @@ class RuntimeStreamCollector:
 
         active_stream_id = str(self.active_session.get("stream_id"))
         sampled_at = datetime.now(timezone.utc)
+        previous_category_name = self.active_session.get("category_name")
+        previous_category_id = str(self.active_session.get("category_id") or "")
 
         current_stream = stream_snapshot
         if current_stream is None:
@@ -512,6 +602,15 @@ class RuntimeStreamCollector:
             if category_name:
                 self.active_session["category_name"] = category_name
                 self.active_session["category_id"] = category_id
+                if (
+                    category_name != previous_category_name
+                    or str(category_id or "") != previous_category_id
+                ):
+                    await self._sync_runtime_category(
+                        category_name=category_name,
+                        category_id=category_id,
+                        source=reason,
+                    )
 
     # ------------------------------------------------------------------
     # Finalization

@@ -355,24 +355,31 @@ def _parse_k_number(value: str) -> int:
     return int(float(s))
 
 
-def _parse_stream_timestamp(value: str) -> datetime | None:
+def _parse_stream_timestamp(
+    value: str,
+    *,
+    reference_date: datetime | None = None,
+) -> datetime | None:
     """Parse 'Thu, Aug 13, 12:45' → naive UTC datetime.
 
-    TwitchTracker показывает время канала без зоны, поэтому после разбора
-    переводим его в UTC (`TWITCHTRACKER_TIMEZONE`). Год в строке отсутствует,
-    берём текущий.
+    TwitchTracker не включает год в timestamp, но год есть в заголовке
+    страницы стрима. Используем его, а не текущий год, чтобы исторические
+    страницы не превращались в новые стримы. Для стрима через Новый год
+    выбираем ближайший к дате страницы год.
     """
     try:
         parts = value.split(", ", 1)
         date_str = parts[1] if len(parts) > 1 else value
-        # Год TwitchTracker не отдаёт — подставляем текущий. Явный `%Y`
-        # обязателен: без него Python 3.14 предупреждает, а 3.15 откажется
-        # разбирать дату (и 29 февраля сломается).
         from datetime import date as _date
 
-        local_dt = datetime.strptime(
-            f"{_date.today().year} {date_str}", "%Y %b %d, %H:%M"
-        )
+        year = reference_date.year if reference_date else _date.today().year
+        local_dt = datetime.strptime(f"{year} {date_str}", "%Y %b %d, %H:%M")
+        if reference_date is not None:
+            delta_days = (local_dt.date() - reference_date.date()).days
+            if delta_days > 180:
+                local_dt = local_dt.replace(year=year - 1)
+            elif delta_days < -180:
+                local_dt = local_dt.replace(year=year + 1)
         return tracker_to_utc(local_dt)
     except (ValueError, IndexError):
         return None
@@ -394,6 +401,7 @@ def _parse_stream_page_summary(soup: BeautifulSoup) -> dict[str, Any]:
     date_el = soup.find("span", attrs={"data-date-format": True})
     if date_el:
         result["date"] = _parse_stream_page_date(date_el.get_text(strip=True))
+    reference_date = result.get("date")
 
     # Summary metrics — only blocks NOT inside a <section>
     blocks = soup.find_all("div", class_="g-x-s-block")
@@ -423,9 +431,15 @@ def _parse_stream_page_summary(soup: BeautifulSoup) -> dict[str, Any]:
     if timestamps_div:
         dt_els = timestamps_div.find_all("div", class_="stream-timestamp-dt")
         if len(dt_els) >= 1:
-            result["started_at"] = _parse_stream_timestamp(dt_els[0].get_text(strip=True))
+            result["started_at"] = _parse_stream_timestamp(
+                dt_els[0].get_text(strip=True),
+                reference_date=reference_date,
+            )
         if len(dt_els) >= 2:
-            result["ended_at"] = _parse_stream_timestamp(dt_els[1].get_text(strip=True))
+            result["ended_at"] = _parse_stream_timestamp(
+                dt_els[1].get_text(strip=True),
+                reference_date=reference_date,
+            )
 
     return result
 

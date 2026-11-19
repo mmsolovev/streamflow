@@ -117,6 +117,66 @@ async def create_job(
     return result.scalar_one_or_none()
 
 
+async def defer_recent_jobs(
+    session: AsyncSession,
+    *,
+    stream_id: str,
+    started_at: datetime,
+    window_seconds: int,
+) -> int:
+    """Убирает из очереди ожидающие задачи сегментов, завершившихся перед рестартом.
+
+    `check_at=NULL` оставляет задачу в состоянии waiting, но исключает её из
+    поллера до следующего окончательного завершения эфира.
+    """
+    started = to_naive_utc(started_at)
+    if started is None:
+        return 0
+    lower = started - timedelta(seconds=max(window_seconds, 0))
+    result = await session.execute(
+        select(TelegramAnnouncementVod)
+        .where(
+            TelegramAnnouncementVod.status == "waiting",
+            TelegramAnnouncementVod.check_at.is_not(None),
+            TelegramAnnouncementVod.stream_id != str(stream_id),
+            TelegramAnnouncementVod.stream_ended_at >= lower,
+            TelegramAnnouncementVod.stream_ended_at <= started,
+        )
+        .with_for_update(skip_locked=True)
+    )
+    jobs = list(result.scalars().all())
+    now = _now()
+    for job in jobs:
+        job.check_at = None
+        job.updated_at = now
+    return len(jobs)
+
+
+async def schedule_deferred_jobs(
+    session: AsyncSession,
+    *,
+    announcement_id: int,
+    check_delay_seconds: int,
+) -> int:
+    """Возвращает отложенные сегменты этого анонса в очередь после финального offline."""
+    result = await session.execute(
+        select(TelegramAnnouncementVod)
+        .where(
+            TelegramAnnouncementVod.announcement_id == announcement_id,
+            TelegramAnnouncementVod.status == "waiting",
+            TelegramAnnouncementVod.check_at.is_(None),
+        )
+        .with_for_update(skip_locked=True)
+    )
+    jobs = list(result.scalars().all())
+    now = _now()
+    check_at = now + timedelta(seconds=max(check_delay_seconds, 0))
+    for job in jobs:
+        job.check_at = check_at
+        job.updated_at = now
+    return len(jobs)
+
+
 async def claim_due(
     session: AsyncSession,
     *,
@@ -185,6 +245,11 @@ async def resolved_urls(session: AsyncSession, announcement_id: int) -> list[str
             StreamRecording,
             or_(
                 StreamRecording.id == TelegramAnnouncementVod.recording_id,
+                and_(
+                    StreamRecording.twitch_stream_id == TelegramAnnouncementVod.stream_id,
+                    StreamRecording.source == "twitch",
+                    StreamRecording.is_available.is_(True),
+                ),
                 and_(
                     TelegramAnnouncementVod.recording_id.is_(None),
                     StreamRecording.stream_id == TelegramAnnouncementVod.stream_db_id,
@@ -290,21 +355,26 @@ async def mark_no_vod(
     job_id: int,
     reason: str,
     attempts: int,
-) -> None:
-    """Терминальный исход: VOD в архиве нет, ждать бессмысленно.
+    max_attempts: int,
+) -> bool:
+    """Запланировать повторный поиск пока VOD появляется в архиве.
 
-    Пост при этом не трогаем — требование «молча не ломать».
+    Возвращает True после исчерпания попыток. До этого задача остаётся в
+    очереди с тем же backoff, что и при временной инфраструктурной ошибке.
     """
+    exhausted = attempts >= max_attempts
     await session.execute(
         update(TelegramAnnouncementVod)
         .where(TelegramAnnouncementVod.id == job_id)
         .values(
-            status="no_vod",
+            status="no_vod" if exhausted else "waiting",
             attempts=attempts,
             last_error=reason,
+            check_at=None if exhausted else next_retry_at(attempts),
             updated_at=_now(),
         )
     )
+    return exhausted
 
 
 async def mark_failed(
@@ -350,7 +420,7 @@ async def recent_finished_streams(
     session: AsyncSession,
     *,
     since: datetime,
-) -> list[tuple[int, str | None]]:
+) -> list[tuple[int, datetime | None]]:
     """id анонса и `stream_ended_at` его последнего завершённого стрима.
 
     Основа правила переиспользования: после краша нового анонса нет, и VOD
@@ -362,7 +432,13 @@ async def recent_finished_streams(
             TelegramAnnouncementVod.stream_ended_at,
         )
         .where(
-            TelegramAnnouncementVod.status.in_(("resolved", "edited")),
+            or_(
+                TelegramAnnouncementVod.status.in_(("resolved", "edited")),
+                and_(
+                    TelegramAnnouncementVod.status == "waiting",
+                    TelegramAnnouncementVod.check_at.is_(None),
+                ),
+            ),
             TelegramAnnouncementVod.announcement_id.is_not(None),
             TelegramAnnouncementVod.stream_ended_at.is_not(None),
             TelegramAnnouncementVod.stream_ended_at >= since,
@@ -378,6 +454,7 @@ __all__ = [
     "RETRY_MAX_SECONDS",
     "claim_due",
     "create_job",
+    "defer_recent_jobs",
     "get_by_id",
     "get_by_stream_id",
     "jobs_for_announcement",
@@ -390,5 +467,6 @@ __all__ = [
     "request_restore",
     "request_undo",
     "resolved_urls",
+    "schedule_deferred_jobs",
     "to_naive_utc",
 ]

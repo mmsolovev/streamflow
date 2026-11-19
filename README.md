@@ -331,8 +331,17 @@ npm run typecheck
 npm test
 ```
 
+Покрытие тестами (конфигурация — `.coveragerc`):
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests -q --cov --cov-report=term
+```
+
+План развития тестирования — `docs/plans/TEST_COVERAGE_PLAN.md`.
+
 Тесты покрывают backend API/схемы/репозитории, authz и Telegram. Для запуска
-`pytest` установите зависимости из `requirements.txt` и сам `pytest`.
+`pytest` установите зависимости из `requirements.txt` (pytest и pytest-asyncio
+включены туда).
 
 ## Планы развития
 

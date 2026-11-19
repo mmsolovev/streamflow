@@ -1,18 +1,17 @@
 """Тесты валидации одиночной страницы TwitchTracker.
 
 Запуск:
-    .venv\\Scripts\\python.exe -m unittest discover -s tests -t .
+    .venv\\Scripts\\python.exe -m pytest tests/test_stream_page_validation.py -q
 
 Проверяет, что файл из нескольких склеенных страниц (двух стримов)
 отклоняется явной ошибкой, а не молча смешивает данные двух стримов.
 """
-import tempfile
-import unittest
-from pathlib import Path
-
+import pytest
+from datetime import datetime
 from bs4 import BeautifulSoup
 
 from pipeline.ingest.twitchtracker_parser import (
+    _parse_stream_timestamp,
     _validate_single_stream_page,
     parse_stream_page_html,
 )
@@ -34,23 +33,34 @@ SINGLE_BLOCK = """
 CONCATENATED = SINGLE_BLOCK + SINGLE_BLOCK
 
 
-class SinglePageValidationTests(unittest.TestCase):
-    def test_single_block_is_accepted(self):
-        _validate_single_stream_page(BeautifulSoup(SINGLE_BLOCK, "html.parser"))
-
-    def test_concatenated_blocks_are_rejected(self):
-        with self.assertRaises(ValueError) as ctx:
-            _validate_single_stream_page(BeautifulSoup(CONCATENATED, "html.parser"))
-        self.assertIn("section#stream-games", str(ctx.exception))
+def test_single_block_is_accepted():
+    _validate_single_stream_page(BeautifulSoup(SINGLE_BLOCK, "html.parser"))
 
 
-    def test_parse_accepts_single_block_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "stream_2026-10-04.html"
-            path.write_text(SINGLE_BLOCK, encoding="utf-8")
-            page = parse_stream_page_html(path)
-            self.assertTrue(page is None or page.games or page.date)
+def test_concatenated_blocks_are_rejected():
+    with pytest.raises(ValueError) as exc_info:
+        _validate_single_stream_page(BeautifulSoup(CONCATENATED, "html.parser"))
+    assert "section#stream-games" in str(exc_info.value)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_parse_accepts_single_block_file(tmp_path):
+    path = tmp_path / "stream_2026-10-04.html"
+    path.write_text(SINGLE_BLOCK, encoding="utf-8")
+    page = parse_stream_page_html(path)
+    assert page is None or page.games or page.date
+
+
+def test_stream_timestamp_uses_historical_page_year():
+    value = _parse_stream_timestamp(
+        "Tue, Jan 24, 22:05",
+        reference_date=datetime(2023, 1, 24),
+    )
+    assert value == datetime(2023, 1, 24, 19, 5)
+
+
+def test_stream_timestamp_handles_new_year_boundary():
+    value = _parse_stream_timestamp(
+        "Sun, Jan 1, 00:15",
+        reference_date=datetime(2022, 12, 31),
+    )
+    assert value == datetime(2022, 12, 31, 21, 15)

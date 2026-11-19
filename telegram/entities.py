@@ -1,17 +1,8 @@
-"""Сущности Telegram: кастомный эмодзи из анонса и ссылки в подписи.
+"""Сущности Telegram: ссылки в подписи.
 
-Почему не HTML-теги. Кастомный эмодзи из набора стикеров в Bot API
-отображается только когда приходит entity типа `custom_emoji`. В `parse_mode=HTML`
-для него есть обходной путь — ссылка `tg://emoji?id=...`, — но он требует
-Bot API ограничивает использование custom emoji ботами: для каналов боту нужны
-дополнительные имена пользователя, купленные на Fragment; Premium владельца
-бота отдельно разрешает отправку в личные, групповые и супергрупповые чаты.
-Entity — тот же формат, каким
-Telegram сам отдаёт эмодзи, поэтому он и есть прямой путь.
-
-Из этого следует, почему подпись уходит в API plain text с `entities` и без
-`parse_mode`: два формата в одном боте разъехались бы при первой же правке,
-а `edited_text` для защиты от эха должен совпадать с тем, что вернёт Telegram.
+Подпись уходит в API plain text с `entities` и без `parse_mode`: ссылка
+задаётся как `text_link`, а `edited_text` для защиты от эха совпадает с тем,
+что вернёт Telegram.
 
 Два неочевидных места, оба связаны с UTF-16:
 
@@ -19,17 +10,11 @@ Telegram сам отдаёт эмодзи, поэтому он и есть пр�
     а индексы Python-строк — в кодовых точках. Для `💬` (U+1F4AC, выше
     BMP) это 1 символ против 2 единиц. Любая арифметика по индексам без
     `utf16_span` сдвинет все последующие ссылки.
-  * Эмодзи и ссылка лежат на одном участке текста — это вложенные entities,
-    они поддерживаются с Bot API 6.0. Порядок в списке не важен, Telegram
-    группирует их сам.
+  * Telegram передаёт `offset`/`length` для ссылок в UTF-16 единицах, поэтому
+    для URL-entity нужен явный перевод обратно в индекс Python-строки.
 """
 
 from __future__ import annotations
-
-
-# Типы entities, с которыми работает модуль.
-LINK_ENTITY_TYPES = ("text_link", "url")
-EMOJI_ENTITY_TYPE = "custom_emoji"
 
 
 def _field(entity, name: str, default=None):
@@ -88,58 +73,6 @@ def _bounds(entity) -> tuple[int, int]:
     return int(offset), int(offset) + int(length)
 
 
-def _distance(first: tuple[int, int], second: tuple[int, int]) -> int:
-    """Расстояние между диапазонами: 0, если они пересекаются или соприкасаются."""
-    if first[0] <= second[1] and second[0] <= first[1]:
-        return 0
-    return max(second[0] - first[1], first[0] - second[1], 1)
-
-
-def find_custom_emoji_id(entities) -> str | None:
-    """Находит `custom_emoji_id` эмодзи, который стоит в записи со ссылкой на канал.
-
-    Стример пишет эмодзи в подписи ссылки на канал, поэтому приоритет у того
-    кастомного эмодзи, который лежит ВНУТРИ entity ссылки: вложенность — это
-    и есть признак «эмодзи из записи о канале», а не отдельный значок в посте.
-    Если вложенного нет, берётся ближайший к ссылке, а когда ссылок в посте
-    нет вовсе — первый найденный: эмодзи в анонсе стримера один.
-
-    Возвращает строку, а не int: Bot API отдаёт `custom_emoji_id` строкой и
-    требует его в том же виде для `tg://emoji?id=`.
-    """
-    emojis: list[tuple[int, int, str]] = []
-    links: list[tuple[int, int]] = []
-
-    for entity in entities or ():
-        entity_type = _field(entity, "type")
-        if entity_type == EMOJI_ENTITY_TYPE:
-            emoji_id = _field(entity, "custom_emoji_id")
-            if emoji_id:
-                start, end = _bounds(entity)
-                emojis.append((start, end, str(emoji_id)))
-        elif entity_type in LINK_ENTITY_TYPES:
-            links.append(_bounds(entity))
-
-    if not emojis:
-        return None
-
-    if links:
-        inside = [
-            emoji for emoji in emojis
-            if any(link[0] <= emoji[0] and emoji[1] <= link[1] for link in links)
-        ]
-        if inside:
-            return inside[0][2]
-
-        nearest = min(
-            emojis,
-            key=lambda emoji: (min(_distance((emoji[0], emoji[1]), link) for link in links), emoji[0]),
-        )
-        return nearest[2]
-
-    return emojis[0][2]
-
-
 def extract_link_urls(text: str | None, entities) -> list[str]:
     """URL всех ссылок поста в порядке появления.
 
@@ -185,16 +118,6 @@ def build_link_entity(offset: int, length: int, url: str) -> dict:
     return {"type": "text_link", "offset": offset, "length": length, "url": url}
 
 
-def build_custom_emoji_entity(offset: int, length: int, custom_emoji_id: str) -> dict:
-    """Сущность кастомного эмодзи поверх того же участка текста."""
-    return {
-        "type": EMOJI_ENTITY_TYPE,
-        "offset": offset,
-        "length": length,
-        "custom_emoji_id": str(custom_emoji_id),
-    }
-
-
 def drop_entities_beyond(entities, text_length_utf16: int) -> list[dict]:
     """Убирает сущности, вышедшие за пределы обрезанного текста.
 
@@ -214,13 +137,9 @@ def drop_entities_beyond(entities, text_length_utf16: int) -> list[dict]:
 
 
 __all__ = [
-    "EMOJI_ENTITY_TYPE",
-    "LINK_ENTITY_TYPES",
-    "build_custom_emoji_entity",
     "build_link_entity",
     "drop_entities_beyond",
     "extract_link_urls",
-    "find_custom_emoji_id",
     "utf16_length",
     "utf16_span",
     "utf16_to_index",

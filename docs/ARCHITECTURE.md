@@ -302,6 +302,10 @@ Runtime-коллектор пишет сессии, сэмплы и бакеты
 - `0017_runtime_self_collection` — runtime-сессии/сэмплы/бакеты, очередь агрегации, провенанс
 - `0018_stats_history` — батчи и построчный лог изменений статистики
 - `0019_chat_and_command_logs` — чат, команды, присутствие на стриме
+- `0020_stream_recordings_registry` — единый реестр VOD
+- `0021_drop_telegram_custom_emoji_id` — удаление legacy custom emoji id и сохранённых значений
+- `0022_game_metadata_twitchtracker` — сводные метрики TwitchTracker отдельно от `game_stats`
+- `0023_game_twitch_categories` — Twitch category ID → каноническая игра
 
 ```bash
 # Применить все миграции
@@ -350,9 +354,14 @@ runtime.Collector
   │    └── runtime.Metrics.recalculate_all_metrics()
   │
   ├── active session   ► stream_runtime_sessions (status=collecting)
-  └── stream.offline   ► finalize_session()
-                         ├── streams / stream_titles / stream_games
-                         └── stream_stats_jobs (check_at = ended_at + 660s)
+   └── stream.offline   ► finalize_session()
+                          ├── streams / stream_titles / stream_games
+                          └── stream_stats_jobs (check_at = ended_at + 660s)
+
+ При смене категории:
+   Twitch category ID ──► Helix /games?id=... ──► igdb_id ──► IGDB по ID
+                                              └── fallback по имени, если ID нет
+   game_twitch_categories хранит историю соответствий category ID → game_id.
 
 StatsAggregationWorker (в процессе бота)
   └── claim_due() ──► recompute_stream_game_stats()
@@ -368,8 +377,8 @@ ChatLogService (в процессе бота)
   переиспользуется, `external_id` не перезаписывается.
 - `game_segments`, `title_history` восстанавливаются из сэмплов на финализации —
   отдельного JSON-состояния нет.
-- Задержка агрегации нужна, чтобы TwitchTracker успел записать
-  `avg_viewers` / `followers_per_hour`; runtime эти поля не трогает.
+- Runtime пересчитывает зрительские и follower-метрики из своей детализации;
+  сводные значения games-page TwitchTracker хранятся отдельно для сверки.
 - Чат и команды логируются только для `TWITCH_PRIMARY_CHANNEL` (Tabula).
 
 ---
@@ -386,6 +395,7 @@ ChatLogService (в процессе бота)
 | **VOD matching** | `streams_transform.py` — по дате ±1 день + пересечение title |
 | **Game segments** | `runtime.Collector` — сегменты игр внутри стрима с метриками |
 | **Self-collected stats** | `runtime/repository.py` — сессии/сэмплы в PostgreSQL, `streams`/`stream_games` как источник детализации |
+| **Category-to-IGDB matching** | Runtime: Twitch Helix `igdb_id` → точный IGDB lookup; name fallback при отсутствии ID, неигровые категории пропускаются |
 | **Idempotent game_stats** | `services/stats_aggregation_service.py` — пересчёт из `stream_games`, без аддитивных инкрементов |
 | **Deferred aggregation** | `stream_stats_jobs` + `runtime/aggregation_jobs.py` — TT успевает записать avg/followers |
 | **Stats history & rollback** | `services/stats_history.py` + `pipeline/orchestrator/rollback_stats.py` |

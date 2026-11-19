@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#15161a">
+    <meta
+      name="description"
+      content="Информация о стримах и играх канала — прямые ссылки на листы Google Sheets."
+    >
+    <title>Статистика канала — прямые ссылки</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #15161a;
+        color: #f3f4f8;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        background:
+          radial-gradient(ellipse at 12% 8%, rgb(145 82 248 / 14%), transparent 34rem),
+          radial-gradient(ellipse at 92% 84%, rgb(91 189 244 / 8%), transparent 30rem),
+          #15161a;
+      }
+
+      main {
+        width: min(100% - 40px, 880px);
+        margin: 0 auto;
+        padding: 76px 0 48px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        margin: 0 0 22px;
+        color: #b4a5ff;
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #9b87ff;
+        box-shadow: 0 0 16px rgb(155 135 255 / 75%);
+        content: "";
+      }
+
+      h1 {
+        max-width: 680px;
+        margin: 0;
+        font-size: clamp(2.2rem, 7vw, 4rem);
+        font-weight: 750;
+        letter-spacing: -0.055em;
+        line-height: 1.05;
+      }
+
+      .intro {
+        max-width: 570px;
+        margin: 20px 0 0;
+        color: #a9adbd;
+        font-size: 1.05rem;
+        line-height: 1.7;
+      }
+
+      .links {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 13px;
+        margin-top: 42px;
+      }
+
+      .link-card {
+        --sheet-accent: #9aa0a6;
+        --sheet-section-bg: #1b1c21;
+        --sheet-card-bg: #222329;
+        display: flex;
+        min-height: 94px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 20px 22px;
+        border: 1px solid var(--sheet-section-bg);
+        border-left: 3px solid var(--sheet-accent);
+        border-radius: 16px;
+        background: var(--sheet-card-bg);
+        color: inherit;
+        text-decoration: none;
+        transition: border-color 160ms ease, filter 160ms ease, transform 160ms ease;
+      }
+
+      .link-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--sheet-accent);
+        filter: brightness(1.12);
+      }
+
+      .link-card:focus-visible {
+        outline: 3px solid var(--sheet-accent);
+        outline-offset: 3px;
+      }
+
+      .link-card strong {
+        font-size: 1.05rem;
+        font-weight: 650;
+      }
+
+      .link-card span {
+        display: block;
+        margin-top: 5px;
+        color: #9298aa;
+        font-size: 0.84rem;
+      }
+
+      .arrow {
+        flex: 0 0 auto;
+        color: var(--sheet-accent);
+        font-size: 1.35rem;
+        transition: transform 160ms ease;
+      }
+
+      .link-card:hover .arrow {
+        transform: translate(2px, -2px);
+      }
+
+      .games {
+        --sheet-accent: #55c366;
+        --sheet-section-bg: #1a1f1d;
+        --sheet-card-bg: #222927;
+      }
+
+      .streams {
+        --sheet-accent: #9152f8;
+        --sheet-section-bg: #1f1f23;
+        --sheet-card-bg: #26262c;
+      }
+
+      .releases {
+        --sheet-accent: #eb9f35;
+        --sheet-section-bg: #1f1a17;
+        --sheet-card-bg: #2a231f;
+      }
+
+      .recommendations {
+        --sheet-accent: #5bbdf4;
+        --sheet-section-bg: #171c22;
+        --sheet-card-bg: #1f262e;
+      }
+
+      .commands {
+        --sheet-accent: #7f8ea3;
+        --sheet-section-bg: #1a1c21;
+        --sheet-card-bg: #23262d;
+      }
+
+      .note {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        margin: 28px 0 0;
+        padding: 17px 19px;
+        border-left: 2px solid #9152f8;
+        border-radius: 0 10px 10px 0;
+        background: rgb(25 29 42 / 56%);
+        color: #a9adbd;
+        font-size: 0.9rem;
+        line-height: 1.6;
+      }
+
+      .note-mark {
+        color: #9152f8;
+        font-weight: 700;
+      }
+
+      footer {
+        margin-top: 52px;
+        color: #717789;
+        font-size: 0.8rem;
+      }
+
+      @media (max-width: 600px) {
+        main {
+          width: min(100% - 32px, 480px);
+          padding-top: 54px;
+        }
+
+        .links {
+          grid-template-columns: 1fr;
+          gap: 10px;
+          margin-top: 32px;
+        }
+
+        .link-card {
+          min-height: 82px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Статистика · быстрый доступ</p>
+      <h1>Стримы и игры — всё под рукой</h1>
+      <p class="intro">
+        Информация о стримах и играх канала доступна в этих листах.
+        Выберите нужный раздел — ссылки ведут прямо в Google Sheets.
+      </p>
+
+      <nav class="links" aria-label="Листы со статистикой канала">
+        <a
+          class="link-card games"
+          href="https://docs.google.com/spreadsheets/d/1xBbJRgRSbEQ6xguufqjnPZXm7MlNUV_S5MG2cpiYAL0/edit?gid=1066227372#gid=1066227372"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span><strong>Игры</strong><span>Статистика по играм</span></span>
+          <span class="arrow" aria-hidden="true">↗</span>
+        </a>
+        <a
+          class="link-card streams"
+          href="https://docs.google.com/spreadsheets/d/1xBbJRgRSbEQ6xguufqjnPZXm7MlNUV_S5MG2cpiYAL0/edit?gid=0#gid=0"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span><strong>Стримы</strong><span>История эфиров</span></span>
+          <span class="arrow" aria-hidden="true">↗</span>
+        </a>
+        <a
+          class="link-card releases"
+          href="https://docs.google.com/spreadsheets/d/1xBbJRgRSbEQ6xguufqjnPZXm7MlNUV_S5MG2cpiYAL0/edit?gid=896899666#gid=896899666"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span><strong>Релизы</strong><span>Предстоящие игры</span></span>
+          <span class="arrow" aria-hidden="true">↗</span>
+        </a>
+        <a
+          class="link-card recommendations"
+          href="https://docs.google.com/spreadsheets/d/1xBbJRgRSbEQ6xguufqjnPZXm7MlNUV_S5MG2cpiYAL0/edit?gid=1213414982#gid=1213414982"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span><strong>Советы</strong><span>Рекомендации зрителей</span></span>
+          <span class="arrow" aria-hidden="true">↗</span>
+        </a>
+        <a
+          class="link-card commands"
+          href="https://docs.google.com/spreadsheets/d/1xBbJRgRSbEQ6xguufqjnPZXm7MlNUV_S5MG2cpiYAL0/edit?gid=1986514446#gid=1986514446"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span><strong>Команды</strong><span>Справка по командам бота</span></span>
+          <span class="arrow" aria-hidden="true">↗</span>
+        </a>
+      </nav>
+
+      <p class="note">
+        <span class="note-mark" aria-hidden="true">i</span>
+        <span>Эта страница — запасной вход к таблицам. Для просмотра может понадобиться аккаунт Google.</span>
+      </p>
+
+      <footer>Прямые ссылки на таблицы</footer>
+    </main>
+  </body>
+</html>

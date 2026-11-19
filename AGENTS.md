@@ -63,6 +63,7 @@ npm run dev
 
 ```powershell
 .venv\Scripts\python.exe -m pytest tests -q
+.venv\Scripts\python.exe -m pytest tests -q --cov --cov-report=term  # покрытие
 cd frontend; npm run lint; npm run typecheck; npm test
 ```
 

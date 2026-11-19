@@ -39,6 +39,9 @@ class Bot(commands.Bot):
         self.eventsub_service.collector.add_finalize_listener(
             self.telegram_service.on_stream_ended
         )
+        self.eventsub_service.collector.add_online_listener(
+            self.telegram_service.on_stream_started
+        )
 
         # ID собственных исходящих сообщений. Ловим эхо своих сообщений через EventSub,
         # чтобы не обрабатывать их как команды (в twitchio 3.x встроенный фильтр по

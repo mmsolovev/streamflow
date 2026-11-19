@@ -43,7 +43,7 @@ from telegram.matcher import (
     normalize_dt,
     pick_candidate,
 )
-from telegram.vod_service import VodLookupError, fetch_vod_for_stream
+from telegram.vod_service import VodLookupError, fetch_vods_for_stream
 from utils.logger import get_logger
 
 
@@ -66,11 +66,11 @@ class TelegramService:
         self.token = settings.TELEGRAM_BOT_TOKEN if token is None else token
         self.channel_id = settings.TELEGRAM_CHANNEL_ID if channel_id is None else channel_id
 
-        self.check_delay_seconds = settings.TELEGRAM_VOD_CHECK_DELAY_SECONDS
         self.poll_interval_seconds = settings.TELEGRAM_VOD_POLL_INTERVAL_SECONDS
         self.max_attempts = settings.TELEGRAM_VOD_MAX_ATTEMPTS
-        self.before_hours = settings.TELEGRAM_MATCH_WINDOW_BEFORE_HOURS
-        self.after_minutes = settings.TELEGRAM_MATCH_WINDOW_AFTER_MINUTES
+        # Фиксированное окно исключает рекламу во время долгого эфира.
+        self.before_hours = 1
+        self.after_minutes = 60
         self.rebind_window_minutes = settings.TELEGRAM_REBIND_WINDOW_MINUTES
 
         # Логин канала стримера выводится из TWITCH_PRIMARY_CHANNEL, а
@@ -281,7 +281,7 @@ class TelegramService:
             )
             if recording is None:
                 try:
-                    vod = await fetch_vod_for_stream(
+                    vods = await fetch_vods_for_stream(
                         session=self._http,
                         channel_login=self.channel_login,
                         stream_id=job.stream_id,
@@ -290,23 +290,28 @@ class TelegramService:
                 except Exception as exc:
                     await self._set_job_error(job_id, f"{type(exc).__name__}: {exc}")
                     return
-                if vod is None or not vod.get("url"):
+                vods = [vod for vod in vods if vod.get("url")]
+                if not vods:
                     await self._set_job_error(job_id, "VOD not found in channel archive")
                     return
 
                 stream_db_id = await self._ensure_stream_for_job(session, job)
-                recording = await recording_service.upsert_from_vod(
-                    session,
-                    stream_id=stream_db_id,
-                    vod=vod,
-                )
-                if recording is None:
+                recordings = []
+                for vod in vods:
+                    recording = await recording_service.upsert_from_vod(
+                        session,
+                        stream_id=stream_db_id,
+                        vod=vod,
+                    )
+                    if recording is not None:
+                        recordings.append(recording)
+                if not recordings:
                     await self._set_job_error(job_id, "VOD has no URL")
                     return
                 await vod_jobs.mark_resolved(
                     session,
                     job_id=job.id,
-                    recording_id=recording.id,
+                    recording_id=recordings[0].id,
                     stream_db_id=stream_db_id,
                 )
 
@@ -539,7 +544,6 @@ class TelegramService:
                     session,
                     stream_id=stream_id,
                     started_at=started_at,
-                    ended_at=ended_at,
                 )
                 settings_row = await post_edit_store.get_settings(session)
                 delay_seconds = settings_row.delay_seconds
@@ -552,6 +556,12 @@ class TelegramService:
                     stream_ended_at=ended_at or started_at,
                     check_delay_seconds=delay_seconds,
                 )
+                if announcement_id is not None:
+                    await vod_jobs.schedule_deferred_jobs(
+                        session,
+                        announcement_id=announcement_id,
+                        check_delay_seconds=delay_seconds,
+                    )
                 await session.commit()
 
             if job_id is None:
@@ -577,20 +587,47 @@ class TelegramService:
         except Exception:
             logger.exception("Failed to schedule Telegram VOD check for stream %s", stream_id)
 
+    async def on_stream_started(self, stream_session: dict[str, Any]) -> None:
+        """Усыпляет ожидающие VOD-проверки, если broadcast быстро возобновился.
+
+        Offline сам по себе ещё не означает конец эфира. Пока длится окно
+        ожидания, проверка не должна ни обращаться к Twitch, ни править пост.
+        Отложенные задачи будут разбужены при следующем окончательном offline.
+        """
+        if not self.enabled:
+            return
+
+        started_at = normalize_dt(stream_session.get("started_at"))
+        stream_id = stream_session.get("stream_id")
+        if started_at is None or stream_id is None:
+            return
+
+        try:
+            async with AsyncSessionLocal() as session:
+                settings_row = await post_edit_store.get_settings(session)
+                await vod_jobs.defer_recent_jobs(
+                    session,
+                    stream_id=str(stream_id),
+                    started_at=started_at,
+                    window_seconds=settings_row.delay_seconds,
+                )
+                await session.commit()
+        except Exception:
+            logger.exception("Failed to defer Telegram VOD jobs for stream %s", stream_id)
+
     async def _bind_announcement(
         self,
         session,
         *,
         stream_id: str,
         started_at: datetime,
-        ended_at: datetime | None,
     ) -> int | None:
-        """Выбирает пост-анонс: сначала свежий кандидат, иначе переиспользование.
+        """Выбирает ближайший свежий пост, иначе переиспользование.
 
         Возвращает id анонса либо None.
         """
         window_start = started_at - timedelta(hours=self.before_hours)
-        window_end = (ended_at or started_at) + timedelta(minutes=self.after_minutes)
+        window_end = started_at + timedelta(minutes=self.after_minutes)
 
         posts = await announcements.recent_posts(
             session,
@@ -626,7 +663,6 @@ class TelegramService:
             candidates,
             matcher=self.matcher,
             started_at=started_at,
-            ended_at=ended_at,
             before_hours=self.before_hours,
             after_minutes=self.after_minutes,
             exclude_message_ids=bound_ids,
@@ -728,7 +764,7 @@ class TelegramService:
         )
         if recording is None:
             try:
-                vod = await fetch_vod_for_stream(
+                vods = await fetch_vods_for_stream(
                     session=self._http,
                     channel_login=self.channel_login,
                     stream_id=job.stream_id,
@@ -769,27 +805,35 @@ class TelegramService:
                     logger.warning("Giving up on stream %s", job.stream_id)
                 return
 
-            if vod is None or not vod.get("url"):
-                await vod_jobs.mark_no_vod(
+            vods = [vod for vod in vods if vod.get("url")]
+            if not vods:
+                exhausted = await vod_jobs.mark_no_vod(
                     session,
                     job_id=job.id,
                     reason="VOD not found in channel archive",
                     attempts=attempts,
+                    max_attempts=self.max_attempts,
                 )
-                logger.warning(
-                    "No VOD for stream %s after %s attempts, announcement left untouched",
+                logger.info(
+                    "No VOD for stream %s on attempt %s/%s%s",
                     job.stream_id,
                     attempts,
+                    self.max_attempts,
+                    "; giving up" if exhausted else "; will retry",
                 )
                 return
 
             stream_db_id = await self._ensure_stream_for_job(session, job)
-            recording = await recording_service.upsert_from_vod(
-                session,
-                stream_id=stream_db_id,
-                vod=vod,
-            )
-            if recording is None:
+            recordings = []
+            for vod in vods:
+                recording = await recording_service.upsert_from_vod(
+                    session,
+                    stream_id=stream_db_id,
+                    vod=vod,
+                )
+                if recording is not None:
+                    recordings.append(recording)
+            if not recordings:
                 await vod_jobs.mark_failed(
                     session,
                     job_id=job.id,
@@ -798,10 +842,11 @@ class TelegramService:
                     max_attempts=self.max_attempts,
                 )
                 return
+            recording = recordings[0]
             await vod_jobs.mark_resolved(
                 session,
                 job_id=job.id,
-                recording_id=recording.id,
+                recording_id=recordings[0].id,
                 stream_db_id=stream_db_id,
             )
 

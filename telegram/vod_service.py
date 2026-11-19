@@ -84,33 +84,46 @@ def _vod_url(vod: dict[str, Any]) -> str | None:
     return f"https://www.twitch.tv/{login}/videos/{vod_id}"
 
 
-def pick_vod_for_stream(vods: list[dict[str, Any]], stream_id: str) -> dict[str, Any] | None:
-    """VOD нужного стрима, либо None если его в архиве нет.
-
-    У одного stream_id бывает несколько записей ( Twitch иногда отдаёт
-    повторную обработку), поэтому берём самую длинную — это и есть
-    полноценная запись.
-    """
+def pick_vods_for_stream(vods: list[dict[str, Any]], stream_id: str) -> list[dict[str, Any]]:
+    """Все VOD нужного broadcast id в хронологическом порядке."""
     wanted = str(stream_id)
     candidates = [vod for vod in vods if str(vod.get("stream_id")) == wanted]
+    return sorted(
+        candidates,
+        key=lambda vod: str(vod.get("created_at") or vod.get("published_at") or ""),
+    )
+
+
+def pick_vod_for_stream(vods: list[dict[str, Any]], stream_id: str) -> dict[str, Any] | None:
+    """Самый длинный VOD нужного стрима, для legacy single-result callers."""
+    candidates = pick_vods_for_stream(vods, stream_id)
     if not candidates:
         return None
 
     return max(candidates, key=lambda vod: _duration_seconds(vod.get("duration")))
 
 
-async def fetch_vod_for_stream(
+def _format_vod(vod: dict[str, Any], *, channel_login: str) -> dict[str, Any]:
+    return {
+        "vod_id": str(vod.get("id")),
+        "url": _vod_url(vod) or _vod_url({**vod, "channel_login": channel_login}),
+        "duration_minutes": _duration_minutes(vod.get("duration")),
+        "created_at": vod.get("created_at"),
+        "published_at": vod.get("published_at"),
+    }
+
+
+async def fetch_vods_for_stream(
     *,
     session: aiohttp.ClientSession,
     channel_login: str,
     stream_id: str,
     client_id: str,
-) -> dict[str, Any] | None:
-    """VOD стрима или None. Ошибки сети/токена поднимает как VodLookupError.
+) -> list[dict[str, Any]]:
+    """Все записи конкретного broadcast из архива Twitch.
 
-    None означает «Twitch ответил успешно, но такого VOD нет» — это бизнес-
-    исход, который дальше становится `no_vod`. Исключение означает «не
-    вышло проверить» — задача уйдёт в ретрай.
+    Отсутствующий список означает, что Twitch успешно ответил, но VOD ещё не
+    появился; инфраструктурные ошибки поднимаются как `VodLookupError`.
     """
     access_token, _ = get_current_tokens()
     if not access_token:
@@ -130,17 +143,31 @@ async def fetch_vod_for_stream(
         access_token=access_token,
     )
 
-    vod = pick_vod_for_stream(vods, stream_id)
-    if vod is None:
-        return None
+    matches = pick_vods_for_stream(vods, stream_id)
+    return [
+        _format_vod(vod, channel_login=channel_login)
+        for vod in matches
+        if _vod_url(vod) or vod.get("id")
+    ]
 
-    return {
-        "vod_id": str(vod.get("id")),
-        "url": _vod_url(vod),
-        "duration_minutes": _duration_minutes(vod.get("duration")),
-        "created_at": vod.get("created_at"),
-        "published_at": vod.get("published_at"),
-    }
+
+async def fetch_vod_for_stream(
+    *,
+    session: aiohttp.ClientSession,
+    channel_login: str,
+    stream_id: str,
+    client_id: str,
+) -> dict[str, Any] | None:
+    """Legacy single-VOD API; выбирает самую длинную запись broadcast."""
+    vods = await fetch_vods_for_stream(
+        session=session,
+        channel_login=channel_login,
+        stream_id=stream_id,
+        client_id=client_id,
+    )
+    if not vods:
+        return None
+    return max(vods, key=lambda vod: _duration_seconds(vod.get("duration_minutes")))
 
 
 async def _fetch_user_id(
@@ -215,5 +242,7 @@ __all__ = [
     "MAX_ITEMS",
     "VodLookupError",
     "fetch_vod_for_stream",
+    "fetch_vods_for_stream",
     "pick_vod_for_stream",
+    "pick_vods_for_stream",
 ]
