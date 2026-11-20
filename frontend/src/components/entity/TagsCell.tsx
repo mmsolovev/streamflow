@@ -15,7 +15,7 @@ export function TagsCell({
 }) {
   const nonEmpty = groups.filter((group) => group.length > 0)
   if (nonEmpty.length === 0) {
-    return <span className="text-[var(--text-muted)]">—</span>
+    return null
   }
   return (
     <span className="flex flex-wrap items-center gap-1">

@@ -34,7 +34,7 @@ export function ParticipantsCell({
   onAdd?: () => void
 }) {
   if (participants.length === 0 && !canEdit) {
-    return <span className="text-[var(--text-muted)]">—</span>
+    return null
   }
 
   return (

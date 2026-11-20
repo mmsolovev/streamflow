@@ -95,10 +95,11 @@ function makeColumns(
       align: 'center',
       sortValue: (stream) =>
         stream.duration_minutes ?? Math.round(stream.duration_hours * 60),
-      render: (stream) =>
-        formatHoursMinutes(
-          stream.duration_minutes ?? Math.round(stream.duration_hours * 60),
-        ),
+      render: (stream) => {
+        const minutes =
+          stream.duration_minutes ?? Math.round(stream.duration_hours * 60)
+        return minutes > 0 ? formatHoursMinutes(minutes) : null
+      },
     },
     {
       key: 'vod',
@@ -127,7 +128,7 @@ function makeColumns(
             ))}
           </span>
         ) : (
-          <span className="text-[var(--text-muted)]">—</span>
+          null
         )
       },
     },
@@ -135,7 +136,7 @@ function makeColumns(
       key: 'clips',
       label: 'Клипы',
       align: 'center',
-      render: () => <span className="text-[var(--text-muted)]">—</span>,
+      render: () => null,
     },
     {
       key: 'participants',

@@ -8,7 +8,9 @@
   "paths": {
     "/api/v1/health": {
       "get": {
-        "tags": ["health"],
+        "tags": [
+          "health"
+        ],
         "summary": "Health",
         "operationId": "health_api_v1_health_get",
         "responses": {
@@ -29,7 +31,9 @@
     },
     "/api/v1/games": {
       "get": {
-        "tags": ["games"],
+        "tags": [
+          "games"
+        ],
         "summary": "List Games",
         "operationId": "list_games_api_v1_games_get",
         "parameters": [
@@ -147,7 +151,9 @@
     },
     "/api/v1/games/covers": {
       "get": {
-        "tags": ["games"],
+        "tags": [
+          "games"
+        ],
         "summary": "Games Covers",
         "description": "Имя → обложка игры (для полосы обложек в разделе «Стримы»).",
         "operationId": "games_covers_api_v1_games_covers_get",
@@ -172,7 +178,9 @@
     },
     "/api/v1/games/filters": {
       "get": {
-        "tags": ["games"],
+        "tags": [
+          "games"
+        ],
         "summary": "Games Filter Options",
         "description": "Доступные значения тегов — для меню фильтров раздела «Игры».",
         "operationId": "games_filter_options_api_v1_games_filters_get",
@@ -194,7 +202,9 @@
     },
     "/api/v1/games/search": {
       "get": {
-        "tags": ["games"],
+        "tags": [
+          "games"
+        ],
         "summary": "Search Games",
         "operationId": "search_games_api_v1_games_search_get",
         "parameters": [
@@ -238,7 +248,9 @@
     },
     "/api/v1/games/{game_id}": {
       "get": {
-        "tags": ["games"],
+        "tags": [
+          "games"
+        ],
         "summary": "Get Game",
         "operationId": "get_game_api_v1_games__game_id__get",
         "parameters": [
@@ -278,7 +290,9 @@
     },
     "/api/v1/games/{game_id}/streams": {
       "get": {
-        "tags": ["games"],
+        "tags": [
+          "games"
+        ],
         "summary": "List Game Streams",
         "description": "Стримы по игре — догрузка длинного списка на странице игры.",
         "operationId": "list_game_streams_api_v1_games__game_id__streams_get",
@@ -342,7 +356,9 @@
     },
     "/api/v1/games/{game_id}/streamer-state": {
       "patch": {
-        "tags": ["games"],
+        "tags": [
+          "games"
+        ],
         "summary": "Update Streamer State",
         "operationId": "update_streamer_state_api_v1_games__game_id__streamer_state_patch",
         "parameters": [
@@ -390,9 +406,63 @@
         }
       }
     },
+    "/api/v1/games/{game_id}/reviews": {
+      "patch": {
+        "tags": [
+          "games"
+        ],
+        "summary": "Update Game Reviews",
+        "operationId": "update_game_reviews_api_v1_games__game_id__reviews_patch",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GameReviewsUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameReviewsUpdateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/hltb": {
       "get": {
-        "tags": ["hltb"],
+        "tags": [
+          "hltb"
+        ],
         "summary": "List Hltb",
         "operationId": "list_hltb_api_v1_hltb_get",
         "parameters": [
@@ -508,7 +578,9 @@
         }
       },
       "post": {
-        "tags": ["hltb"],
+        "tags": [
+          "hltb"
+        ],
         "summary": "Add Hltb",
         "description": "Добавляет игру по ссылке HowLongToBeat: сохраняет HLTB и обновляет IGDB.",
         "operationId": "add_hltb_api_v1_hltb_post",
@@ -548,7 +620,9 @@
     },
     "/api/v1/hltb/lookup": {
       "post": {
-        "tags": ["hltb"],
+        "tags": [
+          "hltb"
+        ],
         "summary": "Lookup Hltb",
         "description": "Ищет игру по ссылке HowLongToBeat — для предпросмотра перед добавлением.",
         "operationId": "lookup_hltb_api_v1_hltb_lookup_post",
@@ -588,7 +662,9 @@
     },
     "/api/v1/streams/filters": {
       "get": {
-        "tags": ["streams"],
+        "tags": [
+          "streams"
+        ],
         "summary": "Streams Filter Options",
         "description": "Доступные значения тегов — для меню фильтров раздела «Стримы».",
         "operationId": "streams_filter_options_api_v1_streams_filters_get",
@@ -610,7 +686,9 @@
     },
     "/api/v1/streams": {
       "get": {
-        "tags": ["streams"],
+        "tags": [
+          "streams"
+        ],
         "summary": "List Streams",
         "operationId": "list_streams_api_v1_streams_get",
         "parameters": [
@@ -785,7 +863,9 @@
     },
     "/api/v1/streams/{stream_id}": {
       "get": {
-        "tags": ["streams"],
+        "tags": [
+          "streams"
+        ],
         "summary": "Get Stream",
         "operationId": "get_stream_api_v1_streams__stream_id__get",
         "parameters": [
@@ -823,9 +903,114 @@
         }
       }
     },
+    "/api/v1/streams/{stream_id}/participants": {
+      "post": {
+        "tags": [
+          "streams"
+        ],
+        "summary": "Add Stream Participant",
+        "operationId": "add_stream_participant_api_v1_streams__stream_id__participants_post",
+        "parameters": [
+          {
+            "name": "stream_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Stream Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StreamParticipantAddIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamParticipantActionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/streams/{stream_id}/participants/{user_id}": {
+      "delete": {
+        "tags": [
+          "streams"
+        ],
+        "summary": "Delete Stream Participant",
+        "operationId": "delete_stream_participant_api_v1_streams__stream_id__participants__user_id__delete",
+        "parameters": [
+          {
+            "name": "stream_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Stream Id"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamParticipantDeleteOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/releases/filters": {
       "get": {
-        "tags": ["releases"],
+        "tags": [
+          "releases"
+        ],
         "summary": "Releases Filter Options",
         "description": "Доступные значения фильтров раздела «Релизы».",
         "operationId": "releases_filter_options_api_v1_releases_filters_get",
@@ -847,7 +1032,9 @@
     },
     "/api/v1/releases": {
       "get": {
-        "tags": ["releases"],
+        "tags": [
+          "releases"
+        ],
         "summary": "List Releases",
         "operationId": "list_releases_api_v1_releases_get",
         "parameters": [
@@ -965,7 +1152,9 @@
     },
     "/api/v1/releases/{game_id}/interested": {
       "patch": {
-        "tags": ["releases"],
+        "tags": [
+          "releases"
+        ],
         "summary": "Set Interested",
         "operationId": "set_interested_api_v1_releases__game_id__interested_patch",
         "parameters": [
@@ -1015,7 +1204,9 @@
     },
     "/api/v1/recommendations/filters": {
       "get": {
-        "tags": ["recommendations"],
+        "tags": [
+          "recommendations"
+        ],
         "summary": "Recommendations Filter Options",
         "description": "Доступные значения фильтров раздела «Советы».",
         "operationId": "recommendations_filter_options_api_v1_recommendations_filters_get",
@@ -1037,7 +1228,9 @@
     },
     "/api/v1/recommendations": {
       "get": {
-        "tags": ["recommendations"],
+        "tags": [
+          "recommendations"
+        ],
         "summary": "List Recommendations",
         "operationId": "list_recommendations_api_v1_recommendations_get",
         "parameters": [
@@ -1153,7 +1346,9 @@
         }
       },
       "post": {
-        "tags": ["recommendations"],
+        "tags": [
+          "recommendations"
+        ],
         "summary": "Add Recommendation",
         "operationId": "add_recommendation_api_v1_recommendations_post",
         "requestBody": {
@@ -1192,7 +1387,9 @@
     },
     "/api/v1/recommendations/{game_id}": {
       "delete": {
-        "tags": ["recommendations"],
+        "tags": [
+          "recommendations"
+        ],
         "summary": "Delete Recommendation",
         "operationId": "delete_recommendation_api_v1_recommendations__game_id__delete",
         "parameters": [
@@ -1250,7 +1447,9 @@
     },
     "/api/v1/recommendations/search": {
       "get": {
-        "tags": ["recommendations"],
+        "tags": [
+          "recommendations"
+        ],
         "summary": "Search Recommendations",
         "description": "Поиск вариантов игр из IGDB для окна «Предложить игру».",
         "operationId": "search_recommendations_api_v1_recommendations_search_get",
@@ -1293,7 +1492,9 @@
     },
     "/api/v1/bot-commands": {
       "get": {
-        "tags": ["bot-commands"],
+        "tags": [
+          "bot-commands"
+        ],
         "summary": "List Bot Commands",
         "description": "Список команд из реестра `bot_commands`.",
         "operationId": "list_bot_commands_api_v1_bot_commands_get",
@@ -1397,7 +1598,9 @@
         }
       },
       "post": {
-        "tags": ["bot-commands"],
+        "tags": [
+          "bot-commands"
+        ],
         "summary": "Create Bot Command",
         "description": "Добавляет команду в реестр. Доступно только администраторам.",
         "operationId": "create_bot_command_api_v1_bot_commands_post",
@@ -1437,7 +1640,9 @@
     },
     "/api/v1/bot-commands/{command_id}": {
       "patch": {
-        "tags": ["bot-commands"],
+        "tags": [
+          "bot-commands"
+        ],
         "summary": "Update Bot Command State",
         "description": "Переключает видимость/активность команды. Только для администраторов.",
         "operationId": "update_bot_command_state_api_v1_bot_commands__command_id__patch",
@@ -1488,9 +1693,11 @@
     },
     "/api/v1/meta/channel": {
       "get": {
-        "tags": ["meta"],
+        "tags": [
+          "meta"
+        ],
         "summary": "Get Channel",
-        "description": "Данные канала: логин, отображаемое имя и аватар (`profile_image_url`).",
+        "description": "Данные канала: логин, отображаемое имя, аватар и статус эфира.",
         "operationId": "get_channel_api_v1_meta_channel_get",
         "responses": {
           "200": {
@@ -1508,7 +1715,9 @@
     },
     "/api/v1/meta/genres": {
       "get": {
-        "tags": ["meta"],
+        "tags": [
+          "meta"
+        ],
         "summary": "List Genres",
         "operationId": "list_genres_api_v1_meta_genres_get",
         "responses": {
@@ -1529,7 +1738,9 @@
     },
     "/api/v1/meta/platforms": {
       "get": {
-        "tags": ["meta"],
+        "tags": [
+          "meta"
+        ],
         "summary": "List Platforms",
         "operationId": "list_platforms_api_v1_meta_platforms_get",
         "responses": {
@@ -1550,7 +1761,9 @@
     },
     "/api/v1/auth/me": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Me",
         "operationId": "me_api_v1_auth_me_get",
         "responses": {
@@ -1569,7 +1782,9 @@
     },
     "/api/v1/auth/login": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Login",
         "operationId": "login_api_v1_auth_login_get",
         "responses": {
@@ -1581,7 +1796,9 @@
     },
     "/api/v1/auth/streamer/login": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Streamer Login",
         "description": "Вход стримера: тот же redirect_uri, но с расширенным набором scopes.\n\nЗавершается на общем `/auth/callback` (поток определяется префиксом state).",
         "operationId": "streamer_login_api_v1_auth_streamer_login_get",
@@ -1594,7 +1811,9 @@
     },
     "/api/v1/auth/callback": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Callback",
         "operationId": "callback_api_v1_auth_callback_get",
         "parameters": [
@@ -1673,7 +1892,9 @@
     },
     "/api/v1/auth/streamer/status": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Streamer Status",
         "description": "Статус «стримерских» токенов (только для админов).\n\nПоказывает запрашиваемые scopes и по каждому логину из STREAMER_LOGINS —\nподключён ли расширенный токен.",
         "operationId": "streamer_status_api_v1_auth_streamer_status_get",
@@ -1693,7 +1914,9 @@
     },
     "/api/v1/auth/logout": {
       "post": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Logout",
         "operationId": "logout_api_v1_auth_logout_post",
         "responses": {
@@ -1703,9 +1926,288 @@
         }
       }
     },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Users",
+        "operationId": "list_users_api_v1_admin_users_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/role": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Change Role",
+        "operationId": "change_role_api_v1_admin_users__user_id__role_patch",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleChangeBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/restrictions": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create Service Ban",
+        "operationId": "create_service_ban_api_v1_admin_users__user_id__restrictions_post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceBanBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestrictionView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/restrictions/{restriction_id}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Lift Service Ban",
+        "operationId": "lift_service_ban_api_v1_admin_users__user_id__restrictions__restriction_id__delete",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "restriction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Restriction Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/audit": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Audit",
+        "operationId": "list_audit_api_v1_admin_audit_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/search": {
       "get": {
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "summary": "Search Users",
         "operationId": "search_users_api_v1_users_search_get",
         "parameters": [
@@ -1767,10 +2269,619 @@
           }
         }
       }
+    },
+    "/api/v1/admin/telegram/post-stream": {
+      "get": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Get Post Stream",
+        "operationId": "get_post_stream_api_v1_admin_telegram_post_stream_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostStreamView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/telegram/post-stream/settings": {
+      "patch": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Update Settings",
+        "operationId": "update_settings_api_v1_admin_telegram_post_stream_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostEditSettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostEditSettingsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/telegram/post-stream/settings/reset": {
+      "post": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Reset Settings",
+        "operationId": "reset_settings_api_v1_admin_telegram_post_stream_settings_reset_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostEditSettingsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/telegram/post-stream/target": {
+      "put": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Set Target",
+        "operationId": "set_target_api_v1_admin_telegram_post_stream_target_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTargetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionAcceptedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/telegram/post-stream/publish": {
+      "post": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Publish Now",
+        "operationId": "publish_now_api_v1_admin_telegram_post_stream_publish_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionAcceptedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/telegram/post-stream/undo": {
+      "post": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Undo",
+        "operationId": "undo_api_v1_admin_telegram_post_stream_undo_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionAcceptedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/telegram/post-stream/restore": {
+      "post": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Restore Original",
+        "operationId": "restore_original_api_v1_admin_telegram_post_stream_restore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionAcceptedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/telegram/post-stream/check-vod": {
+      "post": {
+        "tags": [
+          "telegram-post-stream"
+        ],
+        "summary": "Check Vod",
+        "operationId": "check_vod_api_v1_admin_telegram_post_stream_check_vod_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VodCheckOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActionAcceptedOut": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "message"
+        ],
+        "title": "ActionAcceptedOut"
+      },
+      "AdminUserPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserView"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AdminUserPage"
+      },
+      "AdminUserView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Login"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "display_role": {
+            "type": "string",
+            "title": "Display Role"
+          },
+          "is_twitch_banned": {
+            "type": "boolean",
+            "title": "Is Twitch Banned",
+            "default": false
+          },
+          "is_service_banned": {
+            "type": "boolean",
+            "title": "Is Service Banned",
+            "default": false
+          },
+          "restrictions": {
+            "items": {
+              "$ref": "#/components/schemas/RestrictionView"
+            },
+            "type": "array",
+            "title": "Restrictions",
+            "default": []
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "display_role"
+        ],
+        "title": "AdminUserView"
+      },
+      "AnnouncementOption": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "message_id": {
+            "type": "integer",
+            "title": "Message Id"
+          },
+          "posted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Posted At"
+          },
+          "media_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "manually_edited": {
+            "type": "boolean",
+            "title": "Manually Edited"
+          },
+          "preview": {
+            "type": "string",
+            "title": "Preview"
+          },
+          "link_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Link Urls"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "message_id",
+          "posted_at",
+          "media_kind",
+          "status",
+          "manually_edited",
+          "preview",
+          "link_urls"
+        ],
+        "title": "AnnouncementOption"
+      },
+      "AuditPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditView"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AuditPage"
+      },
+      "AuditView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id"
+          },
+          "target_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target User Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "old_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Value"
+          },
+          "new_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Value"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "created_at"
+        ],
+        "title": "AuditView"
+      },
       "BotCommandCreateIn": {
         "properties": {
           "name": {
@@ -1792,7 +2903,10 @@
           }
         },
         "type": "object",
-        "required": ["name", "description"],
+        "required": [
+          "name",
+          "description"
+        ],
         "title": "BotCommandCreateIn",
         "description": "Новая команда другого бота (ручное добавление в реестр)."
       },
@@ -1853,7 +2967,14 @@
           }
         },
         "type": "object",
-        "required": ["id", "name", "description", "bot_name", "is_visible", "is_active"],
+        "required": [
+          "id",
+          "name",
+          "description",
+          "bot_name",
+          "is_visible",
+          "is_active"
+        ],
         "title": "BotCommandView",
         "description": "Команда Twitch-бота из реестра `bot_commands`."
       },
@@ -1888,10 +3009,18 @@
               }
             ],
             "title": "Twitch Url"
+          },
+          "is_live": {
+            "type": "boolean",
+            "title": "Is Live",
+            "default": false
           }
         },
         "type": "object",
-        "required": ["login", "display_name"],
+        "required": [
+          "login",
+          "display_name"
+        ],
         "title": "ChannelInfo",
         "description": "Данные канала — для сайдбара (логин, имя, аватар)."
       },
@@ -1940,7 +3069,10 @@
           }
         },
         "type": "object",
-        "required": ["igdb_id", "title"],
+        "required": [
+          "igdb_id",
+          "title"
+        ],
         "title": "GameCandidate",
         "description": "Вариант игры из IGDB для окна «Предложить игру»."
       },
@@ -1989,6 +3121,17 @@
             ],
             "title": "Last Stream"
           },
+          "last_stream_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Stream Id"
+          },
           "hltb_all_styles": {
             "anyOf": [
               {
@@ -2033,6 +3176,13 @@
           "tags": {
             "type": "string",
             "title": "Tags"
+          },
+          "review_links": {
+            "items": {
+              "$ref": "#/components/schemas/GameReviewLink"
+            },
+            "type": "array",
+            "title": "Review Links"
           },
           "genres": {
             "items": {
@@ -2250,6 +3400,66 @@
         ],
         "title": "GameDetail"
       },
+      "GameReviewLink": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "url"
+        ],
+        "title": "GameReviewLink"
+      },
+      "GameReviewsUpdateIn": {
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/GameReviewLink"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "links"
+        ],
+        "title": "GameReviewsUpdateIn"
+      },
+      "GameReviewsUpdateOut": {
+        "properties": {
+          "game_id": {
+            "type": "integer",
+            "title": "Game Id"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/GameReviewLink"
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "links"
+        ],
+        "title": "GameReviewsUpdateOut"
+      },
       "GameStateUpdateIn": {
         "properties": {
           "liked": {
@@ -2262,7 +3472,10 @@
           }
         },
         "type": "object",
-        "required": ["liked", "completed"],
+        "required": [
+          "liked",
+          "completed"
+        ],
         "title": "GameStateUpdateIn"
       },
       "GameStateUpdateOut": {
@@ -2281,7 +3494,11 @@
           }
         },
         "type": "object",
-        "required": ["game_id", "liked", "completed"],
+        "required": [
+          "game_id",
+          "liked",
+          "completed"
+        ],
         "title": "GameStateUpdateOut"
       },
       "GameStream": {
@@ -2331,7 +3548,9 @@
           }
         },
         "type": "object",
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "title": "GameStream",
         "description": "Стрим, на котором играли в игру (для страницы игры)."
       },
@@ -2380,6 +3599,17 @@
             ],
             "title": "Last Stream"
           },
+          "last_stream_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Stream Id"
+          },
           "hltb_all_styles": {
             "anyOf": [
               {
@@ -2424,6 +3654,13 @@
           "tags": {
             "type": "string",
             "title": "Tags"
+          },
+          "review_links": {
+            "items": {
+              "$ref": "#/components/schemas/GameReviewLink"
+            },
+            "type": "array",
+            "title": "Review Links"
           }
         },
         "type": "object",
@@ -2476,7 +3713,9 @@
           }
         },
         "type": "object",
-        "required": ["url"],
+        "required": [
+          "url"
+        ],
         "title": "HltbAddIn",
         "description": "Добавление игры по ссылке HowLongToBeat."
       },
@@ -2522,7 +3761,12 @@
           }
         },
         "type": "object",
-        "required": ["game_id", "game_name", "hltb_id", "message"],
+        "required": [
+          "game_id",
+          "game_name",
+          "hltb_id",
+          "message"
+        ],
         "title": "HltbAddOut"
       },
       "HltbLookupIn": {
@@ -2533,7 +3777,9 @@
           }
         },
         "type": "object",
-        "required": ["url"],
+        "required": [
+          "url"
+        ],
         "title": "HltbLookupIn",
         "description": "Ссылка на HowLongToBeat (или голый id)."
       },
@@ -2653,7 +3899,10 @@
           }
         },
         "type": "object",
-        "required": ["hltb_id", "hltb_name"],
+        "required": [
+          "hltb_id",
+          "hltb_name"
+        ],
         "title": "HltbLookupOut",
         "description": "Предпросмотр найденной игры — до подтверждения добавления."
       },
@@ -2768,7 +4017,10 @@
           }
         },
         "type": "object",
-        "required": ["id", "name"],
+        "required": [
+          "id",
+          "name"
+        ],
         "title": "HltbView",
         "description": "Данные HowLongToBeat по игре (таблица `game_metadata_hltb`)."
       },
@@ -2780,7 +4032,9 @@
           }
         },
         "type": "object",
-        "required": ["interested"],
+        "required": [
+          "interested"
+        ],
         "title": "InterestUpdateIn"
       },
       "InterestUpdateOut": {
@@ -2795,7 +4049,10 @@
           }
         },
         "type": "object",
-        "required": ["game_id", "interested"],
+        "required": [
+          "game_id",
+          "interested"
+        ],
         "title": "InterestUpdateOut"
       },
       "Page_BotCommandView_": {
@@ -2846,7 +4103,12 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[BotCommandView]"
       },
       "Page_GameStream_": {
@@ -2897,7 +4159,12 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[GameStream]"
       },
       "Page_GameView_": {
@@ -2948,7 +4215,12 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[GameView]"
       },
       "Page_HltbView_": {
@@ -2999,7 +4271,12 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[HltbView]"
       },
       "Page_RecommendationView_": {
@@ -3050,7 +4327,12 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[RecommendationView]"
       },
       "Page_ReleaseView_": {
@@ -3101,7 +4383,12 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[ReleaseView]"
       },
       "Page_StreamView_": {
@@ -3152,7 +4439,12 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[StreamView]"
       },
       "Page_UserSuggestion_": {
@@ -3203,8 +4495,372 @@
           }
         },
         "type": "object",
-        "required": ["items", "total", "limit", "offset"],
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
         "title": "Page[UserSuggestion]"
+      },
+      "PostEditRunView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "stream_id": {
+            "type": "string",
+            "title": "Stream Id"
+          },
+          "stream_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Title"
+          },
+          "stream_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Started At"
+          },
+          "stream_ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Ended At"
+          },
+          "announcement_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Announcement Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "vod_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vod Url"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "selected_by_admin": {
+            "type": "boolean",
+            "title": "Selected By Admin"
+          },
+          "check_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check At"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "undone_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undone At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "stream_id",
+          "stream_title",
+          "stream_started_at",
+          "stream_ended_at",
+          "announcement_id",
+          "status",
+          "vod_url",
+          "last_error",
+          "selected_by_admin",
+          "check_at",
+          "applied_at",
+          "undone_at"
+        ],
+        "title": "PostEditRunView"
+      },
+      "PostEditSettingsPatch": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "delay_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 86400.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delay Seconds"
+          },
+          "header": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item"
+          },
+          "separator": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Separator"
+          },
+          "footer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footer"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          }
+        },
+        "type": "object",
+        "title": "PostEditSettingsPatch"
+      },
+      "PostEditSettingsView": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "delay_seconds": {
+            "type": "integer",
+            "title": "Delay Seconds"
+          },
+          "header": {
+            "type": "string",
+            "title": "Header"
+          },
+          "item": {
+            "type": "string",
+            "title": "Item"
+          },
+          "separator": {
+            "type": "string",
+            "title": "Separator"
+          },
+          "footer": {
+            "type": "string",
+            "title": "Footer"
+          },
+          "link_label": {
+            "type": "string",
+            "title": "Link Label"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "delay_seconds",
+          "header",
+          "item",
+          "separator",
+          "footer",
+          "link_label"
+        ],
+        "title": "PostEditSettingsView"
+      },
+      "PostStreamView": {
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/PostEditSettingsView"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PostEditRunView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PostEditRunView"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "announcements": {
+            "items": {
+              "$ref": "#/components/schemas/AnnouncementOption"
+            },
+            "type": "array",
+            "title": "Announcements"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/PreviewView"
+          }
+        },
+        "type": "object",
+        "required": [
+          "settings",
+          "target",
+          "runs",
+          "announcements",
+          "preview"
+        ],
+        "title": "PostStreamView"
+      },
+      "PreviewView": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "html": {
+            "type": "string",
+            "title": "Html"
+          },
+          "media_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "html",
+          "media_kind"
+        ],
+        "title": "PreviewView"
       },
       "RecommendationActionOut": {
         "properties": {
@@ -3239,7 +4895,10 @@
           }
         },
         "type": "object",
-        "required": ["outcome", "message"],
+        "required": [
+          "outcome",
+          "message"
+        ],
         "title": "RecommendationActionOut"
       },
       "RecommendationAddBody": {
@@ -3283,7 +4942,9 @@
           }
         },
         "type": "object",
-        "required": ["query"],
+        "required": [
+          "query"
+        ],
         "title": "RecommendationAddBody"
       },
       "RecommendationDeleteOut": {
@@ -3298,7 +4959,10 @@
           }
         },
         "type": "object",
-        "required": ["outcome", "message"],
+        "required": [
+          "outcome",
+          "message"
+        ],
         "title": "RecommendationDeleteOut"
       },
       "RecommendationSearchOut": {
@@ -3317,7 +4981,9 @@
           }
         },
         "type": "object",
-        "required": ["query"],
+        "required": [
+          "query"
+        ],
         "title": "RecommendationSearchOut"
       },
       "RecommendationView": {
@@ -3670,6 +5336,274 @@
         ],
         "title": "ReleaseView"
       },
+      "RestrictionView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "created_at"
+        ],
+        "title": "RestrictionView"
+      },
+      "RoleChangeBody": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "pattern": "^(streamer|admin|editor|user)$",
+            "title": "Role"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "RoleChangeBody"
+      },
+      "RunActionIn": {
+        "properties": {
+          "run_id": {
+            "type": "integer",
+            "title": "Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "RunActionIn"
+      },
+      "ServiceBanBody": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "title": "ServiceBanBody"
+      },
+      "SetTargetIn": {
+        "properties": {
+          "run_id": {
+            "type": "integer",
+            "title": "Run Id"
+          },
+          "announcement_id": {
+            "type": "integer",
+            "title": "Announcement Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "announcement_id"
+        ],
+        "title": "SetTargetIn"
+      },
+      "StreamParticipant": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Login"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "twitch_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Twitch Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "title": "StreamParticipant",
+        "description": "Участник стрима со ссылкой на профиль Twitch."
+      },
+      "StreamParticipantActionOut": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "title": "Outcome"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "participant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StreamParticipant"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "message"
+        ],
+        "title": "StreamParticipantActionOut"
+      },
+      "StreamParticipantAddIn": {
+        "properties": {
+          "user_login": {
+            "type": "string",
+            "title": "User Login"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_login"
+        ],
+        "title": "StreamParticipantAddIn",
+        "description": "Добавление участника на стрим по логину Twitch."
+      },
+      "StreamParticipantDeleteOut": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "title": "Outcome"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "message"
+        ],
+        "title": "StreamParticipantDeleteOut"
+      },
       "StreamView": {
         "properties": {
           "id": {
@@ -3728,7 +5662,7 @@
           },
           "participants": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/StreamParticipant"
             },
             "type": "array",
             "title": "Participants"
@@ -3743,6 +5677,14 @@
               }
             ],
             "title": "Vod Url"
+          },
+          "vod_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Vod Urls",
+            "default": []
           },
           "avg_viewers": {
             "anyOf": [
@@ -3843,7 +5785,9 @@
           }
         },
         "type": "object",
-        "required": ["login"],
+        "required": [
+          "login"
+        ],
         "title": "StreamerAuthorizationView",
         "description": "Статус «стримерского» токена для одного логина."
       },
@@ -3903,6 +5847,39 @@
             ],
             "title": "Display Name"
           },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "user"
+          },
+          "display_role": {
+            "type": "string",
+            "title": "Display Role",
+            "default": "user"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capabilities",
+            "default": []
+          },
+          "is_twitch_banned": {
+            "type": "boolean",
+            "title": "Is Twitch Banned",
+            "default": false
+          },
+          "is_service_banned": {
+            "type": "boolean",
+            "title": "Is Service Banned",
+            "default": false
+          },
+          "can_write": {
+            "type": "boolean",
+            "title": "Can Write",
+            "default": false
+          },
           "is_streamer": {
             "type": "boolean",
             "title": "Is Streamer",
@@ -3915,7 +5892,9 @@
           }
         },
         "type": "object",
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "title": "UserView"
       },
       "ValidationError": {
@@ -3951,8 +5930,64 @@
           }
         },
         "type": "object",
-        "required": ["loc", "msg", "type"],
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
         "title": "ValidationError"
+      },
+      "VodCheckOut": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "vod_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vod Url"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "checked_at"
+        ],
+        "title": "VodCheckOut"
       }
     }
   }

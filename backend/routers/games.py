@@ -13,6 +13,8 @@ from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
 from backend.schemas.game import (
     GameDetail,
+    GameReviewsUpdateIn,
+    GameReviewsUpdateOut,
     GameStateUpdateIn,
     GameStateUpdateOut,
     GameStream,
@@ -38,6 +40,7 @@ def _view(item: dict) -> GameView:
         liked=item["liked"],
         completed=item["completed"],
         tags=item["tags"],
+        review_links=item.get("review_links", []),
     )
 
 
@@ -131,6 +134,7 @@ async def get_game(
         liked=item["liked"],
         completed=item["completed"],
         tags=item["tags"],
+        review_links=item.get("review_links", []),
         genres=item["genres"],
         platforms=item["platforms"],
         slug=item["slug"],
@@ -205,3 +209,19 @@ async def update_streamer_state(
     await session.execute(stmt)
     await session.commit()
     return GameStateUpdateOut(game_id=game_id, liked=body.liked, completed=body.completed)
+
+
+@router.patch("/{game_id}/reviews", response_model=GameReviewsUpdateOut)
+async def update_game_reviews(
+    game_id: int,
+    body: GameReviewsUpdateIn,
+    session: SessionDep,
+    _user: EditorDep,
+) -> GameReviewsUpdateOut:
+    game = await session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Игра не найдена.")
+
+    game.review_links = [link.model_dump() for link in body.links]
+    await session.commit()
+    return GameReviewsUpdateOut(game_id=game_id, links=body.links)

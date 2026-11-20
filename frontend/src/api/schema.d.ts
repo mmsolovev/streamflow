@@ -149,6 +149,23 @@ export interface paths {
         patch: operations["update_streamer_state_api_v1_games__game_id__streamer_state_patch"];
         trace?: never;
     };
+    "/api/v1/games/{game_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Game Reviews */
+        patch: operations["update_game_reviews_api_v1_games__game_id__reviews_patch"];
+        trace?: never;
+    };
     "/api/v1/hltb": {
         parameters: {
             query?: never;
@@ -1071,6 +1088,8 @@ export interface components {
             completed: boolean;
             /** Tags */
             tags: string;
+            /** Review Links */
+            review_links?: components["schemas"]["GameReviewLink"][];
             /** Genres */
             genres: string[];
             /** Platforms */
@@ -1140,6 +1159,25 @@ export interface components {
              */
             in_recommendations: boolean;
         };
+        /** GameReviewLink */
+        GameReviewLink: {
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+        };
+        /** GameReviewsUpdateIn */
+        GameReviewsUpdateIn: {
+            /** Links */
+            links: components["schemas"]["GameReviewLink"][];
+        };
+        /** GameReviewsUpdateOut */
+        GameReviewsUpdateOut: {
+            /** Game Id */
+            game_id: number;
+            /** Links */
+            links: components["schemas"]["GameReviewLink"][];
+        };
         /** GameStateUpdateIn */
         GameStateUpdateIn: {
             /** Liked */
@@ -1205,6 +1243,8 @@ export interface components {
             completed: boolean;
             /** Tags */
             tags: string;
+            /** Review Links */
+            review_links?: components["schemas"]["GameReviewLink"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2132,6 +2172,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GameStateUpdateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_game_reviews_api_v1_games__game_id__reviews_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameReviewsUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GameReviewsUpdateOut"];
                 };
             };
             /** @description Validation Error */

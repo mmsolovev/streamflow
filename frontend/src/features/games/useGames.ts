@@ -7,10 +7,12 @@ import {
   listGamesCovers,
   listGamesFilterOptions,
   listGameStreams,
+  updateGameReviews,
   updateGameState,
 } from '@/features/games/api'
 import type { ListParams } from '@/features/games/api'
 import type { GameDetail, GamesPage } from '@/api/types'
+import type { GameReviewLink } from '@/api/types'
 
 /** Список игр с серверными поиском, фильтрами, сортировкой и пагинацией. */
 export function useGamesList(params: ListParams) {
@@ -125,6 +127,19 @@ export function useUpdateGameState() {
       }
       toast.error(error.message)
     },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['games'] })
+    },
+  })
+}
+
+export function useUpdateGameReviews() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ gameId, links }: { gameId: number; links: GameReviewLink[] }) =>
+      updateGameReviews(gameId, links),
+    onSuccess: () => toast.success('Ссылки на отзывы сохранены.'),
+    onError: (error) => toast.error(error.message),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['games'] })
     },

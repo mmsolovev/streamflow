@@ -34,6 +34,13 @@
   --accent-releases: #eb9f35;
   --accent-recommendations: #5bbdf4;
   --accent-hltb: #bf1313;
+
+  /* Фирменные цвета внешних сервисов для ссылок и интеграций. */
+  --brand-telegram: #2aabee;
+  --brand-twitch: #994cff;
+  --brand-youtube: #ff0000;
+  --brand-boosty: #f15f2c;
+  --brand-discord: #5865f2;
 }
 
 [data-section='games'] {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Check, Copy } from 'lucide-react'
 
 import type { GameView } from '@/api/types'
+import type { GameReviewLink } from '@/api/types'
 import { CoverImage } from '@/components/entity/CoverImage'
 import { DateCell } from '@/components/entity/DateCell'
 import { EntityList } from '@/components/entity/EntityList'
@@ -19,9 +20,11 @@ import { SearchInput } from '@/components/ui/SearchInput'
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { StatChip } from '@/components/ui/StatChip'
 import { useAuth } from '@/features/auth/context'
+import { GameReviewCell } from '@/features/games/GameReviewCell'
 import {
   useGamesFilterOptions,
   useGamesList,
+  useUpdateGameReviews,
   useUpdateGameState,
 } from '@/features/games/useGames'
 import { AddRecommendation } from '@/features/recommendations/AddRecommendation'
@@ -45,6 +48,12 @@ interface GameFlagActions {
   onToggleCompleted: (game: GameView, next: boolean) => void
   /** Id игры, для которой сейчас идёт сохранение. */
   busyGameId: number | null
+}
+
+interface GameReviewActions {
+  editMode: boolean
+  busyGameId: number | null
+  onSave: (game: GameView, links: GameReviewLink[]) => Promise<void>
 }
 
 /** Копирует название игры в буфер обмена. */
@@ -78,6 +87,7 @@ function makeColumns(
   activeTags: string[],
   onTagClick: (value: string) => void,
   flags: GameFlagActions,
+  reviews: GameReviewActions,
 ): EntityColumn<GameView>[] {
   return [
     {
@@ -99,7 +109,7 @@ function makeColumns(
             <DateCell iso={game.last_stream} />
           </Link>
         ) : (
-          <span className="text-[var(--text-muted)]">—</span>
+          null
         ),
     },
     {
@@ -123,7 +133,7 @@ function makeColumns(
           <Link
             to={`/games/${game.id}`}
             title={game.name}
-            className="min-w-0 flex-1 truncate font-medium transition-colors hover:text-[var(--accent)]"
+            className="min-w-0 flex-1 whitespace-normal break-words font-medium transition-colors hover:text-[var(--accent)]"
           >
             {game.name}
           </Link>
@@ -155,7 +165,9 @@ function makeColumns(
           to={`/games/${game.id}`}
           className="transition-colors hover:text-[var(--accent)]"
         >
-          {formatHoursMinutes(game.duration_minutes)}
+          {game.duration_minutes == null || game.duration_minutes <= 0
+            ? null
+            : formatHoursMinutes(game.duration_minutes)}
         </Link>
       ),
     },
@@ -180,8 +192,8 @@ function makeColumns(
       noUppercase: true,
       sortValue: (game) => game.hltb_all_styles ?? -1,
       render: (game) =>
-        game.hltb_all_styles === null ? (
-          '—'
+        game.hltb_all_styles == null || game.hltb_all_styles <= 0 ? (
+          null
         ) : (
           <Link
             to={`/hltb?search=${encodeURIComponent(game.name)}&focus=${game.id}`}
@@ -207,9 +219,7 @@ function makeColumns(
           >
             Steam
           </a>
-        ) : (
-          <span className="text-[var(--text-muted)]">—</span>
-        ),
+        ) : null,
     },
     {
       key: 'liked',
@@ -245,14 +255,21 @@ function makeColumns(
       key: 'clips',
       label: 'Клипы',
       align: 'center',
-      render: () => <span className="text-[var(--text-muted)]">—</span>,
+      render: () => null,
     },
     {
       key: 'review',
       label: 'Отзыв',
       align: 'center',
-      // Заглушка «на будущее» — фильтра по отзывам пока нет.
-      render: () => <span className="text-[var(--text-muted)]">—</span>,
+      filterValue: (game) => (game.review_links?.length ?? 0) > 0,
+      render: (game) => (
+        <GameReviewCell
+          links={game.review_links ?? []}
+          editMode={reviews.editMode}
+          busy={reviews.busyGameId === game.id}
+          onSave={(links) => reviews.onSave(game, links)}
+        />
+      ),
     },
     {
       key: 'tags',
@@ -272,11 +289,14 @@ function makeColumns(
 export function GamesView() {
   const { canEdit } = useAuth()
   const stateMutation = useUpdateGameState()
+  const reviewsMutation = useUpdateGameReviews()
+  const saveReviews = reviewsMutation.mutateAsync
   const [offset, setOffset] = useOffset()
 
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search)
   const [activeFilters, setActiveFilters] = useState<string[]>([])
+  const [editMode, setEditMode] = useState(false)
 
   const toggleFilter = useCallback((key: string) => {
     setActiveFilters((prev) =>
@@ -316,18 +336,35 @@ export function GamesView() {
 
   const columns = useMemo(
     () =>
-      makeColumns(activeTags, (value) => toggleFilter(tagKey(value)), {
-        canEdit,
-        onToggleLiked: toggleLiked,
-        onToggleCompleted: toggleCompleted,
-        busyGameId: stateMutation.isPending
-          ? (stateMutation.variables?.gameId ?? null)
-          : null,
-      }),
+      makeColumns(
+        activeTags,
+        (value) => toggleFilter(tagKey(value)),
+        {
+          canEdit,
+          onToggleLiked: toggleLiked,
+          onToggleCompleted: toggleCompleted,
+          busyGameId: stateMutation.isPending
+            ? (stateMutation.variables?.gameId ?? null)
+            : null,
+        },
+        {
+          editMode,
+          busyGameId: reviewsMutation.isPending
+            ? (reviewsMutation.variables?.gameId ?? null)
+            : null,
+          onSave: async (game, links) => {
+            await saveReviews({ gameId: game.id, links })
+          },
+        },
+      ),
     [
       activeTags,
       toggleFilter,
       canEdit,
+      editMode,
+      reviewsMutation.isPending,
+      reviewsMutation.variables,
+      saveReviews,
       toggleLiked,
       toggleCompleted,
       stateMutation.isPending,
@@ -403,7 +440,24 @@ export function GamesView() {
             — написать в чат Twitch для получения краткой информации об игре
           </>
         }
-        action={<AddRecommendation />}
+        action={
+          <>
+            <AddRecommendation />
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => setEditMode((value) => !value)}
+                className={
+                  editMode
+                    ? 'rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90'
+                    : 'rounded-md border border-white/15 px-3 py-1.5 text-sm text-[var(--text-muted)] transition-colors hover:bg-white/5 hover:text-[var(--text)]'
+                }
+              >
+                Редактировать
+              </button>
+            ) : null}
+          </>
+        }
       >
         <SearchInput
           value={search}

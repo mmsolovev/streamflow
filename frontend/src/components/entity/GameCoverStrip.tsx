@@ -24,7 +24,7 @@ export function GameCoverStrip({
   className?: string
 }) {
   if (names.length === 0) {
-    return <span className="text-[var(--text-muted)]">—</span>
+    return null
   }
   return (
     <span className={cn('grid grid-cols-6 gap-4', className)}>

@@ -32,6 +32,12 @@ class Game(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False, unique=True)
+    review_links = Column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
     slug = Column(Text, unique=True)
     game_type = Column(String(20))
     # Twitch category id: переименование категории не должно создавать новую игру.

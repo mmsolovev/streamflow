@@ -95,7 +95,7 @@ function makeColumns(
       render: (item) => {
         const text = item.description_ru || item.description_en || ''
         return (
-          <span className="min-w-0 break-words text-sm leading-snug">{text || '—'}</span>
+          <span className="min-w-0 break-words text-sm leading-snug">{text}</span>
         )
       },
     },
@@ -114,9 +114,7 @@ function makeColumns(
           >
             Steam
           </a>
-        ) : (
-          <span className="text-[var(--text-muted)]">—</span>
-        ),
+        ) : null,
     },
     {
       key: 'igdb',
@@ -124,7 +122,7 @@ function makeColumns(
       align: 'center',
       sortValue: (item) => item.igdb_score ?? -1,
       render: (item) =>
-        item.igdb_score === null ? '—' : item.igdb_score.toLocaleString('ru-RU'),
+        item.igdb_score == null ? null : item.igdb_score.toLocaleString('ru-RU'),
     },
     {
       key: 'votes',

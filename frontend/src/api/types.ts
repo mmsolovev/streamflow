@@ -13,11 +13,9 @@ export type UserView = Schemas['UserView']
 export type StreamerAuthStatus = Schemas['StreamerAuthStatus']
 export type StreamerAuthorizationView = Schemas['StreamerAuthorizationView']
 
-export type GameView = Schemas['GameView'] & {
-  /** Будущее поле: текст отзыва об игре (бэкенд пока не отдаёт). */
-  review?: string | null
-}
+export type GameView = Schemas['GameView']
 export type GameDetail = Schemas['GameDetail']
+export type GameReviewLink = Schemas['GameReviewLink']
 export type GameStream = Schemas['GameStream']
 export type GameStreamsPage = Schemas['Page_GameStream_']
 export type GameStateUpdateBody = Schemas['GameStateUpdateIn']

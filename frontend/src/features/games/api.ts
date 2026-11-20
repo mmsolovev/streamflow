@@ -2,6 +2,7 @@ import { api } from '@/api/client'
 import type {
   GameDetail,
   GamesPage,
+  GameReviewLink,
   GameStateUpdateBody,
   GameStateUpdateResult,
   GameStreamsPage,
@@ -63,6 +64,18 @@ export async function updateGameState(
   const { data } = await api.patch<GameStateUpdateResult>(
     `/games/${gameId}/streamer-state`,
     body,
+  )
+  return data
+}
+
+/** Установить полный список ссылок на отзывы/клипы игры. */
+export async function updateGameReviews(
+  gameId: number,
+  links: GameReviewLink[],
+): Promise<{ game_id: number; links: GameReviewLink[] }> {
+  const { data } = await api.patch<{ game_id: number; links: GameReviewLink[] }>(
+    `/games/${gameId}/reviews`,
+    { links },
   )
   return data
 }

@@ -238,6 +238,7 @@ def _ranked_games_subquery():
         select(
             Game.id.label("id"),
             Game.name.label("name"),
+            Game.review_links.label("review_links"),
             GameStats.duration_minutes.label("duration_minutes"),
             GameStats.last_stream.label("last_stream"),
             (
@@ -300,6 +301,8 @@ async def list_games(
 
     if query.has("steam"):
         q = q.where(ranked.c.steam_url.is_not(None))
+    if query.has("review"):
+        q = q.where(func.jsonb_array_length(ranked.c.review_links) > 0)
     if query.has("liked"):
         q = q.where(
             select(streamer_games.c.game_id)
@@ -355,6 +358,7 @@ async def list_games(
             {
                 "id": row.id,
                 "name": row.name,
+                "review_links": row.review_links or [],
                 "rank": int(row.rank or 0),
                 "streams_count": int(row.streams_count or 0),
                 "last_stream": row.last_stream,
@@ -548,6 +552,7 @@ async def get_game(
     return {
         "id": game.id,
         "name": game.name,
+        "review_links": game.review_links or [],
         "slug": game.slug,
         "game_type": game.game_type,
         "rank": rank,
