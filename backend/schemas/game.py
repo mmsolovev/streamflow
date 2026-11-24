@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.schemas.recommendation import RecommenderEntry
 
@@ -82,9 +82,60 @@ class GameReviewsUpdateOut(BaseModel):
     links: list[GameReviewLink]
 
 
+class GameIGDBRefreshIn(BaseModel):
+    igdb_id: str | None = Field(default=None, max_length=32)
+    igdb_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("igdb_id")
+    @classmethod
+    def validate_igdb_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized.isdigit():
+            raise ValueError("IGDB ID должен состоять из цифр.")
+        return normalized
+
+    @field_validator("igdb_url")
+    @classmethod
+    def normalize_igdb_url(cls, value: str | None) -> str | None:
+        return value.strip() if value else None
+
+    @model_validator(mode="after")
+    def require_one_reference(self) -> "GameIGDBRefreshIn":
+        if bool(self.igdb_id) == bool(self.igdb_url):
+            raise ValueError("Укажите IGDB ID или ссылку на игру в IGDB.")
+        return self
+
+
+class GameIGDBRefreshOut(BaseModel):
+    game_id: int
+    igdb_id: str
+    igdb_name: str
+    message: str
+
+
+class CurrentStreamGame(BaseModel):
+    """Игра из активного стрима либо ожидающей агрегации завершённой сессии."""
+
+    key: str
+    stream_id: int
+    game_id: int | None = None
+    name: str
+    duration_minutes: int
+    steam_url: str | None = None
+    cover_url: str | None = None
+    is_live: bool
+    started_at: datetime
+    first_played_at: datetime
+    ended_at: datetime | None = None
+    game: GameView | None = None
+
+
 class GameDetail(GameView):
     genres: list[str]
     platforms: list[str]
+    igdb_id: Optional[str] = None
     slug: Optional[str]
     game_type: Optional[str]
     # Данные из «РЕЛИЗОВ» и «СОВЕТОВ» — для страницы игры.

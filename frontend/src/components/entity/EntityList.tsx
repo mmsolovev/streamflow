@@ -1,5 +1,6 @@
 import { EntityTable } from '@/components/entity/EntityTable'
 import type { EntityColumn, SortDir } from '@/components/entity/types'
+import { cn } from '@/lib/cn'
 
 /**
  * Список сущностей: на широких экранах — таблица-«островки», на узких —
@@ -29,7 +30,7 @@ export function EntityList<T>({
   activeFilters?: string[]
   onFilterToggle?: (key: string) => void
   highlightedRowKey?: string | number | null
-  rowClassName?: string
+  rowClassName?: string | ((row: T) => string)
   /** Минимальная ширина таблицы (горизонтальная прокрутка на узких экранах). */
   minWidth?: string
 }) {
@@ -62,7 +63,10 @@ export function EntityList<T>({
             <li
               key={rowKey(row)}
               data-row-key={String(rowKey(row))}
-              className="rounded-xl border border-[var(--accent)] bg-[var(--card-bg)] px-3 py-3"
+              className={cn(
+                'rounded-xl border border-[var(--accent)] bg-[var(--card-bg)] px-3 py-3',
+                typeof rowClassName === 'function' ? rowClassName(row) : rowClassName,
+              )}
             >
               <div className="mb-2 text-base font-medium text-[var(--text)]">
                 {titleColumn.render(row)}

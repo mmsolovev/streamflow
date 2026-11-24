@@ -21,17 +21,6 @@ def parse_release_date(value: int | str | None) -> tuple[datetime | None, str]:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).replace(tzinfo=None), "day"
 
 
-def truncate_text(value: str | None, max_length: int = 280) -> str | None:
-    if not value:
-        return None
-
-    compact = " ".join(value.split())
-    if len(compact) <= max_length:
-        return compact
-
-    return compact[: max_length - 3].rstrip() + "..."
-
-
 def build_rating_text(payload: dict) -> str | None:
     total_rating = payload.get("total_rating")
     total_rating_count = payload.get("total_rating_count")
@@ -130,5 +119,4 @@ __all__ = [
     "normalize_genres_text",
     "parse_release_date",
     "pick_best_match",
-    "truncate_text",
 ]

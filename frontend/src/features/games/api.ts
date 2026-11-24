@@ -3,6 +3,9 @@ import type {
   GameDetail,
   GamesPage,
   GameReviewLink,
+  CurrentStreamGame,
+  GameIGDBRefreshBody,
+  GameIGDBRefreshResult,
   GameStateUpdateBody,
   GameStateUpdateResult,
   GameStreamsPage,
@@ -66,6 +69,23 @@ export async function updateGameState(
     body,
   )
   return data
+}
+
+/** Игры стрима, которые ещё не вошли в агрегированную статистику. */
+export function listCurrentStreamGames(): Promise<CurrentStreamGame[]> {
+  return api
+    .get<CurrentStreamGame[]>('/games/current-stream')
+    .then((response) => response.data)
+}
+
+/** Обновить IGDB metadata игры по ID или ссылке на IGDB. */
+export function refreshGameIGDB(
+  gameId: number,
+  body: GameIGDBRefreshBody,
+): Promise<GameIGDBRefreshResult> {
+  return api
+    .post<GameIGDBRefreshResult>(`/games/${gameId}/refresh-igdb`, body)
+    .then((response) => response.data)
 }
 
 /** Установить полный список ссылок на отзывы/клипы игры. */

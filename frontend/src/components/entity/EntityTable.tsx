@@ -41,7 +41,7 @@ export function EntityTable<T>({
   /** Переключатель фильтра колонки (клик по её заголовку). */
   onFilterToggle?: (key: string) => void
   /** Доп. классы строки (напр. иная минимальная высота «островка»). */
-  rowClassName?: string
+  rowClassName?: string | ((row: T) => string)
   /** Ключ строки, которую нужно подсветить (например, только что добавленная игра). */
   highlightedRowKey?: string | number | null
 }) {
@@ -106,6 +106,8 @@ export function EntityTable<T>({
       <div className="mt-2 flex flex-col gap-2">
         {rows.map((row) => {
           const key = rowKey(row)
+          const rowClasses =
+            typeof rowClassName === 'function' ? rowClassName(row) : rowClassName
           const highlighted =
             highlightedRowKey !== null &&
             highlightedRowKey !== undefined &&
@@ -116,7 +118,7 @@ export function EntityTable<T>({
               data-row-key={String(key)}
               className={cn(
                 'grid min-h-[3.75rem] items-stretch gap-x-3 rounded-xl border-[0.5px] border-[var(--accent)] bg-[var(--card-bg)] px-4 py-3 transition-colors hover:[background:color-mix(in_srgb,var(--card-bg)_88%,var(--accent))]',
-                rowClassName,
+                rowClasses,
                 highlighted &&
                   'ring-2 ring-[var(--accent)] [background:color-mix(in_srgb,var(--card-bg)_85%,var(--accent))]',
               )}

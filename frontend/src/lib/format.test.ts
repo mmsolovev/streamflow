@@ -11,8 +11,10 @@ import {
   formatNumber,
   formatReleaseCountdown,
   hasReleaseTime,
+  isHotRelease,
   isReleased,
 } from '@/lib/format'
+import { dayjs } from '@/lib/dayjs'
 
 /** Неразрывные пробелы (разделитель тысяч) заменяем обычным. */
 const norm = (value: string): string => value.replace(/[  ]/g, ' ')
@@ -115,6 +117,16 @@ describe('релизы', () => {
   it('isReleased: прошедшая дата — вышел', () => {
     expect(isReleased('2020-01-01T00:00:00')).toBe(true)
     expect(isReleased('2999-01-01T00:00:00')).toBe(false)
+  })
+
+  it('isHotRelease: вчера, сегодня и следующие два дня — горячее окно', () => {
+    const now = dayjs('2026-03-10T12:00:00')
+    expect(isHotRelease('2026-03-09T00:00:00', now)).toBe(true)
+    expect(isHotRelease('2026-03-10T00:00:00', now)).toBe(true)
+    expect(isHotRelease('2026-03-12T00:00:00', now)).toBe(true)
+    expect(isHotRelease('2026-03-08T00:00:00', now)).toBe(false)
+    expect(isHotRelease('2026-03-13T00:00:00', now)).toBe(false)
+    expect(isHotRelease(null, now)).toBe(false)
   })
 
   it('formatReleaseCountdown: для будущей даты — дни, для прошедшей — пусто', () => {

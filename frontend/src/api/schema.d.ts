@@ -38,6 +38,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/games/current-stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Current Stream Games
+         * @description Игры текущего стрима и завершённых сессий, ожидающих агрегации статистики.
+         */
+        get: operations["list_current_stream_games_api_v1_games_current_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/games/{game_id}/refresh-igdb": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Game Igdb */
+        post: operations["refresh_game_igdb_api_v1_games__game_id__refresh_igdb_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/games/covers": {
         parameters: {
             query?: never;
@@ -236,6 +273,26 @@ export interface paths {
         };
         /** List Streams */
         get: operations["list_streams_api_v1_streams_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/streams/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Current Stream
+         * @description Текущий эфир, если runtime-коллектор недавно сохранял его сэмплы.
+         */
+        get: operations["get_current_stream_api_v1_streams_current_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1043,6 +1100,66 @@ export interface components {
             is_live: boolean;
         };
         /**
+         * CurrentStreamGame
+         * @description Игра из активного стрима либо ожидающей агрегации завершённой сессии.
+         */
+        CurrentStreamGame: {
+            /** Key */
+            key: string;
+            /** Stream Id */
+            stream_id: number;
+            /** Game Id */
+            game_id?: number | null;
+            /** Name */
+            name: string;
+            /** Duration Minutes */
+            duration_minutes: number;
+            /** Steam Url */
+            steam_url?: string | null;
+            /** Cover Url */
+            cover_url?: string | null;
+            /** Is Live */
+            is_live: boolean;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * First Played At
+             * Format: date-time
+             */
+            first_played_at: string;
+            /** Ended At */
+            ended_at?: string | null;
+            game?: components["schemas"]["GameView"] | null;
+        };
+        /**
+         * CurrentStreamView
+         * @description Текущая трансляция, собранная из runtime-сессии и сэмплов.
+         */
+        CurrentStreamView: {
+            /** Id */
+            id: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Title */
+            title: string;
+            /** Games */
+            games: string[];
+            /** Duration Minutes */
+            duration_minutes: number;
+            /** Channel Url */
+            channel_url: string;
+            /** Mentioned Logins */
+            mentioned_logins: string[];
+            /** Last Sample At */
+            last_sample_at?: string | null;
+        };
+        /**
          * GameCandidate
          * @description Вариант игры из IGDB для окна «Предложить игру».
          */
@@ -1094,6 +1211,8 @@ export interface components {
             genres: string[];
             /** Platforms */
             platforms: string[];
+            /** Igdb Id */
+            igdb_id?: string | null;
             /** Slug */
             slug: string | null;
             /** Game Type */
@@ -1158,6 +1277,24 @@ export interface components {
              * @default false
              */
             in_recommendations: boolean;
+        };
+        /** GameIGDBRefreshIn */
+        GameIGDBRefreshIn: {
+            /** Igdb Id */
+            igdb_id?: string | null;
+            /** Igdb Url */
+            igdb_url?: string | null;
+        };
+        /** GameIGDBRefreshOut */
+        GameIGDBRefreshOut: {
+            /** Game Id */
+            game_id: number;
+            /** Igdb Id */
+            igdb_id: string;
+            /** Igdb Name */
+            igdb_name: string;
+            /** Message */
+            message: string;
         };
         /** GameReviewLink */
         GameReviewLink: {
@@ -2008,6 +2145,61 @@ export interface operations {
             };
         };
     };
+    list_current_stream_games_api_v1_games_current_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentStreamGame"][];
+                };
+            };
+        };
+    };
+    refresh_game_igdb_api_v1_games__game_id__refresh_igdb_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameIGDBRefreshIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GameIGDBRefreshOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     games_covers_api_v1_games_covers_get: {
         parameters: {
             query?: never;
@@ -2382,6 +2574,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_current_stream_api_v1_streams_current_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentStreamView"] | null;
                 };
             };
         };

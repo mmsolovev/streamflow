@@ -37,6 +37,7 @@ import {
   formatReleaseCountdown,
   formatTime,
   hasReleaseTime,
+  isHotRelease,
   isReleased,
   toSortTime,
 } from '@/lib/format'
@@ -455,6 +456,9 @@ export function ReleasesView() {
             rows={pageItems}
             rowKey={(release) => release.id}
             highlightedRowKey={highlightId}
+            rowClassName={(release) =>
+              isHotRelease(release.release_date) ? 'hot-island' : ''
+            }
             sortKey={sortKey}
             sortDir={sortDir}
             onSort={onSort}

@@ -1,7 +1,7 @@
 """Games query layer — mirrors sheets_games.py without Google Sheets."""
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,11 +11,15 @@ from database.models import (
     GameMetadataHLTB,
     GameMetadataIGDB,
     GameStats,
+    GameTwitchCategory,
     Genre,
     Platform,
     Stream,
     StreamGame,
     StreamRecording,
+    StreamRuntimeSample,
+    StreamRuntimeSession,
+    StreamStatsJob,
     User,
     UserProfile,
     game_genres,
@@ -27,12 +31,290 @@ from backend.repositories._shared import JUST_CHATTING_NAMES, game_recommenders,
 from backend.repositories.filters import tag_condition
 from backend.repositories.list_query import ListQuery
 from backend.repositories.releases import RECENT_RELEASE_DAYS
+from config import settings as bot_settings
 from pipeline.load.load_recommendations import UPCOMING_RELEASE_LOGIN
 
 _LIGHT_PLATFORMS = {"PC (Microsoft Windows)", "PlayStation 4", "PlayStation 5"}
 
 #: Сколько стримов по игре отдаём сразу на странице игры (остальные — по кнопке).
 GAME_STREAMS_PREVIEW = 50
+
+
+def _runtime_game_durations(
+    samples: list[tuple],
+    *,
+    started_at: datetime,
+    ended_at: datetime,
+) -> list[dict]:
+    """Сложить интервалы по Twitch-категориям, включая повторные заходы в игру."""
+    durations: dict[str, dict] = {}
+    current_key: str | None = None
+    current_start: datetime | None = None
+    current_game: dict | None = None
+    sample_interval = timedelta(
+        seconds=max(int(bot_settings.STREAM_RUNTIME_SAMPLE_SECONDS), 1)
+    )
+
+    def add_duration(key: str | None, game: dict | None, start, end) -> None:
+        if key is None or game is None or start is None or end <= start:
+            return
+        entry = durations.setdefault(
+            key,
+            {
+                **game,
+                "duration_seconds": 0.0,
+            },
+        )
+        entry["duration_seconds"] += (end - start).total_seconds()
+        # Twitch может переименовать категорию с тем же ID — покажем последнее имя.
+        entry["category_name"] = game["category_name"]
+
+    for sampled_at, category_name, category_id in samples:
+        if not category_name:
+            continue
+        normalized_id = str(category_id or "").strip() or None
+        key = (
+            f"id:{normalized_id}"
+            if normalized_id
+            else f"name:{category_name.casefold()}"
+        )
+        game = {
+            "category_id": normalized_id,
+            "category_name": category_name,
+            "first_played_at": sampled_at,
+        }
+        if current_key is None:
+            # Первый sample обычно записывается сразу при старте; ограничиваем
+            # начальный интервал одним периодом, если коллектор запоздал.
+            current_key = key
+            current_game = game
+            current_start = max(started_at, sampled_at - sample_interval)
+        elif key != current_key:
+            add_duration(current_key, current_game, current_start, sampled_at)
+            current_key = key
+            current_game = game
+            current_start = sampled_at
+        else:
+            current_game = game
+
+    add_duration(current_key, current_game, current_start, ended_at)
+
+    result = []
+    for key, game in durations.items():
+        seconds = game["duration_seconds"]
+        result.append(
+            {
+                "key": key,
+                "category_id": game["category_id"],
+                "category_name": game["category_name"],
+                "first_played_at": game["first_played_at"],
+                "duration_minutes": int((seconds + 30) // 60),
+            }
+        )
+    return result
+
+
+async def list_current_stream_games(session: AsyncSession) -> list[dict]:
+    """Игры активного стрима и завершённых сессий до конца runtime-агрегации."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    result = await session.execute(
+        select(StreamRuntimeSession, Stream, StreamStatsJob)
+        .join(Stream, Stream.id == StreamRuntimeSession.stream_id)
+        .outerjoin(
+            StreamStatsJob,
+            StreamStatsJob.stream_session_id == StreamRuntimeSession.id,
+        )
+        .where(
+            or_(
+                StreamRuntimeSession.status == "collecting",
+                StreamStatsJob.status.in_(("pending", "processing", "failed")),
+            )
+        )
+        .order_by(StreamRuntimeSession.started_at.desc())
+    )
+    sessions = result.all()
+    if not sessions:
+        return []
+
+    eligible = []
+    freshness_seconds = max(
+        180,
+        int(bot_settings.STREAM_RUNTIME_SAMPLE_SECONDS) * 3,
+    )
+    for runtime_session, stream, job in sessions:
+        is_live = runtime_session.status == "collecting"
+        if is_live:
+            heartbeat = (
+                runtime_session.last_sample_at
+                or runtime_session.updated_at
+                or runtime_session.created_at
+                or runtime_session.started_at
+            )
+            if (
+                heartbeat is None
+                or (now - heartbeat).total_seconds() > freshness_seconds
+                or (heartbeat - now).total_seconds() > 30
+            ):
+                continue
+            ended_at = now
+        else:
+            # Сюда попадают только сессии с незавершённой задачей агрегации.
+            ended_at = runtime_session.ended_at or stream.ended_at
+            if ended_at is None:
+                continue
+        eligible.append((runtime_session, stream, is_live, ended_at))
+
+    if not eligible:
+        return []
+
+    session_ids = [int(row[0].id) for row in eligible]
+    sample_result = await session.execute(
+        select(
+            StreamRuntimeSample.stream_session_id,
+            StreamRuntimeSample.sampled_at,
+            StreamRuntimeSample.category_name,
+            StreamRuntimeSample.category_id,
+        )
+        .where(StreamRuntimeSample.stream_session_id.in_(session_ids))
+        .order_by(
+            StreamRuntimeSample.stream_session_id,
+            StreamRuntimeSample.sampled_at,
+        )
+    )
+    samples_by_session: dict[int, list[tuple]] = {session_id: [] for session_id in session_ids}
+    for session_id, sampled_at, category_name, category_id in sample_result.all():
+        samples_by_session.setdefault(int(session_id), []).append(
+            (sampled_at, category_name, category_id)
+        )
+
+    duration_groups: list[tuple[object, object, bool, datetime, list[dict]]] = []
+    for runtime_session, stream, is_live, ended_at in eligible:
+        games = _runtime_game_durations(
+            samples_by_session.get(int(runtime_session.id), []),
+            started_at=runtime_session.started_at,
+            ended_at=ended_at,
+        )
+        if games:
+            duration_groups.append(
+                (runtime_session, stream, is_live, ended_at, games)
+            )
+
+    if not duration_groups:
+        return []
+
+    category_ids = {
+        game["category_id"]
+        for _, _, _, _, games in duration_groups
+        for game in games
+        if game["category_id"]
+    }
+    category_names = {
+        game["category_name"].casefold()
+        for _, _, _, _, games in duration_groups
+        for game in games
+    }
+    game_metadata_by_category: dict[str, dict] = {}
+    game_metadata_by_name: dict[str, dict] = {}
+
+    if category_ids:
+        mapped_rows = await session.execute(
+            select(
+                GameTwitchCategory.twitch_category_id,
+                Game.id,
+                Game.name,
+                GameMetadataIGDB.steam_url,
+                GameMetadataIGDB.cover_url,
+            )
+            .join(Game, Game.id == GameTwitchCategory.game_id)
+            .outerjoin(GameMetadataIGDB, GameMetadataIGDB.game_id == Game.id)
+            .where(GameTwitchCategory.twitch_category_id.in_(category_ids))
+        )
+        for category_id, game_id, name, steam_url, cover_url in mapped_rows.all():
+            game_metadata_by_category[str(category_id)] = {
+                "game_id": int(game_id),
+                "name": name,
+                "steam_url": steam_url,
+                "cover_url": cover_url,
+            }
+
+    missing_ids = category_ids - set(game_metadata_by_category)
+    fallback_conditions = []
+    if missing_ids:
+        fallback_conditions.append(Game.twitch_category_id.in_(missing_ids))
+    if category_names:
+        fallback_conditions.append(func.lower(Game.name).in_(category_names))
+    if fallback_conditions:
+        fallback_rows = await session.execute(
+            select(
+                Game.id,
+                Game.name,
+                Game.twitch_category_id,
+                GameMetadataIGDB.steam_url,
+                GameMetadataIGDB.cover_url,
+            )
+            .outerjoin(GameMetadataIGDB, GameMetadataIGDB.game_id == Game.id)
+            .where(or_(*fallback_conditions))
+        )
+        for game_id, name, twitch_category_id, steam_url, cover_url in fallback_rows.all():
+            metadata = {
+                "game_id": int(game_id),
+                "name": name,
+                "steam_url": steam_url,
+                "cover_url": cover_url,
+            }
+            if twitch_category_id:
+                game_metadata_by_category.setdefault(str(twitch_category_id), metadata)
+            game_metadata_by_name.setdefault(name.casefold(), metadata)
+
+    items_by_game: dict[str, dict] = {}
+    for runtime_session, stream, is_live, ended_at, games in duration_groups:
+        for game in games:
+            metadata = (
+                game_metadata_by_category.get(game["category_id"])
+                if game["category_id"]
+                else None
+            ) or game_metadata_by_name.get(game["category_name"].casefold())
+            game_id = metadata["game_id"] if metadata else None
+            name = metadata["name"] if metadata else game["category_name"]
+            key = (
+                f"game:{game_id}"
+                if game_id is not None
+                else f"name:{name.casefold()}"
+            )
+            item = items_by_game.get(key)
+            if item is None:
+                items_by_game[key] = {
+                    "key": key,
+                    "stream_id": int(stream.id),
+                    "game_id": game_id,
+                    "name": name,
+                    "duration_minutes": game["duration_minutes"],
+                    "steam_url": metadata["steam_url"] if metadata else None,
+                    "cover_url": metadata["cover_url"] if metadata else None,
+                    "is_live": is_live,
+                    "started_at": runtime_session.started_at,
+                    "first_played_at": game["first_played_at"],
+                    "ended_at": None if is_live else ended_at,
+                }
+                continue
+
+            item["duration_minutes"] += game["duration_minutes"]
+            if runtime_session.started_at > item["started_at"]:
+                item.update(
+                    stream_id=int(stream.id),
+                    started_at=runtime_session.started_at,
+                    first_played_at=game["first_played_at"],
+                    ended_at=None if is_live else ended_at,
+                )
+            item["is_live"] = item["is_live"] or is_live
+            if item["is_live"]:
+                item["ended_at"] = None
+
+    return sorted(
+        items_by_game.values(),
+        key=lambda item: item["first_played_at"],
+        reverse=True,
+    )
 
 
 async def _flags_map(session: AsyncSession, streamer_id: int, game_ids: list[int]) -> dict[int, tuple[bool, bool]]:
@@ -271,6 +553,45 @@ def _ranked_games_subquery():
         .outerjoin(GameMetadataHLTB, GameMetadataHLTB.game_id == Game.id)
         .subquery()
     )
+
+
+async def get_game_list_views(
+    session: AsyncSession,
+    *,
+    streamer_id: int,
+    game_ids: list[int],
+) -> dict[int, dict]:
+    """Игровые строки для current-stream overlays вне текущей страницы списка."""
+    ids = list(dict.fromkeys(int(game_id) for game_id in game_ids))
+    if not ids:
+        return {}
+
+    ranked = _ranked_games_subquery()
+    rows = (
+        await session.execute(select(ranked).where(ranked.c.id.in_(ids)))
+    ).all()
+    flags = await _flags_map(session, streamer_id, [row.id for row in rows])
+    tags = await _tags_map(session, [row.id for row in rows])
+
+    return {
+        row.id: {
+            "id": row.id,
+            "name": row.name,
+            "rank": int(row.rank or 0),
+            "streams_count": int(row.streams_count or 0),
+            "duration_minutes": row.duration_minutes,
+            "last_stream": row.last_stream,
+            "last_stream_id": row.last_stream_id,
+            "hltb_all_styles": row.hltb_all_styles,
+            "steam_url": row.steam_url,
+            "cover_url": row.cover_url,
+            "liked": flags.get(row.id, (False, False))[0],
+            "completed": flags.get(row.id, (False, False))[1],
+            "tags": tags.get(row.id, ""),
+            "review_links": row.review_links or [],
+        }
+        for row in rows
+    }
 
 
 async def list_games(
@@ -568,6 +889,7 @@ async def get_game(
         "tags": tags,
         "genres": genres,
         "platforms": platforms,
+        "igdb_id": igdb.igdb_id if igdb else None,
         "release_date": release_date,
         "release_delta_days": release_delta_days(release_date),
         "description_ru": igdb.description_ru if igdb else None,

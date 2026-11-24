@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.db import AsyncSessionLocal
 from database.models import (
@@ -19,13 +22,37 @@ from pipeline.ingest.igdb_api import (
     RecommendationMetadata,
     fetch_igdb_metadata,
     fetch_igdb_metadata_by_id,
+    fetch_igdb_metadata_by_slug,
 )
 from pipeline.load.load_games import make_unique_slug
-from pipeline.load.load_game_meta import apply_igdb_patch
+from pipeline.load.load_game_meta import (
+    apply_igdb_patch,
+    link_igdb_genres_and_platforms,
+)
 from services import twitch_service
 from utils.logger import get_logger
 
 logger = get_logger("games.metadata")
+
+
+class IGDBRefreshError(Exception):
+    """Base error for an editor-requested IGDB refresh."""
+
+
+class InvalidIGDBReference(IGDBRefreshError):
+    pass
+
+
+class IGDBGameNotFound(IGDBRefreshError):
+    pass
+
+
+class IGDBMappingConflict(IGDBRefreshError):
+    pass
+
+
+class IGDBUpstreamError(IGDBRefreshError):
+    pass
 
 _NON_IGDB_CATEGORIES = {
     "art",
@@ -63,16 +90,126 @@ def _utcnow() -> datetime:
 
 
 def _metadata_patch(meta: RecommendationMetadata) -> dict:
+    score_match = re.search(r"\bIGDB\s+(\d+(?:\.\d+)?)/100", meta.rating_text or "")
+    full_summary = meta.description_short
+    if meta.source_payload:
+        try:
+            payload = json.loads(meta.source_payload)
+        except (TypeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            summary = payload.get("summary")
+            if isinstance(summary, str):
+                full_summary = summary.strip() or None
     return {
         "igdb_id": str(meta.source_game_id),
         "igdb_name": meta.title,
         "release_date": meta.release_date,
         "steam_url": meta.steam_url,
-        "description_en": meta.description_short,
+        "igdb_score": float(score_match.group(1)) if score_match else None,
+        "description_en": full_summary,
         "cover_url": meta.cover_url,
         "raw_payload": meta.source_payload,
         "synced_at": _utcnow(),
     }
+
+
+async def _fetch_igdb_metadata_from_url(url: str) -> RecommendationMetadata | None:
+    try:
+        parsed = urlsplit(url.strip())
+    except ValueError as error:
+        raise InvalidIGDBReference("Ссылка на IGDB некорректна.") from error
+    try:
+        host = (parsed.hostname or "").casefold().rstrip(".")
+        parsed.port
+    except ValueError as error:
+        raise InvalidIGDBReference("Ссылка на IGDB некорректна.") from error
+    if (
+        parsed.scheme != "https"
+        or host not in {"igdb.com", "www.igdb.com", "api.igdb.com"}
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise InvalidIGDBReference("Укажите корректную HTTPS-ссылку на IGDB.")
+
+    query_id = parse_qs(parsed.query).get("id", [None])[0]
+    if query_id and query_id.isdigit():
+        return await fetch_igdb_metadata_by_id(query_id)
+
+    path = [unquote(part) for part in parsed.path.split("/") if part]
+    try:
+        games_index = path.index("games")
+    except ValueError as error:
+        raise InvalidIGDBReference(
+            "В ссылке IGDB не найдена страница игры."
+        ) from error
+    if games_index + 1 >= len(path):
+        raise InvalidIGDBReference("В ссылке IGDB не указана игра.")
+
+    game_reference = path[games_index + 1]
+    if game_reference.isdigit():
+        return await fetch_igdb_metadata_by_id(game_reference)
+    return await fetch_igdb_metadata_by_slug(game_reference)
+
+
+async def refresh_game_igdb(
+    session: AsyncSession,
+    *,
+    game_id: int,
+    igdb_id: str | None = None,
+    igdb_url: str | None = None,
+) -> RecommendationMetadata:
+    """Обновить metadata из IGDB и дополнить, не заменяя жанры/платформы."""
+    if bool(igdb_id) == bool(igdb_url):
+        raise InvalidIGDBReference("Нужно указать IGDB ID или ссылку на игру в IGDB.")
+
+    try:
+        if igdb_url:
+            metadata = await _fetch_igdb_metadata_from_url(igdb_url)
+        else:
+            metadata = await fetch_igdb_metadata_by_id((igdb_id or "").strip())
+    except InvalidIGDBReference:
+        raise
+    except Exception as error:
+        logger.exception("IGDB refresh request failed for game_id=%s", game_id)
+        raise IGDBUpstreamError("Не удалось связаться с IGDB. Попробуйте позже.") from error
+
+    if metadata is None:
+        raise IGDBGameNotFound("Не удалось получить данные этой игры из IGDB.")
+
+    owner = await session.execute(
+        select(GameMetadataIGDB.game_id).where(
+            GameMetadataIGDB.igdb_id == str(metadata.source_game_id),
+            GameMetadataIGDB.game_id != game_id,
+        )
+    )
+    owner_game_id = owner.scalar_one_or_none()
+    if owner_game_id is not None:
+        raise IGDBMappingConflict(
+            "Эта игра IGDB уже связана с другой игрой в базе."
+        )
+
+    await apply_igdb_patch(
+        session,
+        game_id=game_id,
+        igdb_id=str(metadata.source_game_id),
+        patch=_metadata_patch(metadata),
+    )
+    if metadata.source_payload:
+        try:
+            payload = json.loads(metadata.source_payload)
+        except (TypeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            # This helper only inserts missing associations; existing genres and
+            # platforms absent from the latest IGDB response are left untouched.
+            await link_igdb_genres_and_platforms(
+                session,
+                game_id=game_id,
+                payload=payload,
+            )
+    await session.flush()
+    return metadata
 
 
 async def _fetch_igdb_metadata(

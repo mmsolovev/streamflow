@@ -149,6 +149,84 @@
         }
       }
     },
+    "/api/v1/games/current-stream": {
+      "get": {
+        "tags": [
+          "games"
+        ],
+        "summary": "List Current Stream Games",
+        "description": "Игры текущего стрима и завершённых сессий, ожидающих агрегации статистики.",
+        "operationId": "list_current_stream_games_api_v1_games_current_stream_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CurrentStreamGame"
+                  },
+                  "type": "array",
+                  "title": "Response List Current Stream Games Api V1 Games Current Stream Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/refresh-igdb": {
+      "post": {
+        "tags": [
+          "games"
+        ],
+        "summary": "Refresh Game Igdb",
+        "operationId": "refresh_game_igdb_api_v1_games__game_id__refresh_igdb_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GameIGDBRefreshIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameIGDBRefreshOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/games/covers": {
       "get": {
         "tags": [
@@ -854,6 +932,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/streams/current": {
+      "get": {
+        "tags": [
+          "streams"
+        ],
+        "summary": "Get Current Stream",
+        "description": "Текущий эфир, если runtime-коллектор недавно сохранял его сэмплы.",
+        "operationId": "get_current_stream_api_v1_streams_current_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CurrentStreamView"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Current Stream Api V1 Streams Current Get"
                 }
               }
             }
@@ -3024,6 +3132,170 @@
         "title": "ChannelInfo",
         "description": "Данные канала — для сайдбара (логин, имя, аватар)."
       },
+      "CurrentStreamGame": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "stream_id": {
+            "type": "integer",
+            "title": "Stream Id"
+          },
+          "game_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "title": "Duration Minutes"
+          },
+          "steam_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steam Url"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "is_live": {
+            "type": "boolean",
+            "title": "Is Live"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "first_played_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Played At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "game": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GameView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "stream_id",
+          "name",
+          "duration_minutes",
+          "is_live",
+          "started_at",
+          "first_played_at"
+        ],
+        "title": "CurrentStreamGame",
+        "description": "Игра из активного стрима либо ожидающей агрегации завершённой сессии."
+      },
+      "CurrentStreamView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "games": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Games"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "title": "Duration Minutes"
+          },
+          "channel_url": {
+            "type": "string",
+            "title": "Channel Url"
+          },
+          "mentioned_logins": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Mentioned Logins"
+          },
+          "last_sample_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sample At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "started_at",
+          "title",
+          "games",
+          "duration_minutes",
+          "channel_url",
+          "mentioned_logins"
+        ],
+        "title": "CurrentStreamView",
+        "description": "Текущая трансляция, собранная из runtime-сессии и сэмплов."
+      },
       "GameCandidate": {
         "properties": {
           "igdb_id": {
@@ -3197,6 +3469,17 @@
             },
             "type": "array",
             "title": "Platforms"
+          },
+          "igdb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Igdb Id"
           },
           "slug": {
             "anyOf": [
@@ -3399,6 +3682,64 @@
           "game_type"
         ],
         "title": "GameDetail"
+      },
+      "GameIGDBRefreshIn": {
+        "properties": {
+          "igdb_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Igdb Id"
+          },
+          "igdb_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Igdb Url"
+          }
+        },
+        "type": "object",
+        "title": "GameIGDBRefreshIn"
+      },
+      "GameIGDBRefreshOut": {
+        "properties": {
+          "game_id": {
+            "type": "integer",
+            "title": "Game Id"
+          },
+          "igdb_id": {
+            "type": "string",
+            "title": "Igdb Id"
+          },
+          "igdb_name": {
+            "type": "string",
+            "title": "Igdb Name"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "igdb_id",
+          "igdb_name",
+          "message"
+        ],
+        "title": "GameIGDBRefreshOut"
       },
       "GameReviewLink": {
         "properties": {

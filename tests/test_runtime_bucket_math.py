@@ -8,7 +8,7 @@
     .venv\\Scripts\\python.exe -m pytest tests/test_runtime_bucket_math.py -q
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from runtime.metrics import (
     _follower_delta,
@@ -176,3 +176,67 @@ def test_summary_contains_segment_bounds_and_follower_fallback():
     assert game_b["peak_viewers"] == 50
     assert game_b["followers_gained"] == 2
     assert session["games_unique"] == ["Game A", "Game B"]
+
+
+def test_summary_ignores_games_under_ten_minutes_but_keeps_exact_threshold_and_summed_visits():
+    start = _dt(START)
+    short_end = start + timedelta(seconds=599)
+    ten_min_end = short_end + timedelta(seconds=600)
+    split_first_end = ten_min_end + timedelta(seconds=300)
+    split_second_start = split_first_end + timedelta(seconds=60)
+    end = split_second_start + timedelta(seconds=300)
+
+    session = {
+        "status": "completed",
+        "started_at": _iso(start),
+        "ended_at": _iso(end),
+        "game_segments": [
+            {
+                "category_id": "short",
+                "category_name": "Wrong category",
+                "started_at": _iso(start),
+                "ended_at": _iso(short_end),
+            },
+            {
+                "category_id": "threshold",
+                "category_name": "Ten minutes",
+                "started_at": _iso(short_end),
+                "ended_at": _iso(ten_min_end),
+            },
+            {
+                "category_id": "split",
+                "category_name": "Played twice",
+                "started_at": _iso(ten_min_end),
+                "ended_at": _iso(split_first_end),
+            },
+            {
+                "category_id": "other",
+                "category_name": "Intervening game",
+                "started_at": _iso(split_first_end),
+                "ended_at": _iso(split_second_start),
+            },
+            {
+                "category_id": "split",
+                "category_name": "Played twice",
+                "started_at": _iso(split_second_start),
+                "ended_at": _iso(end),
+            },
+        ],
+        "metrics": {
+            "viewer_samples": [],
+            "follower_samples": [],
+            "follow_events": [],
+        },
+    }
+
+    recalculate_all_metrics(session)
+
+    summary = {row["category_name"]: row for row in session["games_summary"]}
+    assert "Wrong category" not in summary
+    assert summary["Ten minutes"]["duration_minutes"] == 10.0
+    assert summary["Played twice"]["duration_minutes"] == 10.0
+    assert session["games_unique"] == ["Ten minutes", "Played twice"]
+
+
+def _iso(value: datetime) -> str:
+    return value.isoformat()

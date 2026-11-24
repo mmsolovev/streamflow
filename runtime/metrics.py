@@ -12,6 +12,8 @@ from runtime.utils import (
     ceil_to_10min_utc,
 )
 
+MIN_GAME_DURATION_SECONDS = 10 * 60
+
 
 def recalculate_all_metrics(session: StreamSession):
     ensure_session_shape_for_metrics(session)
@@ -248,6 +250,11 @@ def _populate_games_summary(session: StreamSession):
     unique_names: list[str] = []
     for k in order:
         g = per_game[k]
+        # TwitchTracker filters very short category switches from a stream's
+        # per-game summary. Apply the same rule before writing stream_games so
+        # a brief wrong category cannot advance game_stats.last_stream.
+        if g["duration_minutes"] * 60 < MIN_GAME_DURATION_SECONDS:
+            continue
         dur_hours = (g["duration_minutes"] / 60.0) if g["duration_minutes"] else 0.0
         g["duration_minutes"] = round(g["duration_minutes"], 2)
         g["hours_watched"] = round(g["hours_watched"], 2)

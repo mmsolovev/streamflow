@@ -4,14 +4,21 @@ import { toast } from 'sonner'
 import {
   getGame,
   listGames,
+  listCurrentStreamGames,
   listGamesCovers,
   listGamesFilterOptions,
   listGameStreams,
+  refreshGameIGDB,
   updateGameReviews,
   updateGameState,
 } from '@/features/games/api'
 import type { ListParams } from '@/features/games/api'
-import type { GameDetail, GamesPage } from '@/api/types'
+import type {
+  GameDetail,
+  GameIGDBRefreshBody,
+  GameIGDBRefreshResult,
+  GamesPage,
+} from '@/api/types'
 import type { GameReviewLink } from '@/api/types'
 
 /** Список игр с серверными поиском, фильтрами, сортировкой и пагинацией. */
@@ -133,6 +140,16 @@ export function useUpdateGameState() {
   })
 }
 
+/** Live-игры и завершённые игры, пока ждёт агрегатор статистики. */
+export function useCurrentStreamGames() {
+  return useQuery({
+    queryKey: ['games', 'current-stream'],
+    queryFn: listCurrentStreamGames,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+  })
+}
+
 export function useUpdateGameReviews() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -143,5 +160,25 @@ export function useUpdateGameReviews() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['games'] })
     },
+  })
+}
+
+export function useRefreshGameIGDB() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      gameId,
+      body,
+    }: {
+      gameId: number
+      body: GameIGDBRefreshBody
+    }): Promise<GameIGDBRefreshResult> => refreshGameIGDB(gameId, body),
+    onSuccess: (result) => {
+      toast.success(result.message)
+      void queryClient.invalidateQueries({ queryKey: ['games'] })
+      void queryClient.invalidateQueries({ queryKey: ['releases'] })
+      void queryClient.invalidateQueries({ queryKey: ['recommendations'] })
+    },
+    onError: (error) => toast.error(error.message),
   })
 }

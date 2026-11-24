@@ -126,6 +126,14 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
   `stream_runtime_samples`, `stream_runtime_buckets` (см.
   `runtime/repository.py`). JSON-файлы `storage/runtime/*` больше не
   используются.
+- `GET /streams/current` собирает live-островок из свежей сессии `collecting`
+  и её runtime-сэмплов. Незавершённая запись сессии исключается из истории
+  `/streams`, чтобы не дублировать её; после финализации она снова становится
+  обычной строкой списка. Live endpoint скрывает данные, если последний сэмпл
+  старше порога свежести (не менее 3 минут).
+- `GET /games/current-stream` считает время по каждой Twitch-категории из
+  runtime-сэмплов. Островки остаются до завершения задачи `stream_stats_jobs`,
+  чтобы перекрыть задержку агрегации `game_stats`; схема БД не меняется.
 - На финализации пишутся `streams`, `stream_titles`, `stream_games`; задача
   отложенной агрегации попадает в `stream_stats_jobs` с задержкой 660 с
   (`STREAM_STATS_AGGREGATION_DELAY_SECONDS`).
@@ -154,6 +162,7 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
 | `parse_streams_json.py` | TwitchTracker HTML → JSON |
 | `parse_games_json.py` | HTML страниц игр → merge → JSON |
 | `parse_twitchtracker.py` | HTML страниц стримов → PostgreSQL + IGDB/HLTB |
+| `import_twitchtracker_stream_pages.py` | `streams_tt/*.html` → preflight-импорт; `--authoritative --page <имя> --apply` заменяет данные конкретного стрима значениями TwitchTracker и убирает категории, отсутствующие на TT-странице |
 | `aggregate_streams.py` | пересчёт `game_stats`: `--due`, `--stream`, `--all`, `--drift` |
 | `rollback_stats.py` | откат батча истории статистики по `--batch` или `--stream` |
 | `import_json_to_db.py` | JSON → PostgreSQL, VOD sync, обогащение |

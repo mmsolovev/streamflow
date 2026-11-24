@@ -1,8 +1,8 @@
 """Import archived TwitchTracker stream pages into PostgreSQL.
 
-Dry-run is the default. Use ``--apply`` only after reviewing the match report.
-The importer never creates games for unmatched categories and never changes
-non-NULL stream/game metrics on conflicts; those are reported for review.
+Dry-run is the default. The normal apply mode only fills missing values.
+``--authoritative`` opts into replacing stream/game detail from TwitchTracker
+and removing database-only game rows for the selected page(s).
 """
 
 from __future__ import annotations
@@ -69,6 +69,8 @@ class Report:
     titles_to_add: int = 0
     stream_fields_to_fill: int = 0
     new_stream_game_rows: int = 0
+    stream_game_rows_to_remove: int = 0
+    removed_stream_game_row_ids: list[int] = field(default_factory=list)
     game_fields_to_fill: int = 0
     stream_metric_conflicts: int = 0
     game_metric_conflicts: int = 0
@@ -314,6 +316,8 @@ def _load_pages(
     indexes: GameIndexes,
     manual_map: dict[str, str],
     report: Report,
+    *,
+    page_name: str | None = None,
 ) -> list[PagePlan]:
     streams_by_key: dict[str, list[Stream]] = defaultdict(list)
     for stream in streams:
@@ -321,6 +325,11 @@ def _load_pages(
             streams_by_key[_stream_key(stream.started_at)].append(stream)
 
     files = sorted(pages_dir.glob("stream_*.html"))
+    if page_name:
+        requested_name = Path(page_name).name
+        files = [path for path in files if path.name == requested_name]
+        if not files:
+            report.block(f"requested TwitchTracker page not found: {requested_name}")
     report.files = len(files)
     plans: list[PagePlan] = []
 
@@ -455,6 +464,7 @@ def _record_conflict(
     field: str,
     existing,
     incoming,
+    authoritative: bool = False,
 ) -> None:
     if entity == "stream":
         report.stream_metric_conflicts += 1
@@ -465,7 +475,11 @@ def _record_conflict(
         f"stream={stream.id}"
         + (f" game={game.name}" if game else "")
         + f" {entity}.{field}: existing={existing!r}, TT={incoming!r}; "
-        "kept existing value"
+        + (
+            "TT value will replace existing value"
+            if authoritative
+            else "kept existing value"
+        )
     )
 
 
@@ -474,6 +488,8 @@ def _preview_conflicts(
     stream_games_by_stream: dict[int, list[StreamGame]],
     stream_titles: list[StreamTitle],
     report: Report,
+    *,
+    authoritative: bool = False,
 ) -> None:
     existing_titles = {
         _title_key(int(row.stream_id), row.title, row.started_at)
@@ -506,6 +522,7 @@ def _preview_conflicts(
                 field=field,
                 existing=existing,
                 incoming=incoming,
+                authoritative=authoritative,
             )
         if stream.ended_at is None and page.ended_at is not None:
             report.stream_fields_to_fill += 1
@@ -560,7 +577,14 @@ def _preview_conflicts(
                     field=field,
                     existing=existing,
                     incoming=incoming,
+                    authoritative=authoritative,
                 )
+        if authoritative:
+            imported_ids = {int(game.id) for game, _entry in plan.games}
+            report.stream_game_rows_to_remove += sum(
+                int(row.game_id) not in imported_ids
+                for row in stream_games_by_stream.get(int(stream.id), [])
+            )
 
 
 def _add_alias_and_category_id(
@@ -632,6 +656,8 @@ async def _apply_import(
     plans: list[PagePlan],
     indexes: GameIndexes,
     report: Report,
+    *,
+    authoritative: bool = False,
 ) -> tuple[int, int, int, int]:
     change_refs: list[tuple[str, object, str, object, object]] = []
     affected_game_ids: set[int] = set()
@@ -670,20 +696,27 @@ async def _apply_import(
         }
         for field, incoming in stream_desired.items():
             old_value = getattr(stream, field, None)
-            if old_value is not None or incoming is None:
+            if incoming is None or old_value == incoming:
+                continue
+            if old_value is not None and not authoritative:
                 continue
             setattr(stream, field, incoming)
             change_refs.append(
                 (stats_history.ENTITY_STREAM, stream, field, old_value, incoming)
             )
-        if stream.ended_at is None and page.ended_at is not None:
+        if (
+            page.ended_at is not None
+            and (stream.ended_at is None or authoritative)
+            and stream.ended_at != page.ended_at
+        ):
+            old_ended_at = stream.ended_at
             stream.ended_at = page.ended_at
             change_refs.append(
                 (
                     stats_history.ENTITY_STREAM,
                     stream,
                     "ended_at",
-                    None,
+                    old_ended_at,
                     page.ended_at,
                 )
             )
@@ -714,6 +747,23 @@ async def _apply_import(
             titles_added += 1
 
         rows = stream_game_rows_by_stream[int(stream.id)]
+        imported_page_game_ids = {int(game.id) for game, _entry in plan.games}
+        if authoritative:
+            stale_rows = [
+                row
+                for row in rows
+                if int(row.game_id) not in imported_page_game_ids
+            ]
+            for row in stale_rows:
+                report.removed_stream_game_row_ids.append(int(row.id))
+                affected_game_ids.add(int(row.game_id))
+                await session.delete(row)
+            if stale_rows:
+                await session.flush()
+                stale_ids = {int(row.id) for row in stale_rows}
+                rows = [row for row in rows if int(row.id) not in stale_ids]
+                stream_game_rows_by_stream[int(stream.id)] = rows
+
         by_game: dict[int, list[StreamGame]] = defaultdict(list)
         for row in rows:
             by_game[int(row.game_id)].append(row)
@@ -768,7 +818,9 @@ async def _apply_import(
                 for field in _GAME_FIELDS:
                     old_value = getattr(row, field, None)
                     incoming = getattr(entry, field)
-                    if old_value is not None or incoming is None:
+                    if incoming is None or old_value == incoming:
+                        continue
+                    if old_value is not None and not authoritative:
                         continue
                     setattr(row, field, incoming)
                     change_refs.append(
@@ -782,13 +834,14 @@ async def _apply_import(
                     )
             ordered_rows.append(row)
 
-        # Preserve DB-only categories but place them after the TT page order.
-        ordered_rows.extend(
-            row
-            for row in rows
-            if int(row.game_id) not in imported_game_ids
-            and row not in ordered_rows
-        )
+        if not authoritative:
+            # Safe mode preserves DB-only categories after the TT page order.
+            ordered_rows.extend(
+                row
+                for row in rows
+                if int(row.game_id) not in imported_game_ids
+                and row not in ordered_rows
+            )
         if ordered_rows:
             offset = max((int(row.position or 0) for row in rows), default=0)
             offset += len(ordered_rows) + 100
@@ -808,8 +861,19 @@ async def _apply_import(
     batch_meta = {
         "pages": len(plans),
         "game_ids": sorted(affected_game_ids),
-        "conflict_policy": "preserve_existing_non_null",
-        "preserved_conflicts": dict(report.conflicts_by_field),
+        "conflict_policy": (
+            "twitchtracker_authoritative"
+            if authoritative
+            else "preserve_existing_non_null"
+        ),
+        "authoritative": authoritative,
+        "removed_stream_game_row_ids": report.removed_stream_game_row_ids,
+        "preserved_conflicts": (
+            {} if authoritative else dict(report.conflicts_by_field)
+        ),
+        "replaced_conflicts": (
+            dict(report.conflicts_by_field) if authoritative else {}
+        ),
         "duration_mismatch_pages": report.duration_mismatch,
         "category_id_conflicts": report.category_id_conflicts,
     }
@@ -820,7 +884,9 @@ async def _apply_import(
         reason="import_twitchtracker_stream_pages",
         meta=batch_meta,
     )
-    if batch is None and (changes or titles_added):
+    if batch is None and (
+        changes or titles_added or report.removed_stream_game_row_ids
+    ):
         batch = await stats_history.begin_batch(
             session,
             source=stats_history.SOURCE_TWITCHTRACKER,
@@ -844,7 +910,9 @@ async def _apply_import(
     )
 
 
-def _print_report(report: Report, *, apply: bool) -> None:
+def _print_report(
+    report: Report, *, apply: bool, authoritative: bool = False
+) -> None:
     print("TwitchTracker import preflight:")
     print(f"  Stream files: {report.files}")
     print(f"  Parsed pages: {report.parsed}")
@@ -853,9 +921,17 @@ def _print_report(report: Report, *, apply: bool) -> None:
     print(f"  Stream title rows to add: {report.titles_to_add}")
     print(f"  Stream fields to fill: {report.stream_fields_to_fill}")
     print(f"  New stream_games rows: {report.new_stream_game_rows}")
+    print(f"  Existing stream_games rows to remove: {report.stream_game_rows_to_remove}")
     print(f"  Per-game fields to fill: {report.game_fields_to_fill}")
-    print(f"  Stream metric conflicts (preserved): {report.stream_metric_conflicts}")
-    print(f"  Game metric conflicts (preserved): {report.game_metric_conflicts}")
+    conflict_action = "to replace" if authoritative else "preserved"
+    print(
+        f"  Stream metric conflicts ({conflict_action}): "
+        f"{report.stream_metric_conflicts}"
+    )
+    print(
+        f"  Game metric conflicts ({conflict_action}): "
+        f"{report.game_metric_conflicts}"
+    )
     for field_name, count in sorted(report.conflicts_by_field.items()):
         print(f"    {field_name}: {count}")
     print(f"  Twitch ID conflicts: {report.category_id_conflicts}")
@@ -872,6 +948,11 @@ def _print_report(report: Report, *, apply: bool) -> None:
         print("  Mode: APPLY")
     else:
         print("  Mode: DRY-RUN (no database changes)")
+    print(
+        "  Conflict policy: TwitchTracker authoritative"
+        if authoritative
+        else "  Conflict policy: preserve existing non-NULL values and DB-only categories"
+    )
 
 
 async def run(
@@ -879,6 +960,8 @@ async def run(
     root: Path | None = None,
     apply: bool = False,
     game_map_path: Path | None = None,
+    page_name: str | None = None,
+    authoritative: bool = False,
 ) -> int:
     project_root = root or Path(__file__).resolve().parents[2]
     stream_pages_dir = project_root / "storage" / "pages" / "streams_tt"
@@ -902,7 +985,14 @@ async def run(
         ).scalars().all()
         indexes = _build_indexes(games, aliases, twitch_categories)
 
-        plans = _load_pages(stream_pages_dir, streams, indexes, manual_map, report)
+        plans = _load_pages(
+            stream_pages_dir,
+            streams,
+            indexes,
+            manual_map,
+            report,
+            page_name=page_name,
+        )
         matched_stream_ids = {int(plan.stream.id) for plan in plans}
         if len(matched_stream_ids) != len(plans):
             report.block("multiple input files resolved to the same database stream")
@@ -926,8 +1016,9 @@ async def run(
             stream_game_rows_by_stream,
             stream_titles,
             report,
+            authoritative=authoritative,
         )
-        _print_report(report, apply=apply)
+        _print_report(report, apply=apply, authoritative=authoritative)
 
         if not apply:
             await session.rollback()
@@ -938,7 +1029,11 @@ async def run(
             return 1
 
         history_changes, stats_changes, affected_games, titles_added = await _apply_import(
-            session, plans, indexes, report
+            session,
+            plans,
+            indexes,
+            report,
+            authoritative=authoritative,
         )
         await session.commit()
         print("Import committed:")
@@ -965,9 +1060,28 @@ def main() -> None:
         type=Path,
         help="optional JSON mapping of TwitchTracker category names to canonical game names",
     )
+    parser.add_argument(
+        "--page",
+        help="optional stream page filename to import (for example stream_2026-11-23_13-32.html)",
+    )
+    parser.add_argument(
+        "--authoritative",
+        action="store_true",
+        help=(
+            "make the selected TwitchTracker page authoritative: replace conflicting "
+            "non-NULL stream/game metrics and remove DB-only game rows"
+        ),
+    )
     args = parser.parse_args()
     raise SystemExit(
-        asyncio.run(run(apply=args.apply, game_map_path=args.game_map))
+        asyncio.run(
+            run(
+                apply=args.apply,
+                game_map_path=args.game_map,
+                page_name=args.page,
+                authoritative=args.authoritative,
+            )
+        )
     )
 
 

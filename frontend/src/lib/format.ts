@@ -113,6 +113,19 @@ export function isReleased(iso: string | null | undefined): boolean {
   return dayjs.utc(iso).local().startOf('day').diff(dayjs().startOf('day'), 'day') <= 0
 }
 
+/** Свежая новинка: от вчерашнего до послезавтрашнего календарного дня включительно. */
+export function isHotRelease(
+  iso: string | null | undefined,
+  now = dayjs(),
+): boolean {
+  if (!iso) return false
+  const daysFromToday = dayjs.utc(iso)
+    .local()
+    .startOf('day')
+    .diff(now.startOf('day'), 'day')
+  return daysFromToday >= -1 && daysFromToday <= 2
+}
+
 /**
  * Обратный отсчёт до релиза: «XX д XX ч XX м», если время выхода известно, иначе
  * только «XX д» (00:00 в БД — заглушка). Для прошедших релизов/без даты — ''.
