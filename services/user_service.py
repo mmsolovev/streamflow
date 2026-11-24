@@ -306,13 +306,31 @@ async def get_or_create_users_bulk(
     старый профиль закрывается, открывается новый текущий.
     """
     now = _utcnow()
-    normalized: list[tuple[str, str | None, str, str | None]] = []
+    # Один и тот же зритель может прислать несколько сообщений в батче.
+    # Дедуп по ключу обязателен: иначе второй проход находит только что
+    # созданного `User` без id (`flush` ещё не было) и падает на `int(user.id)`.
+    normalized_by_key: dict[str, tuple[str | None, str, str | None]] = {}
     for twitch_user_id, login, display_name in identities:
         twitch_user_id = str(twitch_user_id) if twitch_user_id else None
         login = (login or "").strip()
         if not login and not twitch_user_id:
             continue
-        normalized.append((twitch_user_id or login, twitch_user_id, login, display_name))
+        key = twitch_user_id or login
+        previous = normalized_by_key.get(key)
+        if previous is None:
+            normalized_by_key[key] = (twitch_user_id, login, display_name)
+        else:
+            prev_twitch_id, prev_login, prev_display = previous
+            normalized_by_key[key] = (
+                prev_twitch_id or twitch_user_id,
+                prev_login or login,
+                prev_display or display_name,
+            )
+
+    normalized: list[tuple[str, str | None, str, str | None]] = [
+        (key, twitch_user_id, login, display_name)
+        for key, (twitch_user_id, login, display_name) in normalized_by_key.items()
+    ]
 
     ids = {item[1] for item in normalized if item[1]}
     logins = {item[2] for item in normalized if item[2]}
@@ -351,7 +369,9 @@ async def get_or_create_users_bulk(
         profiles_by_user = {int(profile.user_id): profile for profile in rows.scalars().all()}
 
     result: dict[str, User] = {}
-    new_profiles: dict[str, tuple[User, str, str | None]] = {}
+    # Ключ — `id(user)`, а не login: у одного пользователя может быть
+    # несколько identity в одном батче, профиль должен создаться один раз.
+    new_profiles: dict[int, tuple[User, str, str | None]] = {}
 
     for key, twitch_user_id, login, display_name in normalized:
         user = users_by_id.get(twitch_user_id) if twitch_user_id else None
@@ -363,14 +383,21 @@ async def get_or_create_users_bulk(
             session.add(user)
             users_by_id[twitch_user_id or login] = user
             if login:
-                new_profiles[key] = (user, login, display_name)
+                # Чтобы вторая identity того же зрителя в этом же батче
+                # нашла созданного пользователя до `flush`.
+                users_by_login[login] = user
+                new_profiles[id(user)] = (user, login, display_name)
             result[key] = user
             continue
 
         if user.twitch_user_id is None and twitch_user_id:
             user.twitch_user_id = twitch_user_id
+            users_by_id[twitch_user_id] = user
 
-        profile = profiles_by_user.get(int(user.id))
+        # У только что созданного пользователя id появится после `flush`.
+        profile = (
+            profiles_by_user.get(int(user.id)) if user.id is not None else None
+        )
         if profile is not None and profile.login == login:
             profile.display_name = display_name or profile.display_name
             profile.last_seen_at = now
@@ -380,8 +407,11 @@ async def get_or_create_users_bulk(
                 profile.is_current = False
                 profile.last_seen_at = now
                 profile.updated_at = now
+                # Второй identity не должен снова увидеть закрытый профиль
+                # как текущий.
+                profiles_by_user.pop(int(user.id), None)
             if login:
-                new_profiles[key] = (user, login, display_name)
+                new_profiles[id(user)] = (user, login, display_name)
 
         result[key] = user
 

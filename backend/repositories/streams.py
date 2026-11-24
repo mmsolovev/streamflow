@@ -1,7 +1,8 @@
 """Streams query layer — mirrors sheets_streams.py without Google Sheets."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,8 @@ from database.models import (
     Stream,
     StreamGame,
     StreamRecording,
+    StreamRuntimeSample,
+    StreamRuntimeSession,
     User,
     UserProfile,
     game_genres,
@@ -20,6 +23,31 @@ from database.models import (
 from backend.repositories._shared import JUST_CHATTING_NAMES
 from backend.repositories.filters import stream_participant_condition, stream_tag_condition
 from backend.repositories.list_query import ListQuery
+from config import settings as bot_settings
+
+_TWITCH_MENTION_RE = re.compile(r"(?<![A-Za-z0-9_])@([A-Za-z0-9_]{1,25})\b")
+
+
+def extract_twitch_mentions(title: str | None) -> list[str]:
+    """Извлечь уникальные Twitch-логины вида `@login` из названия эфира."""
+    if not title:
+        return []
+    mentions: list[str] = []
+    seen: set[str] = set()
+    for match in _TWITCH_MENTION_RE.finditer(title):
+        login = match.group(1)
+        normalized = login.casefold()
+        if normalized not in seen:
+            seen.add(normalized)
+            mentions.append(login)
+    return mentions
+
+
+def _not_collecting_stream():
+    return ~select(StreamRuntimeSession.id).where(
+        StreamRuntimeSession.stream_id == Stream.id,
+        StreamRuntimeSession.status == "collecting",
+    ).exists()
 
 
 async def list_streams_filter_options(session: AsyncSession) -> dict:
@@ -28,7 +56,11 @@ async def list_streams_filter_options(session: AsyncSession) -> dict:
     Теги стримов собираются в Python (жанры игр + особые значения), поэтому
     значения считаются одним проходом по данным.
     """
-    q = select(Stream).options(selectinload(Stream.stream_games).selectinload(StreamGame.game))
+    q = (
+        select(Stream)
+        .options(selectinload(Stream.stream_games).selectinload(StreamGame.game))
+        .where(_not_collecting_stream())
+    )
     streams = (await session.execute(q)).scalars().unique().all()
     stream_ids = [stream.id for stream in streams]
     genres_by_game = await _genres_by_game_map(session, stream_ids)
@@ -94,7 +126,9 @@ async def list_streams(
 ) -> tuple[list[dict], int, int, dict[str, int]]:
     """Список стримов: поиск, фильтры, сортировка и пагинация выполняются в БД."""
     query = query or ListQuery()
-    where = []
+    # Runtime создаёт строку `streams` в момент старта эфира. Пока сессия
+    # collecting, её показываем отдельным live-островком, а не как историю.
+    where = [_not_collecting_stream()]
     if date_from is not None:
         where.append(Stream.started_at >= date_from)
     if date_to is not None:
@@ -121,7 +155,12 @@ async def list_streams(
         where.append(participant_cond)
 
     total_all = int(
-        (await session.execute(select(func.count()).select_from(Stream))).scalar_one() or 0
+        (
+            await session.execute(
+                select(func.count()).select_from(Stream).where(_not_collecting_stream())
+            )
+        ).scalar_one()
+        or 0
     )
     total = int(
         (
@@ -247,6 +286,86 @@ async def list_streams(
         "total": total_all,
         "with_vod": with_vod,
         "total_minutes": total_minutes,
+    }
+
+
+async def get_current_stream(session: AsyncSession) -> dict | None:
+    """Текущий эфир из свежей runtime-сессии; без отдельного хранения состояния."""
+    result = await session.execute(
+        select(StreamRuntimeSession, Stream)
+        .join(Stream, Stream.id == StreamRuntimeSession.stream_id)
+        .where(StreamRuntimeSession.status == "collecting")
+        .order_by(StreamRuntimeSession.started_at.desc())
+        .limit(1)
+    )
+    row = result.first()
+    if row is None:
+        return None
+
+    runtime_session, stream = row
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    heartbeat = (
+        runtime_session.last_sample_at
+        or runtime_session.updated_at
+        or runtime_session.created_at
+        or runtime_session.started_at
+    )
+    freshness_seconds = max(
+        180,
+        int(bot_settings.STREAM_RUNTIME_SAMPLE_SECONDS) * 3,
+    )
+    if (
+        heartbeat is None
+        or (now - heartbeat).total_seconds() > freshness_seconds
+        or (heartbeat - now).total_seconds() > 30
+    ):
+        return None
+
+    samples_result = await session.execute(
+        select(
+            StreamRuntimeSample.sampled_at,
+            StreamRuntimeSample.title,
+            StreamRuntimeSample.category_name,
+            StreamRuntimeSample.category_id,
+        )
+        .where(
+            StreamRuntimeSample.stream_id == runtime_session.stream_id,
+            StreamRuntimeSample.stream_session_id == runtime_session.id,
+        )
+        .order_by(StreamRuntimeSample.sampled_at)
+    )
+
+    title = stream.title or ""
+    games: list[str] = []
+    seen_games: set[str] = set()
+    for sample in samples_result.all():
+        sampled_at, sample_title, category_name, category_id = sample
+        if sample_title:
+            title = sample_title
+        if not category_name:
+            continue
+        key = str(category_id or category_name).casefold()
+        if key not in seen_games:
+            seen_games.add(key)
+            games.append(category_name)
+
+    channel_login = (
+        bot_settings.TWITCH_PRIMARY_CHANNEL
+        or bot_settings.RECOMMENDATIONS_STREAMER_LOGIN
+        or "tabula"
+    ).strip().lstrip("@").casefold()
+    started_at = runtime_session.started_at
+    duration_minutes = max(0, int((now - started_at).total_seconds() // 60))
+
+    return {
+        "id": int(stream.id),
+        "started_at": started_at,
+        "title": title,
+        "games": games,
+        "duration_minutes": duration_minutes,
+        "channel_url": f"https://www.twitch.tv/{channel_login}",
+        "mentioned_logins": extract_twitch_mentions(title),
+        "last_sample_at": runtime_session.last_sample_at,
     }
 
 

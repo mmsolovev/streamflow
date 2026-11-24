@@ -48,7 +48,7 @@ export function RecommendersCell({
   deletingLogin?: string | null
 }) {
   if (entries.length === 0) {
-    return <span className="text-[var(--text-muted)]">—</span>
+    return null
   }
   const sorted = sortRecommenderEntries(entries)
   const visible = sorted.slice(0, MAX_VISIBLE)

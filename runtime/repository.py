@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import (
     Game,
+    GameTwitchCategory,
     Stream,
     StreamGame,
     StreamRuntimeBucket,
@@ -35,7 +36,7 @@ from database.models import (
     StreamStatsJob,
     StreamTitle,
 )
-from pipeline.load.load_games import get_or_create_game
+from pipeline.load.load_games import get_or_create_game, make_unique_slug
 from utils.logger import get_logger
 
 logger = get_logger("runtime.repository")
@@ -632,18 +633,92 @@ async def _resolve_game_for_category(
     category_id: str | None,
     category_name: str,
 ) -> Game:
+    category_id = str(category_id or "").strip() or None
     if category_id:
+        cache_key = f"twitch:{category_id}"
+        if cache_key in cache:
+            return cache[cache_key]
+
+        category_mapping = await db.get(GameTwitchCategory, category_id)
+        if category_mapping is not None:
+            game = await db.get(Game, int(category_mapping.game_id))
+            if game is not None:
+                cache[cache_key] = game
+                return game
+
         result = await db.execute(
-            select(Game).where(Game.twitch_category_id == str(category_id)).limit(1)
+            select(Game).where(Game.twitch_category_id == category_id).limit(1)
         )
         game = result.scalar_one_or_none()
         if game is not None:
-            cache.setdefault(category_name, game)
+            cache[cache_key] = game
+            db.add(
+                GameTwitchCategory(
+                    twitch_category_id=category_id,
+                    game_id=int(game.id),
+                    category_name=category_name,
+                    source="runtime",
+                    first_seen_at=utcnow(),
+                    last_seen_at=utcnow(),
+                )
+            )
             return game
 
+        # Only reuse an exact-name row when it has no conflicting Twitch ID.
+        result = await db.execute(
+            select(Game).where(func.lower(Game.name) == category_name.casefold()).limit(2)
+        )
+        candidates = result.scalars().all()
+        if len(candidates) == 1:
+            candidate = candidates[0]
+            if not candidate.twitch_category_id:
+                game = candidate
+                game.twitch_category_id = category_id
+            elif str(candidate.twitch_category_id) == category_id:
+                game = candidate
+            else:
+                game = None
+        else:
+            game = None
+
+        if game is None:
+            existing_name = category_name
+            disambiguated_name = f"{existing_name} [Twitch {category_id}]"
+            result = await db.execute(
+                select(Game.id).where(Game.name == disambiguated_name).limit(1)
+            )
+            if result.scalar_one_or_none() is not None:
+                disambiguated_name = f"{disambiguated_name} #{category_id}"
+            now = utcnow()
+            game = Game(
+                name=disambiguated_name,
+                slug=await make_unique_slug(db, disambiguated_name),
+                twitch_category_id=category_id,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(game)
+            await db.flush()
+
+        now = utcnow()
+        db.add(
+            GameTwitchCategory(
+                twitch_category_id=category_id,
+                game_id=int(game.id),
+                category_name=category_name,
+                source="runtime_fallback",
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+        )
+        cache[cache_key] = game
+        return game
+
+    cache_key = f"name:{category_name.casefold()}"
+    if cache_key in cache:
+        return cache[cache_key]
     game = await get_or_create_game(db, cache, category_name, source="stream")
-    if category_id and not game.twitch_category_id:
-        game.twitch_category_id = str(category_id)
+    cache[cache_key] = game
     return game
 
 

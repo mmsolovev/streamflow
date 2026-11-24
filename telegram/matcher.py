@@ -240,25 +240,21 @@ def in_window(
     *,
     started_at: datetime | str | None,
     ended_at: datetime | str | None = None,
-    before_hours: float = 12.0,
+    before_hours: float = 1.0,
     after_minutes: float = 60.0,
 ) -> bool:
-    """Попадает ли пост в окно стрима. Границы включительные.
+    """Попадает ли пост в окно относительно начала стрима. Границы включительные.
 
-    Анонс обычно выходит за несколько минут до старта, поэтому левая граница
-    намеренно широкая; сужается настройкой `TELEGRAM_MATCH_WINDOW_BEFORE_HOURS`.
+    Ищем только рядом с началом, а не до конца долгого эфира: иначе анонсом
+    могла бы ошибочно стать реклама, опубликованная во время стрима.
     """
     posted = normalize_dt(posted_at)
     start = normalize_dt(started_at)
     if posted is None or start is None:
         return False
 
-    end = normalize_dt(ended_at) or start
-    if start > end:
-        start, end = end, start
-
     lower = start - timedelta(hours=before_hours)
-    upper = end + timedelta(minutes=after_minutes)
+    upper = start + timedelta(minutes=after_minutes)
     return lower <= posted <= upper
 
 
@@ -287,11 +283,11 @@ def pick_candidate(
     matcher: ChannelLinkMatcher | None,
     started_at: datetime | str | None,
     ended_at: datetime | str | None = None,
-    before_hours: float = 12.0,
+    before_hours: float = 1.0,
     after_minutes: float = 60.0,
     exclude_message_ids=None,
 ) -> dict | None:
-    """Самый свежий пост-кандидат для анонса стрима, либо None.
+    """Ближайший по времени к началу стрима пост-кандидат, либо None.
 
     Фильтры по порядку важности:
       1. репост — в канале их много, анонсами они не являются;
@@ -307,7 +303,7 @@ def pick_candidate(
     """
     excluded = set(exclude_message_ids or ())
     best: dict | None = None
-    best_posted_at: datetime | None = None
+    best_distance: timedelta | None = None
 
     for post in posts:
         message_id = post.get("message_id")
@@ -338,8 +334,12 @@ def pick_candidate(
         ):
             continue
 
-        if best_posted_at is None or posted_at > best_posted_at:
-            best, best_posted_at = post, posted_at
+        start = normalize_dt(started_at)
+        if start is None:
+            continue
+        distance = abs(posted_at - start)
+        if best_distance is None or distance < best_distance:
+            best, best_distance = post, distance
 
     return best
 

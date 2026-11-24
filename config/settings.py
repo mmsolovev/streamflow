@@ -162,18 +162,11 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 # Один канал: @username или -100xxxxxxxxxx. Несколько — фаза 2.
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
-# Через сколько секунд после окончания стрима проверять наличие VOD.
-TELEGRAM_VOD_CHECK_DELAY_SECONDS = int(os.getenv("TELEGRAM_VOD_CHECK_DELAY_SECONDS", "660"))
-
 # Как часто поллер опрашивает БД на предмет задач с check_at <= now().
 TELEGRAM_VOD_POLL_INTERVAL_SECONDS = int(os.getenv("TELEGRAM_VOD_POLL_INTERVAL_SECONDS", "60"))
 
-# Повторы при ошибках инфраструктуры (сеть, 5xx), не при отсутствии VOD.
+# Повторы при ошибках инфраструктуры и пока Twitch публикует VOD в архив.
 TELEGRAM_VOD_MAX_ATTEMPTS = int(os.getenv("TELEGRAM_VOD_MAX_ATTEMPTS", "5"))
-
-# Окно, в котором ищем анонс относительно стрима.
-TELEGRAM_MATCH_WINDOW_BEFORE_HOURS = int(os.getenv("TELEGRAM_MATCH_WINDOW_BEFORE_HOURS", "12"))
-TELEGRAM_MATCH_WINDOW_AFTER_MINUTES = int(os.getenv("TELEGRAM_MATCH_WINDOW_AFTER_MINUTES", "60"))
 
 # Если трансляция падала и broadcast перезапускался — насколько поздно
 # предыдущий стрим ещё считается частью того же анонса.

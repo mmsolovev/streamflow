@@ -24,7 +24,6 @@ from pipeline.transform.igdb_transform import (
     normalize_genres_text,
     parse_release_date,
     pick_best_match,
-    truncate_text,
 )
 from utils.logger import get_logger
 
@@ -103,6 +102,7 @@ def _get_state() -> _IGDBLoopState:
 @dataclass
 class RecommendationMetadata:
     title: str
+    # Legacy field name; consumers persist the complete IGDB summary.
     description_short: str | None
     release_date: datetime | None
     release_precision: str
@@ -118,9 +118,12 @@ class RecommendationMetadata:
 
 def _metadata_from_payload(game: dict) -> RecommendationMetadata:
     release_date, release_precision = parse_release_date(game.get("first_release_date"))
+    summary = game.get("summary")
+    full_summary = summary.strip() if isinstance(summary, str) and summary.strip() else None
     return RecommendationMetadata(
         title=game.get("name") or "Unknown",
-        description_short=truncate_text(game.get("summary")),
+        # Keep the full IGDB summary: this value is persisted as description_en.
+        description_short=full_summary,
         release_date=release_date,
         release_precision=release_precision,
         steam_url=extract_steam_url(game.get("websites")),
@@ -340,6 +343,30 @@ async def fetch_igdb_metadata_by_id(igdb_id: str | int) -> RecommendationMetadat
     return _metadata_from_payload(results[0])
 
 
+async def fetch_igdb_metadata_by_slug(igdb_slug: str) -> RecommendationMetadata | None:
+    """Fetch full metadata for an exact IGDB website slug."""
+    import re
+
+    slug = str(igdb_slug or "").strip().casefold()
+    if not slug or not re.fullmatch(r"[a-z0-9-]+", slug):
+        return None
+
+    state = _get_state()
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        body = f"""
+        fields id,name,summary,first_release_date,total_rating,total_rating_count,aggregated_rating,aggregated_rating_count,
+               genres.name,platforms.name,websites.url,cover.url;
+        where slug = "{slug}";
+        limit 1;
+        """
+        results = await _igdb_query(state, session, body)
+
+    if not results:
+        return None
+    return _metadata_from_payload(results[0])
+
+
 async def ingest_top_upcoming_games(limit: int = 15) -> list[RecommendationMetadata]:
     return await fetch_top_upcoming_games(limit=int(limit))
 
@@ -353,6 +380,7 @@ __all__ = [
     "fetch_games_by_ids",
     "fetch_igdb_metadata",
     "fetch_igdb_metadata_by_id",
+    "fetch_igdb_metadata_by_slug",
     "fetch_recommendation_metadata",
     "fetch_top_upcoming_games",
     "ingest_recommendation_metadata",

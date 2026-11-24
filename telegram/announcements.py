@@ -117,7 +117,6 @@ async def record_post(
     text: str | None,
     caption: str | None,
     entities=None,
-    custom_emoji_id: str | None = None,
     link_urls=None,
 ) -> int:
     """Вставляет или обновляет запись о посте. Возвращает `announcement.id`.
@@ -126,8 +125,6 @@ async def record_post(
     апдейт с актуальным текстом полезнее прежнего, а разбор делается позже,
     при `stream.offline`, когда текст уже точно известен.
 
-    `custom_emoji_id` перезаписывается вместе с снапшотами по той же
-    причине: он принадлежит содержимому поста, а не истории его правок.
     `link_urls` — по той же причине, плюс без них отбор кандидата в принципе
     не работает: у скрытой ссылки в тексте следа нет.
     """
@@ -148,7 +145,6 @@ async def record_post(
         original_text=text,
         original_caption=caption,
         original_entities=entities_raw,
-        custom_emoji_id=custom_emoji_id,
         link_urls=dump_link_urls(link_urls),
         posted_at=to_naive_utc(posted_at) or _now(),
         status="observed",
@@ -177,7 +173,6 @@ async def record_post(
                 TelegramAnnouncement.original_entities,
                 insert_stmt.excluded.original_entities,
             ),
-            "custom_emoji_id": custom_emoji_id,
             "link_urls": dump_link_urls(link_urls),
             "posted_at": to_naive_utc(posted_at) or _now(),
             "updated_at": _now(),
@@ -337,7 +332,6 @@ async def touch_snapshots(
     text: str | None,
     caption: str | None,
     entities=None,
-    custom_emoji_id: str | None = None,
     link_urls=None,
     media_kind: str | None = None,
     media_group_id: str | None = None,
@@ -356,8 +350,6 @@ async def touch_snapshots(
             values["caption_entities_snapshot"] = entities_raw
         else:
             values["text_entities_snapshot"] = entities_raw
-    if custom_emoji_id is not None:
-        values["custom_emoji_id"] = custom_emoji_id
     if link_urls is not None:
         values["link_urls"] = dump_link_urls(link_urls)
     if media_kind is not None:
@@ -369,28 +361,6 @@ async def touch_snapshots(
         update(TelegramAnnouncement)
         .where(TelegramAnnouncement.id == announcement_id)
         .values(**values)
-    )
-
-
-async def save_custom_emoji_id(
-    session: AsyncSession,
-    *,
-    announcement_id: int,
-    custom_emoji_id: int | None,
-) -> None:
-    """Запоминает кастомный эмодзи из анонса, чтобы повторить его в подписи.
-
-    Пишется и при `None`: значит в посте кастомного эмодзи не было, и
-    перезаписывать прежнее значение нельзя — иначе после ручной правки
-    анонса бот продолжал бы ставить эмодзи, которого в посте уже нет.
-    """
-    await session.execute(
-        update(TelegramAnnouncement)
-        .where(TelegramAnnouncement.id == announcement_id)
-        .values(
-            custom_emoji_id=custom_emoji_id,
-            updated_at=_now(),
-        )
     )
 
 
@@ -409,7 +379,6 @@ __all__ = [
     "recent_bound_ids",
     "recent_posts",
     "record_post",
-    "save_custom_emoji_id",
     "snapshot_of",
     "to_naive_utc",
 ]

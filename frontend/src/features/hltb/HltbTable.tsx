@@ -27,6 +27,10 @@ const GRID = `minmax(220px, 2.4fr) 104px 104px 116px 104px 96px 116px 150px`
 
 const HLTB_URL = 'https://howlongtobeat.com/game/'
 
+function hltbCellValue(value: number | null | undefined): string | null {
+  return value == null || value <= 0 ? null : formatHltbTime(value)
+}
+
 /** Раздел «HowLongToBeat»: время прохождения игр (по данным game_metadata_hltb). */
 export function HltbTable() {
   const { canEdit } = useAuth()
@@ -60,7 +64,7 @@ export function HltbTable() {
         align: 'center',
         defaultDir: 'asc',
         sortValue: (item) => item.all_styles ?? Number.POSITIVE_INFINITY,
-        render: (item) => formatHltbTime(item.all_styles),
+        render: (item) => hltbCellValue(item.all_styles),
       },
       {
         key: 'story',
@@ -68,7 +72,7 @@ export function HltbTable() {
         align: 'center',
         defaultDir: 'asc',
         sortValue: (item) => item.main_story ?? Number.POSITIVE_INFINITY,
-        render: (item) => formatHltbTime(item.main_story),
+        render: (item) => hltbCellValue(item.main_story),
       },
       {
         key: 'extra',
@@ -76,7 +80,7 @@ export function HltbTable() {
         align: 'center',
         defaultDir: 'asc',
         sortValue: (item) => item.main_extra ?? Number.POSITIVE_INFINITY,
-        render: (item) => formatHltbTime(item.main_extra),
+        render: (item) => hltbCellValue(item.main_extra),
       },
       {
         key: 'completionist',
@@ -84,7 +88,7 @@ export function HltbTable() {
         align: 'center',
         defaultDir: 'asc',
         sortValue: (item) => item.completionist ?? Number.POSITIVE_INFINITY,
-        render: (item) => formatHltbTime(item.completionist),
+        render: (item) => hltbCellValue(item.completionist),
       },
       {
         key: 'coop',
@@ -92,7 +96,7 @@ export function HltbTable() {
         align: 'center',
         defaultDir: 'asc',
         sortValue: (item) => item.coop ?? Number.POSITIVE_INFINITY,
-        render: (item) => formatHltbTime(item.coop),
+        render: (item) => hltbCellValue(item.coop),
       },
       {
         key: 'multiplayer',
@@ -100,7 +104,7 @@ export function HltbTable() {
         align: 'center',
         defaultDir: 'asc',
         sortValue: (item) => item.multiplayer ?? Number.POSITIVE_INFINITY,
-        render: (item) => formatHltbTime(item.multiplayer),
+        render: (item) => hltbCellValue(item.multiplayer),
       },
       {
         key: 'link',
@@ -116,9 +120,7 @@ export function HltbTable() {
             >
               HowLongToBeat
             </a>
-          ) : (
-            <span className="text-[var(--text-muted)]">—</span>
-          ),
+          ) : null,
       },
     ],
     [],

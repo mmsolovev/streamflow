@@ -34,6 +34,19 @@ class StreamView(BaseModel):
     max_viewers: Optional[int]
 
 
+class CurrentStreamView(BaseModel):
+    """Текущая трансляция, собранная из runtime-сессии и сэмплов."""
+
+    id: int
+    started_at: datetime
+    title: str
+    games: list[str]
+    duration_minutes: int
+    channel_url: str
+    mentioned_logins: list[str]
+    last_sample_at: Optional[datetime] = None
+
+
 class StreamParticipantAddIn(BaseModel):
     """Добавление участника на стрим по логину Twitch."""
 

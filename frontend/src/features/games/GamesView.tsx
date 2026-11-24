@@ -1,8 +1,10 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, Copy } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import type { GameView } from '@/api/types'
+import type { CurrentStreamGame, GameReviewLink } from '@/api/types'
 import { CoverImage } from '@/components/entity/CoverImage'
 import { DateCell } from '@/components/entity/DateCell'
 import { EntityList } from '@/components/entity/EntityList'
@@ -19,16 +21,25 @@ import { SearchInput } from '@/components/ui/SearchInput'
 import { TableSkeleton } from '@/components/ui/Skeleton'
 import { StatChip } from '@/components/ui/StatChip'
 import { useAuth } from '@/features/auth/context'
+import { GameReviewCell } from '@/features/games/GameReviewCell'
 import {
+  useCurrentStreamGames,
   useGamesFilterOptions,
   useGamesList,
+  useUpdateGameReviews,
   useUpdateGameState,
 } from '@/features/games/useGames'
 import { AddRecommendation } from '@/features/recommendations/AddRecommendation'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useOffset, useResetOffsetOn } from '@/hooks/useOffset'
 import { useTableSort } from '@/hooks/useTableSort'
-import { formatHoursMinutes, formatNumber, toSortTime } from '@/lib/format'
+import {
+  formatDateNumeric,
+  formatHoursMinutes,
+  formatNumber,
+  formatTime,
+  toSortTime,
+} from '@/lib/format'
 import { GAME_COVER_PLACEHOLDER } from '@/lib/games'
 import { buildTagFilterEntries, parseTagGroups } from '@/lib/tags'
 
@@ -38,6 +49,36 @@ const GRID = `150px minmax(280px, 2.5fr) 72px 112px 96px 140px 76px 126px 96px 7
 
 const tagKey = (value: string) => `tag:${value}`
 
+type GameTableRow = GameView & {
+  current?: CurrentStreamGame
+  currentStandalone?: boolean
+}
+
+function currentGameRow(current: CurrentStreamGame): GameTableRow {
+  if (current.game) {
+    return { ...current.game, current }
+  }
+  return {
+    id: current.game_id ?? 0,
+    name: current.name,
+    rank: 0,
+    streams_count: 0,
+    hours: 0,
+    duration_minutes: null,
+    last_stream: current.started_at,
+    last_stream_id: null,
+    hltb_all_styles: null,
+    steam_url: current.steam_url ?? null,
+    cover_url: current.cover_url ?? null,
+    liked: false,
+    completed: false,
+    tags: '',
+    review_links: [],
+    current,
+    currentStandalone: true,
+  }
+}
+
 interface GameFlagActions {
   /** Есть ли право отмечать (только админ). */
   canEdit: boolean
@@ -45,6 +86,12 @@ interface GameFlagActions {
   onToggleCompleted: (game: GameView, next: boolean) => void
   /** Id игры, для которой сейчас идёт сохранение. */
   busyGameId: number | null
+}
+
+interface GameReviewActions {
+  editMode: boolean
+  busyGameId: number | null
+  onSave: (game: GameView, links: GameReviewLink[]) => Promise<void>
 }
 
 /** Копирует название игры в буфер обмена. */
@@ -78,17 +125,37 @@ function makeColumns(
   activeTags: string[],
   onTagClick: (value: string) => void,
   flags: GameFlagActions,
-): EntityColumn<GameView>[] {
+  reviews: GameReviewActions,
+): EntityColumn<GameTableRow>[] {
   return [
     {
       key: 'last',
       label: 'Последний стрим',
       defaultDir: 'desc',
       align: 'center',
-      sortValue: (game) => toSortTime(game.last_stream) ?? -Infinity,
+      sortValue: (game) =>
+        toSortTime(game.current?.first_played_at ?? game.last_stream) ?? -Infinity,
       tieBreaks: [(a, b) => a.name.localeCompare(b.name, 'ru')],
       render: (game) =>
-        game.last_stream ? (
+        game.current ? (
+          <span className="flex flex-col items-center leading-tight">
+            {!game.currentStandalone && game.last_stream ? (
+              <Link
+                to={`/streams?date=${game.last_stream.slice(0, 10)}${
+                  game.last_stream_id ? `&focus=${game.last_stream_id}` : ''
+                }`}
+                title="Перейти к последнему завершённому стриму"
+                className="transition-colors hover:text-[var(--accent)]"
+              >
+                <DateCell iso={game.last_stream} />
+              </Link>
+            ) : null}
+            <span className="text-xs text-[var(--accent)]">
+              +{formatDateNumeric(game.current.first_played_at)}{' '}
+              {formatTime(game.current.first_played_at)}
+            </span>
+          </span>
+        ) : game.last_stream ? (
           <Link
             to={`/streams?date=${game.last_stream.slice(0, 10)}${
               game.last_stream_id ? `&focus=${game.last_stream_id}` : ''
@@ -99,7 +166,7 @@ function makeColumns(
             <DateCell iso={game.last_stream} />
           </Link>
         ) : (
-          <span className="text-[var(--text-muted)]">—</span>
+          null
         ),
     },
     {
@@ -107,36 +174,52 @@ function makeColumns(
       label: 'Название игры',
       sortValue: (game) => game.name.toLowerCase(),
       defaultDir: 'asc',
-      render: (game) => (
-        <span className="flex min-w-0 items-center gap-2">
-          <Link
-            to={`/games/${game.id}`}
-            title={game.name}
-            className="shrink-0 transition-opacity hover:opacity-80"
-          >
-            <CoverImage
-              src={game.cover_url}
-              alt={game.name}
-              fallback={GAME_COVER_PLACEHOLDER}
-            />
-          </Link>
-          <Link
-            to={`/games/${game.id}`}
-            title={game.name}
-            className="min-w-0 flex-1 truncate font-medium transition-colors hover:text-[var(--accent)]"
-          >
-            {game.name}
-          </Link>
-          <CopyNameButton name={game.name} />
-        </span>
-      ),
+      render: (game) => {
+        const gameId = game.current ? game.current.game_id : game.id
+        const cover = (
+          <CoverImage
+            src={game.cover_url}
+            alt={game.name}
+            fallback={GAME_COVER_PLACEHOLDER}
+          />
+        )
+        return (
+          <span className="flex min-w-0 items-center gap-2">
+            {gameId != null ? (
+              <Link
+                to={`/games/${gameId}`}
+                title={game.name}
+                className="shrink-0 transition-opacity hover:opacity-80"
+              >
+                {cover}
+              </Link>
+            ) : (
+              <span className="shrink-0">{cover}</span>
+            )}
+            {gameId != null ? (
+              <Link
+                to={`/games/${gameId}`}
+                title={game.name}
+                className="min-w-0 flex-1 whitespace-normal break-words font-medium transition-colors hover:text-[var(--accent)]"
+              >
+                {game.name}
+              </Link>
+            ) : (
+              <span className="min-w-0 flex-1 whitespace-normal break-words font-medium">
+                {game.name}
+              </span>
+            )}
+            {game.currentStandalone ? null : <CopyNameButton name={game.name} />}
+          </span>
+        )
+      },
     },
     {
       key: 'rank',
       label: 'Ранг',
       align: 'center',
       sortValue: (game) => game.rank,
-      render: (game) => (
+      render: (game) => game.currentStandalone ? null : (
         <Link
           to={`/games/${game.id}`}
           className="transition-colors hover:text-[var(--accent)]"
@@ -149,22 +232,47 @@ function makeColumns(
       key: 'hours',
       label: 'Часов',
       align: 'center',
-      sortValue: (game) => game.hours,
-      render: (game) => (
-        <Link
-          to={`/games/${game.id}`}
-          className="transition-colors hover:text-[var(--accent)]"
-        >
-          {formatHoursMinutes(game.duration_minutes)}
-        </Link>
-      ),
+      sortValue: (game) =>
+        game.current
+          ? (game.currentStandalone ? 0 : game.duration_minutes ?? 0) +
+            game.current.duration_minutes
+          : game.duration_minutes ?? -1,
+      render: (game) =>
+        game.current ? (
+          <span className="flex flex-col items-center leading-tight">
+            {!game.currentStandalone &&
+            game.duration_minutes != null &&
+            game.duration_minutes > 0 ? (
+              <Link
+                to={`/games/${game.id}`}
+                className="transition-colors hover:text-[var(--accent)]"
+              >
+                {formatHoursMinutes(game.duration_minutes)}
+              </Link>
+            ) : null}
+            {game.current.duration_minutes > 0 ? (
+              <span className="text-[var(--accent)]">
+                +{formatHoursMinutes(game.current.duration_minutes)}
+              </span>
+            ) : null}
+          </span>
+        ) : (
+          <Link
+            to={`/games/${game.id}`}
+            className="transition-colors hover:text-[var(--accent)]"
+          >
+            {game.duration_minutes == null || game.duration_minutes <= 0
+              ? null
+              : formatHoursMinutes(game.duration_minutes)}
+          </Link>
+        ),
     },
     {
       key: 'streams',
       label: 'Стримов',
       align: 'center',
       sortValue: (game) => game.streams_count,
-      render: (game) => (
+      render: (game) => game.currentStandalone ? null : (
         <Link
           to={`/games/${game.id}`}
           className="transition-colors hover:text-[var(--accent)]"
@@ -180,8 +288,10 @@ function makeColumns(
       noUppercase: true,
       sortValue: (game) => game.hltb_all_styles ?? -1,
       render: (game) =>
-        game.hltb_all_styles === null ? (
-          '—'
+        game.currentStandalone ||
+        game.hltb_all_styles == null ||
+        game.hltb_all_styles <= 0 ? (
+          null
         ) : (
           <Link
             to={`/hltb?search=${encodeURIComponent(game.name)}&focus=${game.id}`}
@@ -196,27 +306,29 @@ function makeColumns(
       key: 'steam',
       label: 'Ссылка',
       align: 'center',
-      filterValue: (game) => Boolean(game.steam_url),
+      filterValue: (game) =>
+        Boolean(game.currentStandalone ? game.current?.steam_url : game.steam_url),
       render: (game) =>
-        game.steam_url ? (
+        (game.currentStandalone ? game.current?.steam_url : game.steam_url) ? (
           <a
-            href={game.steam_url}
+            href={
+              (game.currentStandalone ? game.current?.steam_url : game.steam_url) ??
+              undefined
+            }
             target="_blank"
             rel="noreferrer"
             className="font-social text-[#66c0f4] transition-opacity hover:opacity-80"
           >
             Steam
           </a>
-        ) : (
-          <span className="text-[var(--text-muted)]">—</span>
-        ),
+        ) : null,
     },
     {
       key: 'liked',
       label: 'Понравилось',
       align: 'center',
-      filterValue: (game) => game.liked,
-      render: (game) => (
+      filterValue: (game) => !game.currentStandalone && game.liked,
+      render: (game) => game.currentStandalone ? null : (
         <FlagToggle
           value={game.liked}
           label="Понравилось"
@@ -229,8 +341,8 @@ function makeColumns(
       key: 'completed',
       label: 'Пройдено',
       align: 'center',
-      filterValue: (game) => game.completed,
-      render: (game) => (
+      filterValue: (game) => !game.currentStandalone && game.completed,
+      render: (game) => game.currentStandalone ? null : (
         <FlagToggle
           value={game.completed}
           label="Пройдено"
@@ -245,20 +357,28 @@ function makeColumns(
       key: 'clips',
       label: 'Клипы',
       align: 'center',
-      render: () => <span className="text-[var(--text-muted)]">—</span>,
+      render: () => null,
     },
     {
       key: 'review',
       label: 'Отзыв',
       align: 'center',
-      // Заглушка «на будущее» — фильтра по отзывам пока нет.
-      render: () => <span className="text-[var(--text-muted)]">—</span>,
+      filterValue: (game) =>
+        !game.currentStandalone && (game.review_links?.length ?? 0) > 0,
+      render: (game) => game.currentStandalone ? null : (
+        <GameReviewCell
+          links={game.review_links ?? []}
+          editMode={reviews.editMode}
+          busy={reviews.busyGameId === game.id}
+          onSave={(links) => reviews.onSave(game, links)}
+        />
+      ),
     },
     {
       key: 'tags',
       label: 'Теги',
       className: 'text-sm',
-      render: (game) => (
+      render: (game) => game.currentStandalone ? null : (
         <TagsCell
           groups={parseTagGroups(game.tags)}
           activeTags={activeTags}
@@ -269,14 +389,78 @@ function makeColumns(
   ]
 }
 
+function currentAwareSortValue(
+  game: GameTableRow,
+  sortKey: string,
+  column: EntityColumn<GameTableRow>,
+): string | number | null {
+  if (!game.current) {
+    if (sortKey === 'last') return toSortTime(game.last_stream)
+    if (sortKey === 'hours') return game.duration_minutes
+    return column.sortValue?.(game) ?? null
+  }
+
+  switch (sortKey) {
+    case 'last':
+      return toSortTime(game.current.first_played_at)
+    case 'name':
+      return game.name.toLowerCase()
+    case 'rank':
+      return game.currentStandalone ? null : game.rank
+    case 'hours':
+      return (
+        (game.currentStandalone ? 0 : game.duration_minutes ?? 0) +
+        game.current.duration_minutes
+      )
+    case 'streams':
+      return game.currentStandalone ? null : game.streams_count
+    case 'hltb':
+      return game.currentStandalone ? null : game.hltb_all_styles
+    default:
+      return column.sortValue?.(game) ?? null
+  }
+}
+
+function compareGameRows(
+  a: GameTableRow,
+  b: GameTableRow,
+  column: EntityColumn<GameTableRow>,
+  direction: 'asc' | 'desc',
+): number {
+  const aValue = currentAwareSortValue(a, column.key, column)
+  const bValue = currentAwareSortValue(b, column.key, column)
+  if (aValue == null || bValue == null) {
+    if (aValue == null && bValue != null) return 1
+    if (aValue != null && bValue == null) return -1
+  } else {
+    const comparison =
+      typeof aValue === 'string' && typeof bValue === 'string'
+        ? aValue.localeCompare(bValue, 'ru')
+        : Number(aValue) - Number(bValue)
+    if (comparison !== 0) return direction === 'asc' ? comparison : -comparison
+  }
+
+  for (const tieBreak of column.tieBreaks ?? []) {
+    const comparison = tieBreak(a, b)
+    if (comparison !== 0) return comparison
+  }
+  return a.name.localeCompare(b.name, 'ru')
+}
+
 export function GamesView() {
   const { canEdit } = useAuth()
+  const queryClient = useQueryClient()
   const stateMutation = useUpdateGameState()
+  const reviewsMutation = useUpdateGameReviews()
+  const currentGamesQuery = useCurrentStreamGames()
+  const previousCurrentGameKeys = useRef<string | undefined>(undefined)
+  const saveReviews = reviewsMutation.mutateAsync
   const [offset, setOffset] = useOffset()
 
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search)
   const [activeFilters, setActiveFilters] = useState<string[]>([])
+  const [editMode, setEditMode] = useState(false)
 
   const toggleFilter = useCallback((key: string) => {
     setActiveFilters((prev) =>
@@ -316,18 +500,35 @@ export function GamesView() {
 
   const columns = useMemo(
     () =>
-      makeColumns(activeTags, (value) => toggleFilter(tagKey(value)), {
-        canEdit,
-        onToggleLiked: toggleLiked,
-        onToggleCompleted: toggleCompleted,
-        busyGameId: stateMutation.isPending
-          ? (stateMutation.variables?.gameId ?? null)
-          : null,
-      }),
+      makeColumns(
+        activeTags,
+        (value) => toggleFilter(tagKey(value)),
+        {
+          canEdit,
+          onToggleLiked: toggleLiked,
+          onToggleCompleted: toggleCompleted,
+          busyGameId: stateMutation.isPending
+            ? (stateMutation.variables?.gameId ?? null)
+            : null,
+        },
+        {
+          editMode,
+          busyGameId: reviewsMutation.isPending
+            ? (reviewsMutation.variables?.gameId ?? null)
+            : null,
+          onSave: async (game, links) => {
+            await saveReviews({ gameId: game.id, links })
+          },
+        },
+      ),
     [
       activeTags,
       toggleFilter,
       canEdit,
+      editMode,
+      reviewsMutation.isPending,
+      reviewsMutation.variables,
+      saveReviews,
       toggleLiked,
       toggleCompleted,
       stateMutation.isPending,
@@ -366,7 +567,45 @@ export function GamesView() {
     return [...columnFilters, ...tagFilters]
   }, [columns, options.data])
 
-  const pageItems = query.data?.items ?? []
+  const pageItems = useMemo(() => query.data?.items ?? [], [query.data?.items])
+  const { currentRows, displayRows } = useMemo(() => {
+    const liveGames = currentGamesQuery.data ?? []
+    const currentByGameId = new Map<number, CurrentStreamGame>()
+    for (const game of liveGames) {
+      if (game.game_id != null) currentByGameId.set(game.game_id, game)
+    }
+
+    const visibleGameIds = new Set(pageItems.map((game) => game.id))
+    const mergedRows: GameTableRow[] = pageItems.flatMap((game) => {
+      const current = currentByGameId.get(game.id)
+      return current ? [{ ...game, current }] : []
+    })
+    const standaloneRows: GameTableRow[] = liveGames
+      .filter((game) => game.game_id == null || !visibleGameIds.has(game.game_id))
+      .map(currentGameRow)
+    const currentRows: GameTableRow[] = [...mergedRows, ...standaloneRows]
+    const mergedGameIds = new Set(mergedRows.map((game) => game.id))
+    const historicalRows: GameTableRow[] = pageItems.filter(
+      (game) => !mergedGameIds.has(game.id),
+    )
+    const sortColumn = columns.find((column) => column.key === sortKey) ?? columns[0]
+    const displayRows: GameTableRow[] = [...currentRows, ...historicalRows].sort(
+      (a, b) => compareGameRows(a, b, sortColumn, sortDir),
+    )
+    return {
+      currentRows,
+      displayRows,
+    }
+  }, [columns, currentGamesQuery.data, pageItems, sortDir, sortKey])
+  useEffect(() => {
+    if (!currentGamesQuery.isFetched) return
+    const keys = (currentGamesQuery.data ?? []).map((game) => game.key).join('|')
+    const previousKeys = previousCurrentGameKeys.current
+    previousCurrentGameKeys.current = keys
+    if (previousKeys === undefined || previousKeys !== keys) {
+      void queryClient.invalidateQueries({ queryKey: ['games', 'list'] })
+    }
+  }, [currentGamesQuery.data, currentGamesQuery.isFetched, queryClient])
   const total = query.data?.total ?? 0
   const totalAll = query.data?.total_all ?? 0
   const aggregates = query.data?.aggregates
@@ -379,7 +618,9 @@ export function GamesView() {
         title="Игры"
         subtitle={
           query.isSuccess
-            ? `Показано ${formatNumber(total)} из ${formatNumber(totalAll)}`
+            ? `Показано ${formatNumber(total)} из ${formatNumber(totalAll)}${
+                currentRows.length > 0 ? ' + игры стрима' : ''
+              }`
             : 'Раздел статистики'
         }
         stats={
@@ -403,7 +644,24 @@ export function GamesView() {
             — написать в чат Twitch для получения краткой информации об игре
           </>
         }
-        action={<AddRecommendation />}
+        action={
+          <>
+            <AddRecommendation />
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => setEditMode((value) => !value)}
+                className={
+                  editMode
+                    ? 'rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-black transition-opacity hover:opacity-90'
+                    : 'rounded-md border border-white/15 px-3 py-1.5 text-sm text-[var(--text-muted)] transition-colors hover:bg-white/5 hover:text-[var(--text)]'
+                }
+              >
+                Редактировать
+              </button>
+            ) : null}
+          </>
+        }
       >
         <SearchInput
           value={search}
@@ -419,23 +677,24 @@ export function GamesView() {
         />
       </SectionHeader>
 
-      {query.isLoading ? (
+      {query.isLoading && currentRows.length === 0 ? (
         <TableSkeleton columns={12} />
-      ) : query.isError ? (
+      ) : query.isError && currentRows.length === 0 ? (
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
-      ) : pageItems.length === 0 ? (
+      ) : displayRows.length === 0 ? (
         <EmptyState hint="Измените фильтры или поисковый запрос." />
       ) : (
         <div className="flex flex-1 flex-col p-6">
           <EntityList
             columns={columns}
-            rows={pageItems}
-            rowKey={(game) => game.id}
+            rows={displayRows}
+            rowKey={(game) => game.current?.key ?? game.id}
             sortKey={sortKey}
             sortDir={sortDir}
             onSort={onSort}
             activeFilters={activeFilters}
             onFilterToggle={toggleFilter}
+            rowClassName={(game) => (game.current ? 'hot-island' : '')}
             gridTemplate={GRID}
             minWidth="1400px"
           />

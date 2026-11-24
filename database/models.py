@@ -32,6 +32,12 @@ class Game(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False, unique=True)
+    review_links = Column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
     slug = Column(Text, unique=True)
     game_type = Column(String(20))
     # Twitch category id: переименование категории не должно создавать новую игру.
@@ -49,6 +55,17 @@ class Game(Base):
     stream_games = relationship("StreamGame", back_populates="game", cascade="all, delete-orphan")
     igdb_metadata = relationship("GameMetadataIGDB", back_populates="game", uselist=False, cascade="all, delete-orphan")
     hltb_metadata = relationship("GameMetadataHLTB", back_populates="game", uselist=False, cascade="all, delete-orphan")
+    twitchtracker_metadata = relationship(
+        "GameMetadataTwitchTracker",
+        back_populates="game",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    twitch_categories = relationship(
+        "GameTwitchCategory",
+        back_populates="game",
+        cascade="all, delete-orphan",
+    )
     game_stats = relationship("GameStats", back_populates="game", uselist=False, cascade="all, delete-orphan")
 
 
@@ -739,6 +756,24 @@ class GameMetadataHLTB(Base):
     game = relationship("Game", back_populates="hltb_metadata")
 
 
+class GameMetadataTwitchTracker(Base):
+    """Последняя сводная строка игры со страницы игр TwitchTracker."""
+
+    __tablename__ = "game_metadata_twitchtracker"
+
+    game_id = Column(Integer, ForeignKey("games.id"), primary_key=True)
+    rank = Column(Integer)
+    hours_streamed = Column(Float)
+    avg_viewers = Column(Integer)
+    max_viewers = Column(Integer)
+    followers_per_hour = Column(Float)
+    # TT передаёт только календарную дату; часовой пояс здесь не применяется.
+    last_stream = Column(DateTime)
+    synced_at = Column(DateTime, nullable=False)
+
+    game = relationship("Game", back_populates="twitchtracker_metadata")
+
+
 class GameStats(Base):
     __tablename__ = "game_stats"
 
@@ -776,6 +811,28 @@ class GameAlias(Base):
     )
 
     game = relationship("Game", back_populates="aliases")
+
+
+class GameTwitchCategory(Base):
+    """Twitch category IDs associated with a canonical game.
+
+    A category can be renamed or replaced with another category ID, so IDs
+    observed over time are kept separately from the game's primary ID.
+    """
+
+    __tablename__ = "game_twitch_categories"
+
+    twitch_category_id = Column(Text, primary_key=True)
+    game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
+    category_name = Column(Text, nullable=False)
+    source = Column(String(20), nullable=False)
+    first_seen_at = Column(DateTime, nullable=False)
+    last_seen_at = Column(DateTime, nullable=False)
+    __table_args__ = (
+        Index("ix_game_twitch_categories_game_id", "game_id"),
+    )
+
+    game = relationship("Game", back_populates="twitch_categories")
 
 
 # =====================================================
@@ -980,12 +1037,6 @@ class TelegramAnnouncement(Base):
     edited_text = Column(Text)
     # Пост правили не мы — бот больше не трогает
     manually_edited = Column(Boolean, default=False)
-    # Кастомный эмодзи из набора стикеров, найденный в анонсе. Нужен, чтобы
-    # в подписи на запись поставить тот же эмодзи, а не Unicode-аналог:
-    # без entities кастомный эмодзи Telegram не отобразит.
-    # Строка, а не int: Bot API отдаёт custom_emoji_id строкой и в tg://emoji?id=
-    # его нужно передавать ровно как пришло.
-    custom_emoji_id = Column(String(64))
     # Адреса ссылок из entities поста, JSON-массивом. Стример пишет ссылку на
     # канал скрытой подписью («💬TWITCH~»), и в тексте URL нет вообще — без
     # этой колонки разбор текста не нашёл бы канал и анонс не привязался бы

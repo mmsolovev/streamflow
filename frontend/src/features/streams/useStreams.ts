@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addStreamParticipant,
   deleteStreamParticipant,
+  getCurrentStream,
   listStreams,
   listStreamsFilterOptions,
 } from '@/features/streams/api'
@@ -14,6 +15,16 @@ export function useStreamsList(params: StreamsListParams) {
     queryKey: ['streams', 'list', params],
     queryFn: () => listStreams(params),
     placeholderData: (previous) => previous,
+  })
+}
+
+/** Текущий эфир; API перепроверяется, пока открыта страница. */
+export function useCurrentStream() {
+  return useQuery({
+    queryKey: ['streams', 'current'],
+    queryFn: getCurrentStream,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   })
 }
 

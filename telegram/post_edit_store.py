@@ -59,6 +59,9 @@ async def reschedule_waiting(session: AsyncSession, delay_seconds: int) -> None:
         select(TelegramAnnouncementVod).where(
             TelegramAnnouncementVod.status == "waiting",
             TelegramAnnouncementVod.announcement_id.is_not(None),
+            # NULL check_at marks a broadcast intentionally deferred after a
+            # reconnect; changing the template must not wake it mid-stream.
+            TelegramAnnouncementVod.check_at.is_not(None),
         )
     )
     for job in result.scalars().all():

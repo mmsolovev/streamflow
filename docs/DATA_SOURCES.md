@@ -35,17 +35,30 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
 
 ## TwitchTracker
 
-- HTML-страницы стримов скачиваются вручную в `storage/pages/stream_*.html`
-  (и страницы игр — для `parse_games_json.py`).
+- HTML-страницы стримов скачиваются вручную в `storage/pages/streams_tt/stream_*.html`
+  (сводные страницы игр — в `storage/pages/games_page*.html`).
 - Парсер: `pipeline/ingest/twitchtracker_parser.py`.
 - `pipeline/orchestrator/parse_twitchtracker.py`: HTML → PostgreSQL, включая
   `streams`, `stream_titles`, `stream_games`, `stream_recordings`, затем
   обогащение IGDB/HLTB.
-- TT — владелец только `game_stats.avg_viewers` и `followers_per_hour`:
-  остальные агрегаты (`duration_minutes`, `streams_count`, `last_stream`,
-  `max_viewers`) пересчитываются из `stream_games` / `streams`. Расхождения
-  TT сохраняются в `stats_change_batches.meta["tt_divergence"]`, а не
-  перетирают детализацию.
+- Архив страниц `streams_tt` импортируется отдельным скриптом
+  `python -m pipeline.orchestrator.import_twitchtracker_stream_pages`.
+  По умолчанию это dry-run; `--apply` разрешает запись. Сопоставление игры:
+  Twitch category ID → имя/`game_aliases`; неоднозначные и неизвестные игры
+  блокируют применение, новые игры автоматически не создаются. Совпадающие
+  ID сохраняются в `games.twitch_category_id`, отличающиеся безопасные имена —
+  в `game_aliases`. Старт существующего стрима не перезаписывается; пустые
+  поля заполняются, существующие ненулевые метрики при расхождении сохраняются
+  и попадают в отчёт. История `stream_titles` добавляется идемпотентно.
+- Сводка games-page хранится отдельно в `game_metadata_twitchtracker`.
+  `game_stats` вычисляется из `stream_games` / `streams`: среднее зрителей —
+  взвешенное по длительности, followers/hour — суммарные подписчики на часы
+  категории. При неполных деталях старое вычисленное значение не затирается;
+  расхождения со сводкой TT сохраняются в
+  `stats_change_batches.meta["tt_divergence"]`.
+- При конфликте уже заполненных stream/game полей импорт сохраняет текущее
+  значение и выводит расхождение; пустые поля заполняются из TT. Перед
+  применением нужно просмотреть dry-run.
 - Legacy-строки `stream_games` без минут/пиков считаются «нет данных»:
   пересчёт сохраняет исторические `duration_minutes` и не уменьшает
   `max_viewers`. Массовая сверка — `aggregate_streams --all`, диагностика —
@@ -98,10 +111,10 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
 - `telegram/service.py` — long-polling aiogram.
 - Включается `TELEGRAM_ENABLED=true`; нужны `TELEGRAM_BOT_TOKEN` и числовой
   `TELEGRAM_CHANNEL_ID` (`-100…`).
-- После стрима создаётся задача поиска VOD с задержкой
-  `TELEGRAM_VOD_CHECK_DELAY_SECONDS` (660 с), затем правка анонса. Найденная
-  запись пишется в `stream_recordings` (единый реестр VOD для сайта и
-  Telegram), задача хранит только `recording_id`.
+- После стрима создаётся задача поиска VOD с задержкой из
+  `telegram_post_edit_settings.delay_seconds` (по умолчанию 660 с), затем
+  правка анонса. Все найденные записи broadcast пишутся в `stream_recordings`
+  (единый реестр VOD для сайта и Telegram), задача хранит только `recording_id`.
 - Подробности — `docs/TELEGRAM.md`.
 
 ## Runtime Stream Collector
@@ -113,13 +126,27 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
   `stream_runtime_samples`, `stream_runtime_buckets` (см.
   `runtime/repository.py`). JSON-файлы `storage/runtime/*` больше не
   используются.
+- `GET /streams/current` собирает live-островок из свежей сессии `collecting`
+  и её runtime-сэмплов. Незавершённая запись сессии исключается из истории
+  `/streams`, чтобы не дублировать её; после финализации она снова становится
+  обычной строкой списка. Live endpoint скрывает данные, если последний сэмпл
+  старше порога свежести (не менее 3 минут).
+- `GET /games/current-stream` считает время по каждой Twitch-категории из
+  runtime-сэмплов. Островки остаются до завершения задачи `stream_stats_jobs`,
+  чтобы перекрыть задержку агрегации `game_stats`; схема БД не меняется.
 - На финализации пишутся `streams`, `stream_titles`, `stream_games`; задача
   отложенной агрегации попадает в `stream_stats_jobs` с задержкой 660 с
   (`STREAM_STATS_AGGREGATION_DELAY_SECONDS`).
 - Воркер в процессе бота (`runtime/aggregation_jobs.py`) пересчитывает
-  `game_stats` из `stream_games`; `avg_viewers` / `followers_per_hour`
-  обновляет только TwitchTracker. Историю изменений и откат ведёт
-  `services/stats_history.py`.
+  `game_stats` из `stream_games`, включая взвешенное среднее зрителей и
+  followers/hour; исходная сводка TwitchTracker хранится отдельно.
+- При смене категории runtime использует Twitch category ID из EventSub и
+  Helix `GET /games?id=...`. Если Helix вернул `igdb_id`, IGDB ищется по
+  точному ID; только при отсутствии связи применяется поиск по названию.
+  Неигровые категории (например, Just Chatting) в IGDB не ищутся. Исторические
+  и новые Twitch ID привязаны к игре через `game_twitch_categories`; уже
+  существующая привязка автоматически не переназначается.
+- Историю изменений и откат ведёт `services/stats_history.py`.
 - `runtime/metrics.py` пересчитывает средние/пиковые зрители, часы просмотра,
   подписки и разбивку по играм; `services/runtime.py` — общий флаг
   `BOT_ENABLED`.
@@ -135,6 +162,7 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
 | `parse_streams_json.py` | TwitchTracker HTML → JSON |
 | `parse_games_json.py` | HTML страниц игр → merge → JSON |
 | `parse_twitchtracker.py` | HTML страниц стримов → PostgreSQL + IGDB/HLTB |
+| `import_twitchtracker_stream_pages.py` | `streams_tt/*.html` → preflight-импорт; `--authoritative --page <имя> --apply` заменяет данные конкретного стрима значениями TwitchTracker и убирает категории, отсутствующие на TT-странице |
 | `aggregate_streams.py` | пересчёт `game_stats`: `--due`, `--stream`, `--all`, `--drift` |
 | `rollback_stats.py` | откат батча истории статистики по `--batch` или `--stream` |
 | `import_json_to_db.py` | JSON → PostgreSQL, VOD sync, обогащение |

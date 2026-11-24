@@ -2,6 +2,10 @@ import { api } from '@/api/client'
 import type {
   GameDetail,
   GamesPage,
+  GameReviewLink,
+  CurrentStreamGame,
+  GameIGDBRefreshBody,
+  GameIGDBRefreshResult,
   GameStateUpdateBody,
   GameStateUpdateResult,
   GameStreamsPage,
@@ -63,6 +67,35 @@ export async function updateGameState(
   const { data } = await api.patch<GameStateUpdateResult>(
     `/games/${gameId}/streamer-state`,
     body,
+  )
+  return data
+}
+
+/** Игры стрима, которые ещё не вошли в агрегированную статистику. */
+export function listCurrentStreamGames(): Promise<CurrentStreamGame[]> {
+  return api
+    .get<CurrentStreamGame[]>('/games/current-stream')
+    .then((response) => response.data)
+}
+
+/** Обновить IGDB metadata игры по ID или ссылке на IGDB. */
+export function refreshGameIGDB(
+  gameId: number,
+  body: GameIGDBRefreshBody,
+): Promise<GameIGDBRefreshResult> {
+  return api
+    .post<GameIGDBRefreshResult>(`/games/${gameId}/refresh-igdb`, body)
+    .then((response) => response.data)
+}
+
+/** Установить полный список ссылок на отзывы/клипы игры. */
+export async function updateGameReviews(
+  gameId: number,
+  links: GameReviewLink[],
+): Promise<{ game_id: number; links: GameReviewLink[] }> {
+  const { data } = await api.patch<{ game_id: number; links: GameReviewLink[] }>(
+    `/games/${gameId}/reviews`,
+    { links },
   )
   return data
 }

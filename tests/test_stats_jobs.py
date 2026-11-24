@@ -5,10 +5,9 @@
 подменяется минимальным fake-объектом.
 
 Запуск:
-    .venv\\Scripts\\python.exe -m unittest tests.test_stats_jobs -v
+    .venv\\Scripts\\python.exe -m pytest tests/test_stats_jobs.py -q
 """
 
-import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -43,83 +42,80 @@ class FakeSession:
         pass
 
 
-class NextRetryAtTests(unittest.TestCase):
-    @staticmethod
-    def _delay(attempts: int) -> float:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        return (next_retry_at(attempts) - now).total_seconds()
-
-    def test_first_attempt_waits_base_delay(self):
-        self.assertAlmostEqual(self._delay(1), RETRY_BASE_SECONDS, delta=2)
-
-    def test_backoff_grows_and_is_capped(self):
-        self.assertAlmostEqual(self._delay(3), RETRY_BASE_SECONDS * 4, delta=2)
-        self.assertAlmostEqual(self._delay(20), RETRY_MAX_SECONDS, delta=2)
+def _delay(attempts: int) -> float:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    return (next_retry_at(attempts) - now).total_seconds()
 
 
-class MarkFailedTests(unittest.IsolatedAsyncioTestCase):
-    def _job(self, attempts: int) -> SimpleNamespace:
-        return SimpleNamespace(
-            attempts=attempts,
-            status="processing",
-            last_error=None,
-            locked_at=datetime(2026, 1, 1),
-            locked_by="worker",
-            check_at=datetime(2026, 1, 1),
-            updated_at=None,
-        )
-
-    async def test_below_limit_returns_job_to_queue(self):
-        job = self._job(attempts=2)
-
-        await mark_failed(FakeSession(), job, "boom")
-
-        self.assertEqual(job.status, "pending")
-        self.assertEqual(job.last_error, "boom")
-        self.assertIsNone(job.locked_at)
-        self.assertIsNone(job.locked_by)
-        self.assertGreater(job.check_at, datetime(2026, 1, 1))
-
-    async def test_limit_marks_job_as_failed(self):
-        job = self._job(attempts=MAX_ATTEMPTS)
-
-        await mark_failed(FakeSession(), job, "boom")
-
-        self.assertEqual(job.status, "failed")
-        self.assertIsNone(job.locked_at)
-
-    async def test_long_error_is_truncated(self):
-        job = self._job(attempts=1)
-
-        await mark_failed(FakeSession(), job, "x" * 5000)
-
-        self.assertEqual(len(job.last_error), 2000)
+def test_first_attempt_waits_base_delay():
+    assert abs(_delay(1) - RETRY_BASE_SECONDS) <= 2
 
 
-class EnqueueStatsJobTests(unittest.IsolatedAsyncioTestCase):
-    async def test_check_at_is_ended_at_plus_delay(self):
-        ended_at = datetime(2026, 1, 1, 12, 0)
-        session = SimpleNamespace(
-            id=10,
-            stream_id=20,
-            ended_at=ended_at,
-        )
-        db = FakeSession()
-
-        with patch(
-            "runtime.repository.settings.STREAM_STATS_AGGREGATION_DELAY_SECONDS",
-            660,
-        ):
-            job = await enqueue_stats_job(db, session)
-
-        self.assertIsInstance(job, StreamStatsJob)
-        self.assertEqual(job.check_at, ended_at + timedelta(seconds=660))
-        self.assertEqual(job.status, "pending")
-        self.assertEqual(job.attempts, 0)
-        self.assertEqual(job.stream_id, 20)
-        self.assertEqual(job.stream_session_id, 10)
-        self.assertEqual(db.added, [job])
+def test_backoff_grows_and_is_capped():
+    assert abs(_delay(3) - RETRY_BASE_SECONDS * 4) <= 2
+    assert abs(_delay(20) - RETRY_MAX_SECONDS) <= 2
 
 
-if __name__ == "__main__":
-    unittest.main()
+def _job(attempts: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        attempts=attempts,
+        status="processing",
+        last_error=None,
+        locked_at=datetime(2026, 1, 1),
+        locked_by="worker",
+        check_at=datetime(2026, 1, 1),
+        updated_at=None,
+    )
+
+
+async def test_below_limit_returns_job_to_queue():
+    job = _job(attempts=2)
+
+    await mark_failed(FakeSession(), job, "boom")
+
+    assert job.status == "pending"
+    assert job.last_error == "boom"
+    assert job.locked_at is None
+    assert job.locked_by is None
+    assert job.check_at > datetime(2026, 1, 1)
+
+
+async def test_limit_marks_job_as_failed():
+    job = _job(attempts=MAX_ATTEMPTS)
+
+    await mark_failed(FakeSession(), job, "boom")
+
+    assert job.status == "failed"
+    assert job.locked_at is None
+
+
+async def test_long_error_is_truncated():
+    job = _job(attempts=1)
+
+    await mark_failed(FakeSession(), job, "x" * 5000)
+
+    assert len(job.last_error) == 2000
+
+
+async def test_check_at_is_ended_at_plus_delay():
+    ended_at = datetime(2026, 1, 1, 12, 0)
+    session = SimpleNamespace(
+        id=10,
+        stream_id=20,
+        ended_at=ended_at,
+    )
+    db = FakeSession()
+
+    with patch(
+        "runtime.repository.settings.STREAM_STATS_AGGREGATION_DELAY_SECONDS",
+        660,
+    ):
+        job = await enqueue_stats_job(db, session)
+
+    assert isinstance(job, StreamStatsJob)
+    assert job.check_at == ended_at + timedelta(seconds=660)
+    assert job.status == "pending"
+    assert job.attempts == 0
+    assert job.stream_id == 20
+    assert job.stream_session_id == 10
+    assert db.added == [job]

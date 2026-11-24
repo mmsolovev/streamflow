@@ -71,6 +71,8 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 |---|---|---|
 | GET | `/health` | `{status, database}` |
 | GET | `/games` | список игр |
+| GET | `/games/current-stream` | игры эфира до завершения агрегации статистики |
+| GET | `/games/current-stream` | игры текущего стрима и сессий, ожидающих агрегации |
 | GET | `/games/covers` | обложки |
 | GET | `/games/filters` | фильтры игр |
 | GET | `/games/search?q=` | поиск игры |
@@ -78,6 +80,7 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 | GET | `/games/{game_id}/streams` | стримы с игрой |
 | GET | `/streams` | список стримов (`date`, `from`, `to`, фильтры) |
 | GET | `/streams/filters` | фильтры стримов |
+| GET | `/streams/current` | текущая runtime-сессия (если сэмпл не старше 3 минут) |
 | GET | `/streams/{stream_id}` | один стрим |
 | GET | `/releases` | ожидаемые релизы |
 | GET | `/releases/filters` | фильтры релизов |
@@ -96,6 +99,8 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 | Метод | Путь | Доступ | Тело |
 |---|---|---|---|
 | PATCH | `/games/{game_id}/streamer-state` | `EDIT_TABLES` | `{liked: bool, completed: bool}` |
+| PATCH | `/games/{game_id}/reviews` | `EDIT_TABLES` | `{links: [{title, url}]}` (подпись и HTTPS-ссылка) |
+| POST | `/games/{game_id}/refresh-igdb` | `EDIT_TABLES` | ровно одно из `{igdb_id}` / `{igdb_url}` |
 | PATCH | `/releases/{game_id}/interested` | `EDIT_TABLES` | `{interested: bool}` |
 | POST | `/streams/{stream_id}/participants` | streamer/admin | `{user_login: str}` |
 | DELETE | `/streams/{stream_id}/participants/{user_id}` | streamer/admin | — |

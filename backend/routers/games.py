@@ -12,7 +12,12 @@ from backend.repositories import games as repo
 from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
 from backend.schemas.game import (
+    CurrentStreamGame,
     GameDetail,
+    GameIGDBRefreshIn,
+    GameIGDBRefreshOut,
+    GameReviewsUpdateIn,
+    GameReviewsUpdateOut,
     GameStateUpdateIn,
     GameStateUpdateOut,
     GameStream,
@@ -38,6 +43,7 @@ def _view(item: dict) -> GameView:
         liked=item["liked"],
         completed=item["completed"],
         tags=item["tags"],
+        review_links=item.get("review_links", []),
     )
 
 
@@ -69,6 +75,87 @@ async def list_games(
         aggregates=aggregates,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/current-stream", response_model=list[CurrentStreamGame])
+async def list_current_stream_games(
+    session: SessionDep,
+    streamer_id: StreamerIdDep,
+) -> list[CurrentStreamGame]:
+    """Игры текущего стрима и завершённых сессий, ожидающих агрегации статистики."""
+    items = await repo.list_current_stream_games(session)
+    game_views = await repo.get_game_list_views(
+        session,
+        streamer_id=streamer_id,
+        game_ids=[
+            int(item["game_id"])
+            for item in items
+            if item.get("game_id") is not None
+        ],
+    )
+    for item in items:
+        game_view = game_views.get(item.get("game_id"))
+        item["game"] = _view(game_view) if game_view else None
+    return [CurrentStreamGame(**item) for item in items]
+
+
+@router.post("/{game_id}/refresh-igdb", response_model=GameIGDBRefreshOut)
+async def refresh_game_igdb(
+    game_id: int,
+    body: GameIGDBRefreshIn,
+    session: SessionDep,
+    _user: EditorDep,
+) -> GameIGDBRefreshOut:
+    game = await session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Игра не найдена.",
+        )
+
+    from services.game_metadata_service import (
+        IGDBGameNotFound,
+        IGDBMappingConflict,
+        IGDBUpstreamError,
+        InvalidIGDBReference,
+        refresh_game_igdb as refresh_igdb,
+    )
+
+    try:
+        metadata = await refresh_igdb(
+            session,
+            game_id=game_id,
+            igdb_id=body.igdb_id,
+            igdb_url=body.igdb_url,
+        )
+    except InvalidIGDBReference as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+    except IGDBGameNotFound as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except IGDBMappingConflict as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+    except IGDBUpstreamError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(error),
+        ) from error
+
+    await session.commit()
+    return GameIGDBRefreshOut(
+        game_id=game_id,
+        igdb_id=str(metadata.source_game_id),
+        igdb_name=metadata.title,
+        message=f"Данные IGDB для игры «{metadata.title}» обновлены.",
     )
 
 
@@ -131,8 +218,10 @@ async def get_game(
         liked=item["liked"],
         completed=item["completed"],
         tags=item["tags"],
+        review_links=item.get("review_links", []),
         genres=item["genres"],
         platforms=item["platforms"],
+        igdb_id=item.get("igdb_id"),
         slug=item["slug"],
         game_type=item["game_type"],
         release_date=item.get("release_date"),
@@ -205,3 +294,19 @@ async def update_streamer_state(
     await session.execute(stmt)
     await session.commit()
     return GameStateUpdateOut(game_id=game_id, liked=body.liked, completed=body.completed)
+
+
+@router.patch("/{game_id}/reviews", response_model=GameReviewsUpdateOut)
+async def update_game_reviews(
+    game_id: int,
+    body: GameReviewsUpdateIn,
+    session: SessionDep,
+    _user: EditorDep,
+) -> GameReviewsUpdateOut:
+    game = await session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Игра не найдена.")
+
+    game.review_links = [link.model_dump() for link in body.links]
+    await session.commit()
+    return GameReviewsUpdateOut(game_id=game_id, links=body.links)

@@ -109,8 +109,8 @@ e2e/            Playwright
 
 ## Дизайн-токены
 
-Шрифты: `Montserrat` (`--font-sans`) и `Orbitron` (`--font-social`, только
-соцкнопки).
+Шрифты: `Montserrat` (`--font-sans`) и `Orbitron` (`--font-social`, соцкнопки и
+брендированные ссылки сервисов).
 
 Базовая палитра (`:root` в `src/index.css`):
 
@@ -135,6 +135,18 @@ e2e/            Playwright
 | `admin` | `#7f8ea3` | `#1a1c21` | `#23262d` |
 | `hltb` | `#bf1313` | `#1c1b1b` | `#292525` |
 | `telegram` | `#2aabee` | `#171d21` | `#242d33` |
+
+Фирменные цвета внешних сервисов хранятся в CSS-токенах `--brand-*` в
+`src/index.css`; используй их для ссылок и интеграций вместо локальных
+хардкодов:
+
+| Токен | Сервис | Цвет |
+|---|---|---|
+| `--brand-telegram` | Telegram | `#2aabee` |
+| `--brand-twitch` | Twitch | `#994cff` |
+| `--brand-youtube` | YouTube | `#ff0000` |
+| `--brand-boosty` | Boosty | `#f15f2c` |
+| `--brand-discord` | Discord | `#5865f2` |
 
 Новые цвета/отступы добавляй токенами в `index.css`, а не хардкодом в
 компонентах. Для классов используется `cn()` (`clsx` + `tailwind-merge`).

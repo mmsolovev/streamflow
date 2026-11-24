@@ -37,6 +37,7 @@ import {
   formatReleaseCountdown,
   formatTime,
   hasReleaseTime,
+  isHotRelease,
   isReleased,
   toSortTime,
 } from '@/lib/format'
@@ -81,7 +82,7 @@ function makeColumns(
       render: (release) => {
         const iso = release.release_date
         if (!iso) {
-          return <span className="text-[var(--text-muted)]">—</span>
+          return null
         }
         const released = isReleased(iso)
         const countdown = formatReleaseCountdown(iso)
@@ -137,7 +138,7 @@ function makeColumns(
       render: (release) => {
         const text = release.description_ru || release.description_en || ''
         return (
-          <span className="min-w-0 break-words text-sm leading-snug">{text || '—'}</span>
+          <span className="min-w-0 break-words text-sm leading-snug">{text}</span>
         )
       },
     },
@@ -156,9 +157,7 @@ function makeColumns(
           >
             Steam
           </a>
-        ) : (
-          <span className="text-[var(--text-muted)]">—</span>
-        ),
+        ) : null,
     },
     {
       key: 'interested',
@@ -457,6 +456,9 @@ export function ReleasesView() {
             rows={pageItems}
             rowKey={(release) => release.id}
             highlightedRowKey={highlightId}
+            rowClassName={(release) =>
+              isHotRelease(release.release_date) ? 'hot-island' : ''
+            }
             sortKey={sortKey}
             sortDir={sortDir}
             onSort={onSort}

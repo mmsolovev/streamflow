@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ExternalLink, RefreshCw } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { SectionHeader } from '@/components/layout/SectionHeader'
@@ -9,7 +9,14 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { FlagToggle } from '@/components/ui/FlagToggle'
 import { GameDetailSkeleton } from '@/pages/GameDetailSkeleton'
 import { useAuth } from '@/features/auth/context'
-import { useGame, useGameStreams, useUpdateGameState } from '@/features/games/useGames'
+import { GameIGDBRefreshModal } from '@/features/games/GameIGDBRefreshModal'
+import type { IGDBRefreshSource } from '@/features/games/GameIGDBRefreshModal'
+import {
+  useGame,
+  useGameStreams,
+  useRefreshGameIGDB,
+  useUpdateGameState,
+} from '@/features/games/useGames'
 import { useSetReleaseInterested } from '@/features/releases/useReleases'
 import {
   formatDateNumeric,
@@ -100,7 +107,9 @@ export function GameDetailPage() {
   const query = useGame(id)
   const { canEdit } = useAuth()
   const stateMutation = useUpdateGameState()
+  const igdbRefreshMutation = useRefreshGameIGDB()
   const interestedMutation = useSetReleaseInterested()
+  const [igdbRefreshOpen, setIgdbRefreshOpen] = useState(false)
 
   // Стримы по игре грузим порциями: сначала 50, дальше по кнопке.
   const [streamsLimit, setStreamsLimit] = useState(STREAMS_PAGE)
@@ -125,6 +134,16 @@ export function GameDetailPage() {
   const setInterested = (interested: boolean) => {
     if (!game) return
     interestedMutation.mutate({ gameId: game.id, interested })
+  }
+  const refreshIGDB = async (source: IGDBRefreshSource) => {
+    if (!game) return
+    await igdbRefreshMutation.mutateAsync({
+      gameId: game.id,
+      body: {
+        igdb_id: source.igdbId ?? null,
+        igdb_url: source.igdbUrl ?? null,
+      },
+    })
   }
 
   const description = game?.description_ru || game?.description_en || ''
@@ -211,7 +230,7 @@ export function GameDetailPage() {
                   </p>
                 ) : null}
 
-                {game.steam_url || game.hltb_id ? (
+                {game.steam_url || game.hltb_id || canEdit ? (
                   <div className="mb-3 flex flex-wrap items-center gap-4">
                     {game.steam_url ? (
                       <OutLink
@@ -228,6 +247,32 @@ export function GameDetailPage() {
                       >
                         HowLongToBeat
                       </OutLink>
+                    ) : null}
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const igdbId = game.igdb_id?.trim()
+                          if (igdbId && !igdbId.startsWith('pending-')) {
+                            void igdbRefreshMutation.mutate({
+                              gameId: game.id,
+                              body: { igdb_id: igdbId },
+                            })
+                          } else {
+                            setIgdbRefreshOpen(true)
+                          }
+                        }}
+                        disabled={igdbRefreshMutation.isPending}
+                        title="Обновить данные игры из IGDB"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1 text-xs text-[var(--text-muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <RefreshCw
+                          className={`h-3.5 w-3.5 ${
+                            igdbRefreshMutation.isPending ? 'animate-spin' : ''
+                          }`}
+                        />
+                        Обновить данные
+                      </button>
                     ) : null}
                   </div>
                 ) : null}
@@ -438,6 +483,14 @@ export function GameDetailPage() {
                 ) : null}
               </div>
             </div>
+          ) : null}
+          {igdbRefreshOpen && game ? (
+            <GameIGDBRefreshModal
+              key={game.id}
+              gameName={game.name}
+              onClose={() => setIgdbRefreshOpen(false)}
+              onSubmit={refreshIGDB}
+            />
           ) : null}
         </div>
       </div>

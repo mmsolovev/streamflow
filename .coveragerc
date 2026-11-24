@@ -1,0 +1,26 @@
+# Конфигурация coverage.py (используется pytest-cov).
+# Замер: .venv\Scripts\python.exe -m pytest tests -q --cov --cov-report=term
+[run]
+source = .
+omit =
+    tests/*
+    storage/*
+    alembic/*
+    frontend/*
+    .venv/*
+    # Разовые миграционные/сервисные скрипты — по плану не тестируются
+    database/migrate_to_pg.py
+    database/sync_*.py
+    database/seed_*.py
+    database/backfill_*.py
+    database/remap_*.py
+    database/merge_duplicate_games.py
+    database/enrich_users.py
+    # CLI-обёртки (тонкий glue поверх покрытых функций)
+    pipeline/orchestrator/*
+    utils/db_manage.py
+    utils/authorize_twitch_token.py
+    bot.py
+
+[report]
+precision = 1

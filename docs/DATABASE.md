@@ -36,11 +36,13 @@
 |---|---|
 | `games` | игры: `id`, `name` (unique), `slug`, `game_type`, `parent_game_id`, `franchise_id`, timestamps |
 | `game_aliases` | альтернативные названия игр (`alias`, `normalized_alias`, `is_primary`, `source`) |
+| `game_twitch_categories` | crosswalk Twitch category ID → canonical `game_id`; поддерживает переименования и несколько ID, не смешивая совпадающие названия |
 | `games_franchises` | франшизы |
 | `genres`, `platforms`, `game_genres`, `game_platforms` | справочники и M2M-связи |
 | `game_metadata_igdb` | IGDB-метаданные: `igdb_id`, дата релиза, оценки, описания, обложка, `raw_payload` |
 | `game_metadata_hltb` | HLTB-метаданные: main story / extra / completionist, coop, multiplayer |
-| `game_stats` | производные агрегаты по игре: `duration_minutes`, `streams_count`, `last_stream`, `max_viewers`; только `avg_viewers` / `followers_per_hour` приходят из TwitchTracker |
+| `game_metadata_twitchtracker` | последняя импортированная сводка игры со страницы игр TT: rank, hours, avg/max viewers, followers/hour, last stream; исходные метрики отделены от вычисляемых |
+| `game_stats` | производные агрегаты по игре: минуты, streams count, last stream, max/средние зрители и followers/hour; строятся из `stream_games` / `streams`, если детализация полная |
 | `streams` | стримы: `external_id` (unique), title, `started_at`, `ended_at`, `duration_minutes`, viewers, followers/views gained; заполняется runtime и TT |
 | `stream_titles` | история смены названий стрима |
 | `stream_games` | игры внутри стрима: порядок, интервал, минуты, зрители, подписчики; источник детализации для `game_stats` |
@@ -100,9 +102,19 @@
 (`STREAM_STATS_AGGREGATION_DELAY_SECONDS`). Воркер в процессе бота
 (`runtime/aggregation_jobs.py`) пересчитывает `game_stats` идемпотентно:
 `duration_minutes`, `streams_count`, `last_stream`, `max_viewers` выводятся из
-`stream_games` / `streams`. `avg_viewers` и `followers_per_hour` пишет только
-TwitchTracker. Расхождения TT сохраняются в истории
-(`stats_change_batches.meta["tt_divergence"]`), а не перетирают детализацию.
+`stream_games` / `streams`. Среднее число зрителей считается взвешенно по
+длительности категории; followers/hour — как сумма followers, делённая на
+часы категории. Если детализация неполная, рассчитанные rates не заменяют
+текущее значение. Исходные сводные поля TT хранятся отдельно в
+`game_metadata_twitchtracker`; расхождения сохраняются в
+`stats_change_batches.meta["tt_divergence"]`.
+
+При обнаружении новой runtime-категории Twitch ID запрашивается через Helix
+`GET /helix/games?id=...`. Если Twitch возвращает `igdb_id`, IGDB-запрос
+выполняется по точному ID; поиск по названию остаётся fallback, когда прямой
+ID недоступен. Для неигровых категорий (например, Just Chatting) IGDB lookup
+пропускается. Соответствия категорий хранятся в `game_twitch_categories`;
+конфликтующая уже сохранённая привязка автоматически не меняется.
 
 У legacy-стримов TwitchTracker поля `stream_games.duration_minutes` и
 `peak_viewers` могут быть пустыми: раньше в `game_stats` писался только
@@ -152,7 +164,7 @@ python -m pipeline.orchestrator.rollback_stats --stream 123
 
 ## Миграции
 
-Текущая история — `alembic/versions/0001…0020`:
+Текущая история — `alembic/versions/0001…0023`:
 
 - `0001` — начальная схема;
 - `0002` — аббревиатуры жанров/платформ;
@@ -161,7 +173,7 @@ python -m pipeline.orchestrator.rollback_stats --stream 123
 - `0005` — флаги `bot_commands`;
 - `0006` — `user_profiles`;
 - `0007` — `duration_minutes` в stats и слияние дублей игр;
-- `0008`–`0010` — Telegram-анонсы, custom emoji, ссылки;
+- `0008`–`0010` — Telegram-анонсы, исторически добавленная поддержка custom emoji, ссылки (колонка удалена в `0021`);
 - `0011` — `twitch_streamer_authorizations`;
 - `0012` — post-stream editing;
 - `0013` — restore после правки поста;
@@ -172,5 +184,8 @@ python -m pipeline.orchestrator.rollback_stats --stream 123
 - `0018` — история изменений (`stats_change_batches`, `stats_change_log`);
 - `0019` — чат, команды и присутствие (`chat_messages`, `command_usage_logs`, `stream_chat_participants`);
 - `0020` — `stream_recordings` как единственный реестр VOD: `twitch_stream_id`/`twitch_video_id`/`is_available`, перенос ссылок из `telegram_announcement_vods` и связывание задач через `recording_id`.
+- `0021` — удаление legacy `telegram_announcements.custom_emoji_id` вместе с сохранёнными значениями.
+- `0022` — `game_metadata_twitchtracker`, перенос уже сохранённых TT-сводок и разделение исходных и вычисленных метрик.
+- `0023` — `game_twitch_categories`, кроссворк Twitch category ID → игра.
 
 Проверить текущую ревизию: `.venv\Scripts\python.exe -m alembic current`.

@@ -10,7 +10,7 @@ export function DateCell({
   iso: string | null | undefined
   withTime?: boolean
 }) {
-  if (!iso) return <span className="text-[var(--text-muted)]">—</span>
+  if (!iso) return null
   return (
     <span className="flex flex-col items-center leading-tight">
       <span>{formatDateNumeric(iso)}</span>

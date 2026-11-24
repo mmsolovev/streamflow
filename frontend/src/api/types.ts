@@ -13,17 +13,19 @@ export type UserView = Schemas['UserView']
 export type StreamerAuthStatus = Schemas['StreamerAuthStatus']
 export type StreamerAuthorizationView = Schemas['StreamerAuthorizationView']
 
-export type GameView = Schemas['GameView'] & {
-  /** Будущее поле: текст отзыва об игре (бэкенд пока не отдаёт). */
-  review?: string | null
-}
+export type GameView = Schemas['GameView']
 export type GameDetail = Schemas['GameDetail']
+export type GameReviewLink = Schemas['GameReviewLink']
+export type CurrentStreamGame = Schemas['CurrentStreamGame']
+export type GameIGDBRefreshBody = Schemas['GameIGDBRefreshIn']
+export type GameIGDBRefreshResult = Schemas['GameIGDBRefreshOut']
 export type GameStream = Schemas['GameStream']
 export type GameStreamsPage = Schemas['Page_GameStream_']
 export type GameStateUpdateBody = Schemas['GameStateUpdateIn']
 export type GameStateUpdateResult = Schemas['GameStateUpdateOut']
 
 export type StreamView = Schemas['StreamView']
+export type CurrentStreamView = Schemas['CurrentStreamView']
 export type StreamParticipant = Schemas['StreamParticipant']
 export type StreamParticipantAddBody = Schemas['StreamParticipantAddIn']
 export type StreamParticipantActionResult = Schemas['StreamParticipantActionOut']

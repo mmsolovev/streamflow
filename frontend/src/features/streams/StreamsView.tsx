@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 
-import type { StreamParticipant, StreamView } from '@/api/types'
+import type { CurrentStreamView, StreamParticipant, StreamView } from '@/api/types'
 import { DateCell } from '@/components/entity/DateCell'
 import { EntityList } from '@/components/entity/EntityList'
 import { GameCoverStrip } from '@/components/entity/GameCoverStrip'
@@ -25,6 +26,7 @@ import { useGamesCovers } from '@/features/games/useGames'
 import { AddParticipantModal } from '@/features/streams/AddParticipantModal'
 import {
   useDeleteStreamParticipant,
+  useCurrentStream,
   useStreamsFilterOptions,
   useStreamsList,
 } from '@/features/streams/useStreams'
@@ -51,6 +53,28 @@ interface ParticipantActions {
   onAdd: (stream: StreamView) => void
 }
 
+type StreamTableItem = StreamView & { live?: CurrentStreamView }
+
+function LiveMentionParticipants({ logins }: { logins: string[] }) {
+  if (logins.length === 0) return null
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {logins.map((login) => (
+        <a
+          key={login.toLowerCase()}
+          href={`https://www.twitch.tv/${login.toLowerCase()}`}
+          target="_blank"
+          rel="noreferrer"
+          title={`Открыть Twitch: ${login}`}
+          className="max-w-32 truncate rounded-full bg-white/10 px-1.5 py-0.5 text-xs text-[var(--text)] transition-colors hover:bg-white/20"
+        >
+          @{login}
+        </a>
+      ))}
+    </span>
+  )
+}
+
 function makeColumns(
   activeTags: string[],
   onTagClick: (value: string) => void,
@@ -58,7 +82,7 @@ function makeColumns(
   onParticipantClick: (login: string) => void,
   gamesByName: Map<string, import('@/lib/games').GameRef>,
   participantActions: ParticipantActions,
-): EntityColumn<StreamView>[] {
+): EntityColumn<StreamTableItem>[] {
   return [
     {
       key: 'date',
@@ -73,11 +97,19 @@ function makeColumns(
       label: 'Название',
       sortValue: (stream) => stream.title.toLowerCase(),
       defaultDir: 'asc',
-      render: (stream) => (
-        <span className="break-words leading-snug" title={stream.title}>
-          {stream.title}
-        </span>
-      ),
+      render: (stream) =>
+        stream.live ? (
+          <span className="flex min-w-0 items-center gap-2" title={stream.title}>
+            <span className="shrink-0 rounded-full bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-red-300">
+              LIVE
+            </span>
+            <span className="break-words leading-snug">{stream.title}</span>
+          </span>
+        ) : (
+          <span className="break-words leading-snug" title={stream.title}>
+            {stream.title}
+          </span>
+        ),
     },
     {
       key: 'games',
@@ -95,14 +127,15 @@ function makeColumns(
       align: 'center',
       sortValue: (stream) =>
         stream.duration_minutes ?? Math.round(stream.duration_hours * 60),
-      render: (stream) =>
-        formatHoursMinutes(
-          stream.duration_minutes ?? Math.round(stream.duration_hours * 60),
-        ),
+      render: (stream) => {
+        const minutes =
+          stream.duration_minutes ?? Math.round(stream.duration_hours * 60)
+        return minutes > 0 ? formatHoursMinutes(minutes) : null
+      },
     },
     {
       key: 'vod',
-      label: 'Запись',
+      label: 'Ссылка',
       align: 'center',
       filterValue: (stream) =>
         Boolean(stream.vod_urls?.length || stream.vod_url),
@@ -112,7 +145,17 @@ function makeColumns(
           : stream.vod_url
             ? [stream.vod_url]
             : []
-        return vodUrls.length ? (
+        return stream.live ? (
+          <a
+            href={stream.live.channel_url}
+            target="_blank"
+            rel="noreferrer"
+            title="Открыть канал Twitch"
+            className="font-social text-[var(--brand-twitch)] transition-opacity hover:opacity-80"
+          >
+            Twitch
+          </a>
+        ) : vodUrls.length ? (
           <span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
             {vodUrls.map((url) => (
               <a
@@ -127,7 +170,7 @@ function makeColumns(
             ))}
           </span>
         ) : (
-          <span className="text-[var(--text-muted)]">—</span>
+          null
         )
       },
     },
@@ -135,24 +178,27 @@ function makeColumns(
       key: 'clips',
       label: 'Клипы',
       align: 'center',
-      render: () => <span className="text-[var(--text-muted)]">—</span>,
+      render: () => null,
     },
     {
       key: 'participants',
       label: 'Участники',
       sortValue: (stream) => stream.participants.length,
       defaultDir: 'desc',
-      render: (stream) => (
-        <ParticipantsCell
-          participants={stream.participants}
-          activeLogins={activeParticipantLogins}
-          onLoginClick={onParticipantClick}
-          canEdit={participantActions.canEdit}
-          deletingUserId={participantActions.deletingUserId}
-          onDelete={(participant) => participantActions.onDelete(stream, participant)}
-          onAdd={() => participantActions.onAdd(stream)}
-        />
-      ),
+      render: (stream) =>
+        stream.live ? (
+          <LiveMentionParticipants logins={stream.live.mentioned_logins} />
+        ) : (
+          <ParticipantsCell
+            participants={stream.participants}
+            activeLogins={activeParticipantLogins}
+            onLoginClick={onParticipantClick}
+            canEdit={participantActions.canEdit}
+            deletingUserId={participantActions.deletingUserId}
+            onDelete={(participant) => participantActions.onDelete(stream, participant)}
+            onAdd={() => participantActions.onAdd(stream)}
+          />
+        ),
     },
     {
       key: 'tags',
@@ -171,7 +217,10 @@ function makeColumns(
 
 export function StreamsView() {
   const { canEdit } = useAuth()
+  const queryClient = useQueryClient()
   const gamesQuery = useGamesCovers()
+  const currentStreamQuery = useCurrentStream()
+  const previousCurrentStreamId = useRef<number | null | undefined>(undefined)
   const deleteMutation = useDeleteStreamParticipant()
   const [offset, setOffset] = useOffset()
   const [searchParams] = useSearchParams()
@@ -286,6 +335,38 @@ export function StreamsView() {
   const dateOptions = options.data?.dates ?? []
 
   const pageItems = query.data?.items ?? []
+  const liveRow = useMemo<StreamTableItem | null>(() => {
+    const current = currentStreamQuery.data
+    if (!current) return null
+    return {
+      id: current.id,
+      started_at: current.started_at,
+      ended_at: null,
+      duration_minutes: current.duration_minutes,
+      duration_hours: Math.round((current.duration_minutes / 60) * 10) / 10,
+      title: current.title,
+      games: current.games,
+      tags: [],
+      participants: [],
+      vod_url: null,
+      vod_urls: [],
+      avg_viewers: null,
+      max_viewers: null,
+      live: current,
+    }
+  }, [currentStreamQuery.data])
+  useEffect(() => {
+    if (!currentStreamQuery.isFetched) return
+    const currentId = currentStreamQuery.data?.id ?? null
+    const previousId = previousCurrentStreamId.current
+    previousCurrentStreamId.current = currentId
+    if (previousId === undefined || previousId !== currentId) {
+      void queryClient.invalidateQueries({ queryKey: ['streams', 'list'] })
+    }
+  }, [currentStreamQuery.data?.id, currentStreamQuery.isFetched, queryClient])
+  const displayRows: StreamTableItem[] = liveRow
+    ? [liveRow, ...pageItems]
+    : pageItems
   const total = query.data?.total ?? 0
   const totalAll = query.data?.total_all ?? 0
   const aggregates = query.data?.aggregates
@@ -305,7 +386,9 @@ export function StreamsView() {
         title="Стримы"
         subtitle={
           query.isSuccess
-            ? `Показано ${formatNumber(total)} из ${formatNumber(totalAll)}`
+            ? `Показано ${formatNumber(total)} из ${formatNumber(totalAll)}${
+                liveRow ? ' + текущий эфир' : ''
+              }`
             : 'Раздел статистики'
         }
         stats={
@@ -406,26 +489,28 @@ export function StreamsView() {
         />
       ) : null}
 
-      {query.isLoading ? (
+      {query.isLoading && !liveRow ? (
         <TableSkeleton columns={8} />
-      ) : query.isError ? (
+      ) : query.isError && !liveRow ? (
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
-      ) : pageItems.length === 0 ? (
+      ) : displayRows.length === 0 ? (
         <EmptyState hint="Измените фильтры или поисковый запрос." />
       ) : (
         <div className="flex flex-1 flex-col p-6">
           <EntityList
             columns={columns}
-            rows={pageItems}
+            rows={displayRows}
             rowKey={(stream) => stream.id}
             highlightedRowKey={highlightId}
+            rowClassName={(stream) =>
+              stream.live ? 'min-h-20 hot-island' : 'min-h-20'
+            }
             sortKey={sortKey}
             sortDir={sortDir}
             onSort={onSort}
             activeFilters={activeFilters}
             onFilterToggle={toggleFilter}
             gridTemplate={GRID}
-            rowClassName="min-h-20"
             minWidth="1400px"
           />
           <Pagination

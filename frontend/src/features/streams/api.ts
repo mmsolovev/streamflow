@@ -1,5 +1,6 @@
 import { api } from '@/api/client'
 import type {
+  CurrentStreamView,
   StreamParticipantActionResult,
   StreamParticipantDeleteResult,
   StreamsPage,
@@ -18,6 +19,13 @@ export interface StreamsListParams {
 /** Список стримов: поиск, фильтры, сортировка и пагинация — на сервере. */
 export function listStreams(params: StreamsListParams): Promise<StreamsPage> {
   return api.get<StreamsPage>('/streams', { params }).then((response) => response.data)
+}
+
+/** Текущий эфир из активной runtime-сессии, обновляется без записи в историю. */
+export function getCurrentStream(): Promise<CurrentStreamView | null> {
+  return api
+    .get<CurrentStreamView | null>('/streams/current')
+    .then((response) => response.data)
 }
 
 export interface StreamParticipantFilter {

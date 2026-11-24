@@ -23,13 +23,14 @@ TELEGRAM_CHANNEL_ID=-100xxxxxxxxxx
 
 | Переменная | По умолчанию | Смысл |
 |---|---:|---|
-| `TELEGRAM_VOD_CHECK_DELAY_SECONDS` | 660 | пауза после конца стрима перед проверкой VOD |
 | `TELEGRAM_VOD_POLL_INTERVAL_SECONDS` | 60 | частота опроса очереди задач |
 | `TELEGRAM_VOD_MAX_ATTEMPTS` | 5 | попыток при инфраструктурных ошибках |
-| `TELEGRAM_MATCH_WINDOW_BEFORE_HOURS` | 12 | окно поиска анонса до начала стрима |
-| `TELEGRAM_MATCH_WINDOW_AFTER_MINUTES` | 60 | окно после конца стрима |
 | `TELEGRAM_REBIND_WINDOW_MINUTES` | 180 | переиспользование поста после рестарта трансляции |
 | `TELEGRAM_LINK_DOMAINS` | `twitch.tv` | домены ссылок, по которым ищется анонс |
+
+Окно поиска анонса фиксировано: один час до и один час после `started_at`.
+Пауза перед проверкой VOD настраивается через `delay_seconds` в
+`telegram_post_edit_settings`; по умолчанию это 660 секунд (11 минут).
 
 ## Поток
 
@@ -42,21 +43,25 @@ TELEGRAM_CHANNEL_ID=-100xxxxxxxxxx
    анонс помечается `skipped` и больше не трогается. Эхо собственной правки
    бота отличается по `edited_text`.
 3. **Конец стрима.** Runtime-сессия при финализации вызывает
-   `TelegramService.on_stream_ended(stream_session)`:
-   - ищет анонс в окне `[started_at - before_hours; ended_at + after_minutes]`,
-     исключая уже привязанные и `skipped` посты;
-   - если не нашёл — пробует переиспользовать пост предыдущего стрима в
-     пределах `TELEGRAM_REBIND_WINDOW_MINUTES` (после краша трансляции);
+    `TelegramService.on_stream_ended(stream_session)`:
+    - ищет анонс в окне `[started_at - 1 час; started_at + 1 час]`, выбирая
+      ближайший к началу стрима пост и исключая уже привязанные и `skipped` посты;
+    - если broadcast возобновился в пределах задержки VOD, предыдущая задача
+      снимается с очереди до следующего окончания; при завершении продолжения
+      задачи объединяются на одном анонсе;
+    - иначе пробует переиспользовать пост предыдущего стрима в пределах
+      `TELEGRAM_REBIND_WINDOW_MINUTES`;
    - создаёт задачу в `telegram_announcement_vods` со `status=waiting` и
      `check_at = now + delay` (задержка из настроек, по умолчанию 660 с);
    - если анонс не найден, задача получает `pending_selection` и ждёт выбора
      админа в веб-интерфейсе.
 4. **Поиск VOD.** Поллер (`process_due_jobs`) забирает задачи `claim_due` и
-   вызывает Twitch Helix для VOD по `stream_id`. Найденная запись пишется в
-   `stream_recordings` (единый реестр VOD для сайта и Telegram), а задача
-   хранит только `recording_id` и `stream_db_id`.
+    вызывает Twitch Helix для VOD по `stream_id`. Все найденные записи этого
+    broadcast пишутся в `stream_recordings` (единый реестр VOD для сайта и
+    Telegram), а задача хранит `recording_id` и `stream_db_id`.
    - VOD найден → `mark_resolved`, затем правка поста;
-   - VOD ещё нет → `no_vod`, пост не меняется;
+    - VOD ещё нет → повторная проверка с backoff до `TELEGRAM_VOD_MAX_ATTEMPTS`;
+      после последней попытки задача получает `no_vod`, пост остаётся нетронутым;
    - сетевая/5xx ошибка → `mark_failed`, экспоненциальный retry до
      `TELEGRAM_VOD_MAX_ATTEMPTS`.
 5. **Правка.** `telegram/post_edit.py` собирает текст/entities по шаблону из
@@ -126,5 +131,5 @@ delay     = 660
 | `telegram/post_edit_store.py` | настройки шаблона из БД |
 | `telegram/vod_jobs.py` | очередь `telegram_announcement_vods` |
 | `telegram/vod_service.py` | поиск VOD в Twitch Helix |
-| `telegram/entities.py` | UTF-16 offsets, text_link, custom_emoji |
+| `telegram/entities.py` | UTF-16 offsets и извлечение ссылок из entities |
 | `telegram/templates.py` | старый формат «Запись стрима» |

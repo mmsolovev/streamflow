@@ -10,6 +10,7 @@ from backend.repositories import streams as repo
 from backend.repositories.list_query import parse_list_query
 from backend.schemas.common import Page
 from backend.schemas.stream import (
+    CurrentStreamView,
     StreamParticipantActionOut,
     StreamParticipantAddIn,
     StreamParticipantDeleteOut,
@@ -81,6 +82,13 @@ async def list_streams(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/current", response_model=CurrentStreamView | None)
+async def get_current_stream(session: SessionDep) -> CurrentStreamView | None:
+    """Текущий эфир, если runtime-коллектор недавно сохранял его сэмплы."""
+    item = await repo.get_current_stream(session)
+    return CurrentStreamView(**item) if item else None
 
 
 @router.get("/{stream_id}", response_model=StreamView)
