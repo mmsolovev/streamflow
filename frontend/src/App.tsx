@@ -5,6 +5,7 @@ import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { AdminPage } from '@/pages/AdminPage'
 import { BotPage } from '@/pages/BotPage'
 import { GameDetailPage } from '@/pages/GameDetailPage'
+import { MediaPage } from '@/pages/MediaPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
 import { PrivacyPage } from '@/pages/PrivacyPage'
@@ -22,6 +23,12 @@ export default function App() {
         <Route path="releases" element={<StatsPage section="releases" />} />
         <Route path="recommendations" element={<StatsPage section="recommendations" />} />
         <Route path="hltb" element={<StatsPage section="hltb" />} />
+        <Route path="media" element={<Navigate to="/media/recordings" replace />} />
+        <Route
+          path="media/recordings"
+          element={<MediaPage section="recordings" />}
+        />
+        <Route path="media/clips" element={<MediaPage section="clips" />} />
         <Route path="privacy" element={<PrivacyPage />} />
         <Route path="bot" element={<Navigate to="/bot/commands" replace />} />
         <Route path="bot/commands" element={<BotPage section="commands" />} />
@@ -67,6 +74,14 @@ export default function App() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminPage section="telegram" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/links"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminPage section="links" />
             </ProtectedRoute>
           }
         />

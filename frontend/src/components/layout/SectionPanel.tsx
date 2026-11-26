@@ -1,14 +1,15 @@
 import { NavLink, useLocation } from 'react-router-dom'
 
 import { ChannelAvatar } from '@/components/layout/ChannelAvatar'
-import { BOT_TABS, STATS_TABS } from '@/config/nav'
+import { BOT_TABS, MEDIA_TABS, STATS_TABS } from '@/config/nav'
 import { cn } from '@/lib/cn'
 
 /** Левая панель вкладки (на узких экранах скрывается). */
 export function SectionPanel() {
   const location = useLocation()
   const isBot = location.pathname.startsWith('/bot')
-  const tabs = isBot ? BOT_TABS : STATS_TABS
+  const isMedia = location.pathname.startsWith('/media')
+  const tabs = isBot ? BOT_TABS : isMedia ? MEDIA_TABS : STATS_TABS
 
   return (
     <aside className="hidden w-44 shrink-0 flex-col border-r md:flex [border-color:color-mix(in_srgb,var(--accent)_20%,transparent)]">

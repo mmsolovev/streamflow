@@ -13,6 +13,8 @@ from services.chat_log_service import ChatLogService
 from services.command_usage_service import ensure_bot_commands
 from services.deferred_service import RecommendationSheetsSyncScheduler
 from services.eventsub_service import EventSubService
+from services.clip_archive_sync_service import ClipArchiveSyncWorker
+from services.recording_archive_sync_service import RecordingArchiveSyncWorker
 from telegram.service import TelegramService
 
 
@@ -31,6 +33,8 @@ class Bot(commands.Bot):
         self.recommendation_sheets_sync_scheduler = RecommendationSheetsSyncScheduler()
         self.telegram_service = TelegramService()
         self.stats_aggregation_worker = StatsAggregationWorker()
+        self.clip_archive_sync_worker = ClipArchiveSyncWorker()
+        self.recording_archive_sync_worker = RecordingArchiveSyncWorker()
         self.chat_log_service = ChatLogService()
 
         # Правка анонсов вешается на финализацию runtime-сессии, а не на
@@ -38,6 +42,9 @@ class Bot(commands.Bot):
         # после краша трансляции, где отдельного события окончания не было.
         self.eventsub_service.collector.add_finalize_listener(
             self.telegram_service.on_stream_ended
+        )
+        self.eventsub_service.collector.add_finalize_listener(
+            self.clip_archive_sync_worker.on_stream_finalized
         )
         self.eventsub_service.collector.add_online_listener(
             self.telegram_service.on_stream_started
@@ -83,6 +90,16 @@ class Bot(commands.Bot):
             await self.stats_aggregation_worker.start()
         except Exception as exc:
             print(f"[StatsWorker] start failed: {exc}")
+
+        try:
+            await self.recording_archive_sync_worker.start()
+        except Exception as exc:
+            print(f"[VODArchiveSync] start failed: {exc}")
+
+        try:
+            await self.clip_archive_sync_worker.start()
+        except Exception as exc:
+            print(f"[ClipArchiveSync] start failed: {exc}")
 
         try:
             await self.chat_log_service.start()

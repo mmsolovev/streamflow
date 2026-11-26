@@ -94,6 +94,9 @@ def test_helix_payload():
             "url": "https://www.twitch.tv/videos/2915709311",
             "duration": "4h16m7s",
             "created_at": "2026-10-31T16:59:27Z",
+            "title": "Evening stream",
+            "thumbnail_url": "https://static-cdn.example/thumb.jpg",
+            "view_count": 987,
         }
     )
 
@@ -102,6 +105,9 @@ def test_helix_payload():
     assert fields["duration_minutes"] == 256
     assert fields["recorded_at"] == datetime(2026, 10, 31, 16, 59, 27)
     assert fields["url"] == "https://www.twitch.tv/videos/2915709311"
+    assert fields["title"] == "Evening stream"
+    assert fields["thumbnail_url"] == "https://static-cdn.example/thumb.jpg"
+    assert fields["views_count"] == 987
 
 
 def test_video_id_is_parsed_from_url_when_missing():

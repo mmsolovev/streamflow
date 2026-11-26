@@ -25,6 +25,13 @@ export const NAV_TABS: NavTab[] = [
     enabled: true,
   },
   {
+    key: 'media',
+    label: 'Медиа',
+    to: '/media/recordings',
+    bases: ['/media'],
+    enabled: true,
+  },
+  {
     key: 'events',
     label: 'Ивенты',
     to: '/events',
@@ -60,7 +67,7 @@ export const STATS_TABS: StatsTab[] = [
 ]
 
 /** Разделы вкладки «Админка» (левая панель). */
-export type AdminSection = 'management' | 'connections' | 'telegram'
+export type AdminSection = 'management' | 'connections' | 'telegram' | 'links'
 
 export interface AdminTab {
   key: AdminSection
@@ -72,6 +79,7 @@ export const ADMIN_TABS: AdminTab[] = [
   { key: 'management', label: 'Управление', to: '/admin/management' },
   { key: 'telegram', label: 'Telegram', to: '/admin/telegram' },
   { key: 'connections', label: 'Подключения', to: '/admin/connections' },
+  { key: 'links', label: 'Ссылки', to: '/admin/links' },
 ]
 
 /** Подразделы раздела «Telegram» (переключатели под шапкой). */
@@ -102,6 +110,20 @@ export interface BotTab {
 
 export const BOT_TABS: BotTab[] = [
   { key: 'commands', label: 'Команды', to: '/bot/commands' },
+]
+
+/** Разделы вкладки «Медиа» (левая панель). */
+export type MediaSection = 'recordings' | 'clips'
+
+export interface MediaTab {
+  key: MediaSection
+  label: string
+  to: string
+}
+
+export const MEDIA_TABS: MediaTab[] = [
+  { key: 'recordings', label: 'Записи', to: '/media/recordings' },
+  { key: 'clips', label: 'Клипы', to: '/media/clips' },
 ]
 
 /** Подраздел, открытый по умолчанию при переходе в «Telegram». */

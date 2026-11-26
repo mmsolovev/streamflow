@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any
@@ -24,13 +25,19 @@ from backend.routers import (
     health,
     hltb,
     meta,
+    media,
     recommendations,
     releases,
     streams,
+    social_links,
     telegram_post_edit,
     users,
 )
+from database.db import AsyncSessionLocal
 from backend.security.maintenance import cleanup_expired_sessions_loop, sync_twitch_bans_loop
+from services.media_asset_service import ensure_default_social_icons
+
+logger = logging.getLogger("backend.app")
 
 
 def _error_body(code: str, message: Any) -> dict:
@@ -64,6 +71,11 @@ def create_app() -> FastAPI:
         cleanup_task = asyncio.create_task(cleanup_expired_sessions_loop())
         ban_sync_task = asyncio.create_task(sync_twitch_bans_loop())
         try:
+            try:
+                async with AsyncSessionLocal() as session:
+                    await ensure_default_social_icons(session)
+            except Exception:
+                logger.exception("Failed to import placeholder social media icons")
             yield
         finally:
             cleanup_task.cancel()
@@ -97,6 +109,8 @@ def create_app() -> FastAPI:
     app.include_router(games.router, prefix=prefix)
     app.include_router(hltb.router, prefix=prefix)
     app.include_router(streams.router, prefix=prefix)
+    app.include_router(media.router, prefix=prefix)
+    app.include_router(social_links.router, prefix=prefix)
     app.include_router(releases.router, prefix=prefix)
     app.include_router(recommendations.router, prefix=prefix)
     app.include_router(bot_commands.router, prefix=prefix)

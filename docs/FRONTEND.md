@@ -32,8 +32,8 @@ src/
     layout/     TopBar, SectionBar, SectionPanel, AdminPanel
     ui/         кнопки, фильтры, пагинация, скелетоны, диалоги
   config/       nav.ts, socials.ts
-  features/     games, streams, releases, recommendations, hltb, auth, meta,
-                telegramPostEdit — api + hooks + view
+  features/     games, streams, releases, recommendations, hltb, media, auth,
+                meta, telegramPostEdit — api + hooks + view
   hooks/        useOffset, useTableSort, useDebouncedValue, useFocusGameRow
   lib/          format, tags, recommenders, games, csrf, apiError, cn
   pages/        StatsPage, GameDetailPage, AdminPage, PlaceholderPage,
@@ -59,6 +59,8 @@ e2e/            Playwright
 | `/releases` | `StatsPage section="releases"` | готово |
 | `/recommendations` | `StatsPage section="recommendations"` | готово |
 | `/hltb` | `StatsPage section="hltb"` | готово |
+| `/media/recordings` | `MediaPage section="recordings"` | готово |
+| `/media/clips` | `MediaPage section="clips"` | готово |
 | `/bot/commands` | `BotPage section="commands"` | готово |
 | `/events` | `PlaceholderPage` | заглушка |
 | `/interactive` | `PlaceholderPage` | заглушка |
@@ -66,14 +68,19 @@ e2e/            Playwright
 | `/admin/management` | `AdminPage section="management"` | admin |
 | `/admin/connections` | `AdminPage section="connections"` | admin |
 | `/admin/telegram` | `AdminPage section="telegram"` | admin |
+| `/admin/links` | `AdminPage section="links"` | admin |
 | `/privacy` | `PrivacyPage` | публичный |
 | `*` | `NotFoundPage` | |
 
-Навигация описана в `src/config/nav.ts`: вкладки «Статистика» и «Бот»
-включены, «Ивенты»/«Интерактив» выключены. Разделы статистики:
+Навигация описана в `src/config/nav.ts`: вкладки «Статистика», «Бот» и
+«Медиа» включены, «Ивенты»/«Интерактив» выключены. В «Медиа» доступны
+«Записи» и «Клипы»; медиакарточки на широком экране показываются по пять в
+ряду. Клипы по умолчанию показываются за неделю и сортируются по просмотрам;
+фильтры доступны по игре и автору. Twitch-плеер запускается кликом по обложке.
+Игра ведёт на её страницу, дата — к соответствующему стриму. Разделы статистики:
 `games`, `streams`, `releases`, `recommendations`, `hltb`. Раздел бота:
 `commands` (реестр `bot_commands`). Админ-разделы:
-`management`, `connections`, `telegram`; Telegram-подразделы — `start`,
+`management`, `connections`, `telegram`, `links`; Telegram-подразделы — `start`,
 `during`, `end` (по умолчанию `end`).
 
 `ProtectedRoute requireAdmin` проверяет `is_admin`/capabilities из
@@ -134,6 +141,8 @@ e2e/            Playwright
 | `recommendations` | `#5bbdf4` | `#171c22` | `#1f262e` |
 | `admin` | `#7f8ea3` | `#1a1c21` | `#23262d` |
 | `hltb` | `#bf1313` | `#1c1b1b` | `#292525` |
+| `recordings` | `#b69cff` | `#1d1a27` | `#282433` |
+| `clips` | `#39d3c4` | `#17211f` | `#202c29` |
 | `telegram` | `#2aabee` | `#171d21` | `#242d33` |
 
 Фирменные цвета внешних сервисов хранятся в CSS-токенах `--brand-*` в

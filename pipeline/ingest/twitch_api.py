@@ -17,6 +17,10 @@ class TwitchTokenExpiredError(Exception):
     pass
 
 
+class TwitchAPIResponseError(Exception):
+    """Невалидный ответ Twitch API, который нельзя считать пустым архивом."""
+
+
 def _headers(*, client_id: str, access_token: str) -> dict[str, str]:
     return {
         "Client-ID": client_id,
@@ -56,6 +60,7 @@ async def fetch_vods(
     user_id: str,
     first: int = 100,
     max_items: int | None = None,
+    strict_status: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Получает все записи стримов (VOD archive) канала.
@@ -84,7 +89,16 @@ async def fetch_vods(
         ) as resp:
             if resp.status == 401:
                 raise TwitchTokenExpiredError("Twitch API returned 401 Unauthorized for /videos")
+            if strict_status and resp.status != 200:
+                raise TwitchAPIResponseError(
+                    f"Twitch API /videos returned HTTP {resp.status}"
+                )
             data: dict[str, Any] = await resp.json()
+
+        if strict_status and (
+            not isinstance(data, dict) or not isinstance(data.get("data"), list)
+        ):
+            raise TwitchAPIResponseError("Twitch API /videos returned an invalid payload")
 
         vods.extend(list(data.get("data") or []))
         if max_items is not None:

@@ -58,6 +58,30 @@ BOT_ID = os.getenv("BOT_ID")
 RAWG_API_KEY = os.getenv("RAWG_API_KEY")
 GAMES_SHEET_URL = os.getenv("GAMES_SHEET_URL")
 STREAM_RUNTIME_SAMPLE_SECONDS = int(os.getenv("STREAM_RUNTIME_SAMPLE_SECONDS", "60"))
+MEDIA_STORAGE_DIR = os.getenv("MEDIA_STORAGE_DIR", "storage/media_assets")
+# Полная сверка архива в процессе бота (6 часов); ручной запуск —
+# `python -m pipeline.orchestrator.sync_vods`.
+TWITCH_VOD_ARCHIVE_SYNC_INTERVAL_SECONDS = int(
+    os.getenv("TWITCH_VOD_ARCHIVE_SYNC_INTERVAL_SECONDS", "21600")
+)
+TWITCH_CLIP_SYNC_INTERVAL_SECONDS = max(
+    600, int(os.getenv("TWITCH_CLIP_SYNC_INTERVAL_SECONDS", "720"))
+)
+TWITCH_CLIP_OFFLINE_SYNC_INTERVAL_SECONDS = max(
+    3600, int(os.getenv("TWITCH_CLIP_OFFLINE_SYNC_INTERVAL_SECONDS", "21600"))
+)
+TWITCH_CLIP_METRICS_INTERVAL_SECONDS = max(
+    3600, int(os.getenv("TWITCH_CLIP_METRICS_INTERVAL_SECONDS", "43200"))
+)
+TWITCH_CLIP_LIVE_METRICS_INTERVAL_SECONDS = max(
+    3600, int(os.getenv("TWITCH_CLIP_LIVE_METRICS_INTERVAL_SECONDS", "3600"))
+)
+TWITCH_CLIP_FINAL_REFRESH_DELAY_SECONDS = max(
+    720, int(os.getenv("TWITCH_CLIP_FINAL_REFRESH_DELAY_SECONDS", "720"))
+)
+TWITCH_CLIP_METRICS_BATCH_SIZE = max(
+    20, min(100, int(os.getenv("TWITCH_CLIP_METRICS_BATCH_SIZE", "100")))
+)
 
 # =====================================================
 # RUNTIME STATS: самосбор статистики стримов

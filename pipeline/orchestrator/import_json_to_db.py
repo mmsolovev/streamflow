@@ -118,6 +118,7 @@ async def _sync_vods(session, *, only_stream_ids: set[int] | None = None) -> tup
             client_id=settings.CLIENT_ID,
             access_token=settings.TWITCH_ACCESS_TOKEN,
             user_id=user_id,
+            strict_status=True,
         )
 
     vod_urls = {str(v.get("url") or "").strip() for v in vods}
@@ -197,14 +198,14 @@ async def _sync_vods(session, *, only_stream_ids: set[int] | None = None) -> tup
                 used_vod_ids.add(vod_id)
             break
 
-    # Истёкшие записи не удаляем: скрываем на сайте, историю сохраняем.
-    hidden = await recording_service.mark_missing_unavailable(
+    # Оставить только записи из полного актуального Twitch-архива.
+    changed = await recording_service.mark_missing_unavailable(
         session,
         keep_urls=vod_urls,
         keep_video_ids=vod_video_ids,
     )
 
-    return (hidden, matched)
+    return (changed, matched)
 
 
 async def _enrich_games_meta(
@@ -362,7 +363,7 @@ async def run() -> int:
         _log(f"New entities in this run -> games: {len(added_game_ids)}, streams: {len(added_stream_ids)}")
 
         _log("Syncing VOD URLs...")
-        vod_removed, vod_matched = await _sync_vods(session, only_stream_ids=added_stream_ids)
+        vod_changed, vod_matched = await _sync_vods(session, only_stream_ids=added_stream_ids)
         _log("Enriching games metadata (HLTB + IGDB)...")
         games_updated, games_fields_updated, hltb_calls, igdb_calls = await _enrich_games_meta(
             session, cache=cache, only_game_ids=added_game_ids,
@@ -377,7 +378,7 @@ async def run() -> int:
         _log(f"Game stats -> added: {game_stats.added}, updated: {game_stats.updated}, unchanged: {game_stats.unchanged}, deleted: {game_stats.deleted}, TT divergences: {game_stats.divergences}")
         _log(f"GameStats.streams_count updated rows: {streams_count_updated}")
         _log("Post-import enrichment:")
-        _log(f"VOD sync -> hidden expired: {vod_removed}, matched new: {vod_matched}")
+        _log(f"VOD sync -> stale/availability changes: {vod_changed}, matched new: {vod_matched}")
         _log(f"Games metadata -> updated games: {games_updated}, updated fields: {games_fields_updated}, hltb calls: {hltb_calls}, igdb calls: {igdb_calls}")
         _log("Done!")
         return 0

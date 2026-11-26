@@ -26,6 +26,7 @@ from backend.repositories.filters import (
     tag_condition,
 )
 from backend.repositories.list_query import ListQuery
+from backend.repositories.media_assets import game_cover_url_expression
 
 # Сколько последних календарных дней (включая сегодня) считать «недавними».
 RECENT_RELEASE_DAYS = 2
@@ -99,7 +100,7 @@ async def list_releases(
             GameMetadataIGDB.steam_url.label("steam_url"),
             GameMetadataIGDB.description_ru.label("description_ru"),
             GameMetadataIGDB.description_en.label("description_en"),
-            GameMetadataIGDB.cover_url.label("cover_url"),
+            game_cover_url_expression(Game.id).label("cover_url"),
             recommenders_count.label("recommenders_count"),
             interested_flag.label("interested"),
         )

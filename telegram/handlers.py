@@ -9,10 +9,15 @@
 """
 
 from __future__ import annotations
+from io import BytesIO
+
 from aiogram import Router
 from aiogram.types import Message
+from sqlalchemy import select
 
 from database.db import AsyncSessionLocal
+from database.models import TelegramAnnouncementMedia
+from services.media_asset_service import create_file_asset, utcnow
 from telegram import announcements
 from telegram.entities import extract_link_urls
 from telegram.templates import is_own_edit
@@ -76,6 +81,56 @@ async def record_announcement(session, message: Message) -> int:
         link_urls=link_urls_of(message),
     )
 
+
+async def _sync_announcement_photo(
+    session, message: Message, announcement_id: int
+) -> None:
+    """Store the announcement's largest Telegram photo for later VOD previews."""
+    photo = message.photo[-1] if message.photo else None
+    existing = (
+        await session.execute(
+            select(TelegramAnnouncementMedia).where(
+                TelegramAnnouncementMedia.announcement_id == announcement_id,
+                TelegramAnnouncementMedia.role == "photo",
+                TelegramAnnouncementMedia.position == 0,
+            )
+        )
+    ).scalar_one_or_none()
+    if photo is None:
+        if existing is not None:
+            await session.delete(existing)
+        return
+
+    buffer = BytesIO()
+    try:
+        await message.bot.download(photo, destination=buffer)
+        asset = await create_file_asset(
+            session,
+            data=buffer.getvalue(),
+            filename=f"telegram-{photo.file_unique_id}.jpg",
+            source="telegram",
+            source_ref=photo.file_id,
+        )
+    except Exception:
+        logger.exception(
+            "Could not save Telegram announcement photo %s", announcement_id
+        )
+        return
+    if existing is None:
+        session.add(
+            TelegramAnnouncementMedia(
+                announcement_id=announcement_id,
+                asset_id=int(asset.id),
+                role="photo",
+                position=0,
+                created_at=utcnow(),
+            )
+        )
+    else:
+        existing.asset_id = int(asset.id)
+        existing.created_at = utcnow()
+
+
 @router.channel_post()
 async def on_channel_post(message: Message) -> None:
     """Новый пост в канале: запоминаем его как возможный анонс.
@@ -88,7 +143,8 @@ async def on_channel_post(message: Message) -> None:
 
     try:
         async with AsyncSessionLocal() as session:
-            await record_announcement(session, message)
+            announcement_id = await record_announcement(session, message)
+            await _sync_announcement_photo(session, message, announcement_id)
             await session.commit()
     except Exception:
         logger.exception("Failed to record channel post %s", message.message_id)
@@ -129,7 +185,8 @@ async def on_edited_channel_post(message: Message) -> None:
             if existing is None:
                 # Пост отредактирован раньше, чем бот его увидел: заводим запись,
                 # чтобы он не потерялся как кандидат.
-                await record_announcement(session, message)
+                announcement_id = await record_announcement(session, message)
+                await _sync_announcement_photo(session, message, announcement_id)
                 await session.commit()
                 return
 
@@ -143,6 +200,7 @@ async def on_edited_channel_post(message: Message) -> None:
                 media_kind=media_kind(message),
                 media_group_id=message.media_group_id,
             )
+            await _sync_announcement_photo(session, message, int(existing.id))
 
             incoming = message.caption or message.text
             is_own_echo = existing.edited_text is not None and is_own_edit(

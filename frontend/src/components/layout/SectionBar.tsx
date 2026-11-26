@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
 
-import { BOT_TABS, STATS_TABS } from '@/config/nav'
+import { BOT_TABS, MEDIA_TABS, STATS_TABS } from '@/config/nav'
 import { cn } from '@/lib/cn'
 
 /**
@@ -10,7 +10,8 @@ import { cn } from '@/lib/cn'
 export function SectionBar() {
   const location = useLocation()
   const isBot = location.pathname.startsWith('/bot')
-  const tabs = isBot ? BOT_TABS : STATS_TABS
+  const isMedia = location.pathname.startsWith('/media')
+  const tabs = isBot ? BOT_TABS : isMedia ? MEDIA_TABS : STATS_TABS
 
   return (
     <nav className="flex gap-1 overflow-x-auto border-b border-white/10 px-3 py-2 md:hidden">

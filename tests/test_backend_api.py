@@ -10,6 +10,8 @@ from backend.deps import get_current_user, get_session, get_streamer_id
 from backend.repositories import bot_commands as bot_commands_repo
 from backend.repositories import games as games_repo
 from backend.repositories import hltb as hltb_repo
+from backend.repositories import media as media_repo
+from backend.repositories import media_assets as media_assets_repo
 from backend.repositories import recommendations as recs_repo
 from backend.repositories import releases as releases_repo
 from backend.repositories import streams as streams_repo
@@ -180,10 +182,113 @@ def test_list_streams(client):
         streams_repo,
         "list_streams",
         AsyncMock(return_value=(items, 1, 1, {"total": 1, "with_vod": 0, "total_minutes": 0})),
-    ):
-        response = client.get(f"{PREFIX}/streams")
+    ) as list_streams:
+        response = client.get(f"{PREFIX}/streams?stream_id=1")
     assert response.status_code == 200
     assert response.json()["items"][0]["duration_hours"] == 2.0
+    assert list_streams.await_args.kwargs["stream_id"] == 1
+
+
+def test_list_media_clips_defaults_to_week_and_view_count_sort(client):
+    clip = {
+        "id": 5,
+        "external_id": "clip-slug",
+        "title": "Funny clip",
+        "url": "https://clips.twitch.tv/clip-slug",
+        "thumbnail_url": "https://clips-media.example/thumb.jpg",
+        "created_at": "2026-11-25T18:00:00",
+        "duration_seconds": 24,
+        "views_count": 1234,
+        "stream_id": 42,
+        "stream_title": "Evening stream",
+        "game_id": 7,
+        "game_name": "Hades",
+        "creator_user_id": 3,
+        "creator_login": "viewer",
+        "creator_display_name": "Viewer",
+    }
+    with patch.object(
+        media_repo,
+        "list_clips",
+        AsyncMock(return_value=([clip], 1, 7)),
+    ) as list_clips:
+        response = client.get(
+            f"{PREFIX}/media/clips?filters=game%3A7&filters=creator%3A3"
+        )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["views_count"] == 1234
+    assert list_clips.await_args.kwargs["period"] == "week"
+    assert list_clips.await_args.kwargs["sort"] == "views"
+    assert list_clips.await_args.kwargs["filters"] == ["game:7", "creator:3"]
+
+
+def test_list_media_recordings_serializes_video_metadata(client):
+    recording = {
+        "id": 9,
+        "twitch_video_id": "123456",
+        "title": "Full broadcast",
+        "url": "https://www.twitch.tv/videos/123456",
+        "thumbnail_url": "https://static-cdn.example/thumb.jpg",
+        "recorded_at": "2026-11-24T18:00:00",
+        "duration_minutes": 185,
+        "views_count": 9876,
+        "stream_id": 42,
+        "stream_title": "Evening stream",
+        "games": ["Hades"],
+        "game_refs": [{"id": 7, "name": "Hades"}],
+    }
+    with patch.object(
+        media_repo,
+        "list_recordings",
+        AsyncMock(return_value=([recording], 1, 1)),
+    ):
+        response = client.get(f"{PREFIX}/media/recordings")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["twitch_video_id"] == "123456"
+    assert response.json()["items"][0]["views_count"] == 9876
+
+
+def test_media_filter_options_include_game_and_clip_creator(client):
+    options = {
+        "games": [{"key": "game:7", "label": "Hades"}],
+        "creators": [{"key": "creator:3", "label": "Viewer"}],
+        "streams": [{"key": "stream:42", "label": "Стрим: 25.11.2026 — Evening stream"}],
+    }
+    with patch.object(
+        media_repo,
+        "list_filter_options",
+        AsyncMock(return_value=options),
+    ):
+        response = client.get(f"{PREFIX}/media/filters?section=clips")
+
+    assert response.status_code == 200
+    assert response.json() == options
+
+
+def test_public_social_links_serialize_media_icon_urls(client):
+    links = [
+        {
+            "id": 1,
+            "service_key": "twitch",
+            "name": "Twitch",
+            "url": "https://twitch.tv/tabula",
+            "description": "Стримы",
+            "icon_url": "/api/v1/media/assets/11/content",
+            "sort_order": 10,
+            "is_active": True,
+        }
+    ]
+    with patch.object(
+        media_assets_repo,
+        "list_social_links",
+        AsyncMock(return_value=links),
+    ):
+        response = client.get(f"{PREFIX}/media/social-links")
+
+    assert response.status_code == 200
+    assert response.json()[0]["icon_url"] == "/api/v1/media/assets/11/content"
 
 
 def test_channel_info_offline_by_default(client):

@@ -227,6 +227,201 @@
         }
       }
     },
+    "/api/v1/games/{game_id}/cover/url": {
+      "put": {
+        "tags": [
+          "games"
+        ],
+        "summary": "Set Game Cover Url",
+        "operationId": "set_game_cover_url_api_v1_games__game_id__cover_url_put",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaUrlIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Set Game Cover Url Api V1 Games  Game Id  Cover Url Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/cover/file": {
+      "post": {
+        "tags": [
+          "games"
+        ],
+        "summary": "Upload Game Cover",
+        "operationId": "upload_game_cover_api_v1_games__game_id__cover_file_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_game_cover_api_v1_games__game_id__cover_file_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Upload Game Cover Api V1 Games  Game Id  Cover File Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/cover": {
+      "delete": {
+        "tags": [
+          "games"
+        ],
+        "summary": "Delete Game Cover",
+        "operationId": "delete_game_cover_api_v1_games__game_id__cover_delete",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/igdb-id": {
+      "patch": {
+        "tags": [
+          "games"
+        ],
+        "summary": "Update Game Igdb Id",
+        "operationId": "update_game_igdb_id_api_v1_games__game_id__igdb_id_patch",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GameIGDBIdUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameIGDBIdUpdateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/games/covers": {
       "get": {
         "tags": [
@@ -858,6 +1053,23 @@
             }
           },
           {
+            "name": "stream_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stream Id"
+            }
+          },
+          {
             "name": "date",
             "in": "query",
             "required": false,
@@ -1100,6 +1312,772 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/filters": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "List Media Filters",
+        "operationId": "list_media_filters_api_v1_media_filters_get",
+        "parameters": [
+          {
+            "name": "section",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(recordings|clips)$",
+              "title": "Section"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaFilterOptions"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/social-links": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Social Links",
+        "operationId": "social_links_api_v1_media_social_links_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SocialLinkView"
+                  },
+                  "type": "array",
+                  "title": "Response Social Links Api V1 Media Social Links Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/assets/{asset_id}/content": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Media Asset Content",
+        "operationId": "media_asset_content_api_v1_media_assets__asset_id__content_get",
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Asset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/recordings/{recording_id}/preview/url": {
+      "put": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Set Recording Preview Url",
+        "operationId": "set_recording_preview_url_api_v1_media_recordings__recording_id__preview_url_put",
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Recording Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaUrlIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingPreviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/recordings/{recording_id}/preview/file": {
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Upload Recording Preview",
+        "operationId": "upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post",
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Recording Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingPreviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/recordings/{recording_id}/preview": {
+      "delete": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Delete Recording Preview",
+        "operationId": "delete_recording_preview_api_v1_media_recordings__recording_id__preview_delete",
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Recording Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/recordings": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "List Recordings",
+        "operationId": "list_recordings_api_v1_media_recordings_get",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(date|views|title|duration)$",
+              "default": "date",
+              "title": "Sort"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(asc|desc)$",
+              "default": "desc",
+              "title": "Direction"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "title": "Filters"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 24,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RecordingView_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/clips": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "List Clips",
+        "operationId": "list_clips_api_v1_media_clips_get",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(day|week|month|all)$",
+              "default": "week",
+              "title": "Period"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(date|views|title|duration)$",
+              "default": "views",
+              "title": "Sort"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(asc|desc)$",
+              "default": "desc",
+              "title": "Direction"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "title": "Filters"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 24,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ClipView_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/links": {
+      "get": {
+        "tags": [
+          "admin-links"
+        ],
+        "summary": "List Admin Links",
+        "operationId": "list_admin_links_api_v1_admin_links_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SocialLinkView"
+                  },
+                  "type": "array",
+                  "title": "Response List Admin Links Api V1 Admin Links Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin-links"
+        ],
+        "summary": "Create Link",
+        "operationId": "create_link_api_v1_admin_links_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SocialLinkCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLinkView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/links/{link_id}": {
+      "patch": {
+        "tags": [
+          "admin-links"
+        ],
+        "summary": "Update Link",
+        "operationId": "update_link_api_v1_admin_links__link_id__patch",
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SocialLinkUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLinkView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin-links"
+        ],
+        "summary": "Delete Link",
+        "operationId": "delete_link_api_v1_admin_links__link_id__delete",
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/links/{link_id}/icon/url": {
+      "put": {
+        "tags": [
+          "admin-links"
+        ],
+        "summary": "Set Link Icon Url",
+        "operationId": "set_link_icon_url_api_v1_admin_links__link_id__icon_url_put",
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaUrlIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Set Link Icon Url Api V1 Admin Links  Link Id  Icon Url Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/links/{link_id}/icon/file": {
+      "post": {
+        "tags": [
+          "admin-links"
+        ],
+        "summary": "Upload Link Icon",
+        "operationId": "upload_link_icon_api_v1_admin_links__link_id__icon_file_post",
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_link_icon_api_v1_admin_links__link_id__icon_file_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Upload Link Icon Api V1 Admin Links  Link Id  Icon File Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/links/{link_id}/icon": {
+      "delete": {
+        "tags": [
+          "admin-links"
+        ],
+        "summary": "Delete Link Icon",
+        "operationId": "delete_link_icon_api_v1_admin_links__link_id__icon_delete",
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -2990,6 +3968,48 @@
         ],
         "title": "AuditView"
       },
+      "Body_upload_game_cover_api_v1_games__game_id__cover_file_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_game_cover_api_v1_games__game_id__cover_file_post"
+      },
+      "Body_upload_link_icon_api_v1_admin_links__link_id__icon_file_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_link_icon_api_v1_admin_links__link_id__icon_file_post"
+      },
+      "Body_upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post"
+      },
       "BotCommandCreateIn": {
         "properties": {
           "name": {
@@ -3131,6 +4151,153 @@
         ],
         "title": "ChannelInfo",
         "description": "Данные канала — для сайдбара (логин, имя, аватар)."
+      },
+      "ClipView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "views_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Views Count"
+          },
+          "stream_id": {
+            "type": "integer",
+            "title": "Stream Id"
+          },
+          "stream_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Title"
+          },
+          "game_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game Id"
+          },
+          "game_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game Name"
+          },
+          "creator_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator User Id"
+          },
+          "creator_login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator Login"
+          },
+          "creator_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "external_id",
+          "title",
+          "url",
+          "thumbnail_url",
+          "created_at",
+          "duration_seconds",
+          "views_count",
+          "stream_id",
+          "stream_title",
+          "game_id",
+          "game_name",
+          "creator_user_id",
+          "creator_login",
+          "creator_display_name"
+        ],
+        "title": "ClipView"
       },
       "CurrentStreamGame": {
         "properties": {
@@ -3682,6 +4849,56 @@
           "game_type"
         ],
         "title": "GameDetail"
+      },
+      "GameIGDBIdUpdateIn": {
+        "properties": {
+          "igdb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Igdb Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "igdb_id"
+        ],
+        "title": "GameIGDBIdUpdateIn"
+      },
+      "GameIGDBIdUpdateOut": {
+        "properties": {
+          "game_id": {
+            "type": "integer",
+            "title": "Game Id"
+          },
+          "igdb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Igdb Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "igdb_id",
+          "message"
+        ],
+        "title": "GameIGDBIdUpdateOut"
       },
       "GameIGDBRefreshIn": {
         "properties": {
@@ -4396,6 +5613,87 @@
         ],
         "title": "InterestUpdateOut"
       },
+      "MediaFilterOption": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "MediaFilterOption"
+      },
+      "MediaFilterOptions": {
+        "properties": {
+          "games": {
+            "items": {
+              "$ref": "#/components/schemas/MediaFilterOption"
+            },
+            "type": "array",
+            "title": "Games"
+          },
+          "creators": {
+            "items": {
+              "$ref": "#/components/schemas/MediaFilterOption"
+            },
+            "type": "array",
+            "title": "Creators"
+          },
+          "streams": {
+            "items": {
+              "$ref": "#/components/schemas/MediaFilterOption"
+            },
+            "type": "array",
+            "title": "Streams"
+          }
+        },
+        "type": "object",
+        "required": [
+          "games",
+          "creators",
+          "streams"
+        ],
+        "title": "MediaFilterOptions"
+      },
+      "MediaGameRef": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "MediaGameRef"
+      },
+      "MediaUrlIn": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "MediaUrlIn"
+      },
       "Page_BotCommandView_": {
         "properties": {
           "items": {
@@ -4451,6 +5749,62 @@
           "offset"
         ],
         "title": "Page[BotCommandView]"
+      },
+      "Page_ClipView_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ClipView"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "total_all": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total All"
+          },
+          "aggregates": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[ClipView]"
       },
       "Page_GameStream_": {
         "properties": {
@@ -4675,6 +6029,62 @@
           "offset"
         ],
         "title": "Page[RecommendationView]"
+      },
+      "Page_RecordingView_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecordingView"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "total_all": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total All"
+          },
+          "aggregates": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[RecordingView]"
       },
       "Page_ReleaseView_": {
         "properties": {
@@ -5547,6 +6957,153 @@
         "type": "object",
         "title": "RecommenderEntry"
       },
+      "RecordingPreviewOut": {
+        "properties": {
+          "recording_id": {
+            "type": "integer",
+            "title": "Recording Id"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recording_id",
+          "thumbnail_url",
+          "message"
+        ],
+        "title": "RecordingPreviewOut"
+      },
+      "RecordingView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "twitch_video_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Twitch Video Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "views_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Views Count"
+          },
+          "stream_id": {
+            "type": "integer",
+            "title": "Stream Id"
+          },
+          "stream_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Title"
+          },
+          "games": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Games"
+          },
+          "game_refs": {
+            "items": {
+              "$ref": "#/components/schemas/MediaGameRef"
+            },
+            "type": "array",
+            "title": "Game Refs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "twitch_video_id",
+          "title",
+          "url",
+          "thumbnail_url",
+          "recorded_at",
+          "duration_minutes",
+          "views_count",
+          "stream_id",
+          "stream_title",
+          "games",
+          "game_refs"
+        ],
+        "title": "RecordingView"
+      },
       "ReleaseView": {
         "properties": {
           "id": {
@@ -5837,6 +7394,161 @@
           "announcement_id"
         ],
         "title": "SetTargetIn"
+      },
+      "SocialLinkCreateIn": {
+        "properties": {
+          "service_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$",
+            "title": "Service Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "default": "#"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order",
+            "default": 0
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_key",
+          "name"
+        ],
+        "title": "SocialLinkCreateIn"
+      },
+      "SocialLinkUpdateIn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "SocialLinkUpdateIn"
+      },
+      "SocialLinkView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "service_key": {
+            "type": "string",
+            "title": "Service Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "icon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Url"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "service_key",
+          "name",
+          "url",
+          "description",
+          "icon_url",
+          "sort_order",
+          "is_active"
+        ],
+        "title": "SocialLinkView"
       },
       "StreamParticipant": {
         "properties": {

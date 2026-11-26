@@ -35,6 +35,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./storage:/app/storage
     depends_on:
       db:
         condition: service_healthy

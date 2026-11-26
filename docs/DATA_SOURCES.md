@@ -85,6 +85,29 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
 - Колонки с флагами закрыты protected range в Sheets: кликнуть и изменить их
   нельзя (кроме владельца таблицы, который может снять защиту).
 
+## Twitch Media
+
+- Публичные каталоги сайта читают `stream_recordings` и `clips` через
+  `/api/v1/media/recordings` и `/api/v1/media/clips`; страницы не обращаются к
+  Twitch API напрямую.
+- VOD синхронизируются существующим архивным worker-ом, который также
+  обновляет заголовок, thumbnail и количество просмотров.
+- `ClipArchiveSyncWorker` во время эфира догоняет новые клипы с перекрывающимся
+  временным курсором (по умолчанию каждые 12 минут). Через 12 минут после
+  финализации runtime-сессии ставится повторная проверка клипов этого стрима.
+  Вне эфира новые клипы обнаруживаются примерно раз в 6 часов, в том числе
+  созданные позже из VOD.
+- Во время эфира просмотры популярных и свежих клипов обновляются раз в час.
+- Вне эфира раз в 12 часов обновляются метрики популярных и свежих клипов, а
+  также небольшой пакет давно не проверявшихся записей. Ошибки Twitch не
+  двигают курсор; повторные запросы безопасны благодаря `external_id`.
+- Первичный полный бэкфилл — `python database/sync_clips.py`; штатный worker
+  не повторяет его целиком и не создаёт Twitch-запрос на каждый просмотр сайта.
+- Фото новых Telegram-анонсов скачиваются в `MEDIA_STORAGE_DIR`; медиакаталог
+  использует их как fallback-превью связанных VOD. Ручные и IGDB-обложки игр,
+  ручные превью VOD и иконки соцсетей связываются с `media_assets` отдельными
+  FK-таблицами.
+
 ## LLM
 
 Провайдеры вызываются по цепочке в `services/gpt_service.py`:
@@ -115,6 +138,10 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
   `telegram_post_edit_settings.delay_seconds` (по умолчанию 660 с), затем
   правка анонса. Все найденные записи broadcast пишутся в `stream_recordings`
   (единый реестр VOD для сайта и Telegram), задача хранит только `recording_id`.
+- Архивная синхронизация каждые
+  `TWITCH_VOD_ARCHIVE_SYNC_INTERVAL_SECONDS` (6 часов по умолчанию) сверяет
+  доступность VOD с Twitch. Строки, на которые ссылаются новостные анонсы,
+  остаются недоступными tombstone; остальные устаревшие строки удаляются.
 - Подробности — `docs/TELEGRAM.md`.
 
 ## Runtime Stream Collector
@@ -169,7 +196,7 @@ EventSub, runtime-метрики, логи чата и Telegram-анонсы. О
 | `import_igdb_releases.py` | IGDB → PostgreSQL (релизы) |
 | `update_upcoming_release_dates.py` | обновление дат ожидаемых релизов |
 | `sync_sheets.py` | PostgreSQL → Google Sheets |
-| `sync_vods.py` | сверка `stream_recordings` с архивом Twitch (истёкшие — `is_available=false`) |
+| `sync_vods.py` | сверка `stream_recordings` с архивом Twitch (истёкшие скрываются/удаляются); также запускается в bot worker и перед sync листа «Стримы» |
 | `normalize_time.py` | нормализация времени TwitchTracker в UTC (`--apply`) |
 | `sync_wishlist.py` | синхронизация вишлиста |
 | `enrich_descriptions_with_gpt.py` | PostgreSQL → LLM → PostgreSQL |

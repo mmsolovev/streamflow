@@ -228,6 +228,7 @@ __marimo__/
 /storage/holydays_raw.json
 /storage/holydays_temp.txt
 /storage/pages/
+/storage/media_assets/
 
 !/storage/cache/*.example.json
 !/storage/config/*.example.json

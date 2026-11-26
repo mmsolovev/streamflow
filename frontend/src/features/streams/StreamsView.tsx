@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -178,7 +178,14 @@ function makeColumns(
       key: 'clips',
       label: 'Клипы',
       align: 'center',
-      render: () => null,
+      render: (stream) => (
+        <Link
+          to={`/media/clips?period=all&filters=stream%3A${stream.id}`}
+          className="font-social text-[var(--brand-twitch)] transition-opacity hover:opacity-80"
+        >
+          Клипы
+        </Link>
+      ),
     },
     {
       key: 'participants',
@@ -228,6 +235,9 @@ export function StreamsView() {
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search)
   const [date, setDate] = useState(() => searchParams.get('date') ?? '')
+  const streamIdParam = Number(searchParams.get('stream_id'))
+  const streamId =
+    Number.isInteger(streamIdParam) && streamIdParam > 0 ? streamIdParam : undefined
   const [activeFilters, setActiveFilters] = useState<string[]>([])
   const [editMode, setEditMode] = useState(false)
   const [confirmTarget, setConfirmTarget] = useState<{
@@ -309,6 +319,7 @@ export function StreamsView() {
     direction: sortDir,
     filters: activeFilters,
     date: date || undefined,
+    stream_id: streamId,
     limit: PAGE_SIZE,
     offset,
   })
@@ -364,14 +375,20 @@ export function StreamsView() {
       void queryClient.invalidateQueries({ queryKey: ['streams', 'list'] })
     }
   }, [currentStreamQuery.data?.id, currentStreamQuery.isFetched, queryClient])
-  const displayRows: StreamTableItem[] = liveRow
+  const showLiveRow = Boolean(
+    liveRow && (streamId === undefined || streamId === liveRow.id),
+  )
+  const displayRows: StreamTableItem[] = showLiveRow && liveRow
     ? [liveRow, ...pageItems]
     : pageItems
   const total = query.data?.total ?? 0
   const totalAll = query.data?.total_all ?? 0
   const aggregates = query.data?.aggregates
 
-  useResetOffsetOn(setOffset, [debouncedSearch, date, activeFilters, sortKey, sortDir])
+  useResetOffsetOn(
+    setOffset,
+    [debouncedSearch, date, streamId, activeFilters, sortKey, sortDir],
+  )
 
   const { highlightId } = useFocusGameRow({
     rows: pageItems,
@@ -387,7 +404,7 @@ export function StreamsView() {
         subtitle={
           query.isSuccess
             ? `Показано ${formatNumber(total)} из ${formatNumber(totalAll)}${
-                liveRow ? ' + текущий эфир' : ''
+                showLiveRow ? ' + текущий эфир' : ''
               }`
             : 'Раздел статистики'
         }
@@ -489,9 +506,9 @@ export function StreamsView() {
         />
       ) : null}
 
-      {query.isLoading && !liveRow ? (
+      {query.isLoading && !showLiveRow ? (
         <TableSkeleton columns={8} />
-      ) : query.isError && !liveRow ? (
+      ) : query.isError && !showLiveRow ? (
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : displayRows.length === 0 ? (
         <EmptyState hint="Измените фильтры или поисковый запрос." />

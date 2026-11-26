@@ -28,6 +28,7 @@ from backend.repositories.filters import (
     tag_condition,
 )
 from backend.repositories.list_query import ListQuery
+from backend.repositories.media_assets import game_cover_url_expression
 from pipeline.load.load_recommendations import UPCOMING_RELEASE_LOGIN
 
 STATUS_RELEASED = "released"
@@ -98,7 +99,7 @@ async def list_recommendations(
             GameMetadataIGDB.release_date.label("release_date"),
             GameMetadataIGDB.steam_url.label("steam_url"),
             GameMetadataIGDB.igdb_score.label("igdb_score"),
-            GameMetadataIGDB.cover_url.label("cover_url"),
+            game_cover_url_expression(Game.id).label("cover_url"),
             GameMetadataIGDB.description_ru.label("description_ru"),
             GameMetadataIGDB.description_en.label("description_en"),
             votes_count.label("votes_count"),

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, ExternalLink, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Pencil, RefreshCw } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { SectionHeader } from '@/components/layout/SectionHeader'
@@ -10,6 +10,7 @@ import { FlagToggle } from '@/components/ui/FlagToggle'
 import { GameDetailSkeleton } from '@/pages/GameDetailSkeleton'
 import { useAuth } from '@/features/auth/context'
 import { GameIGDBRefreshModal } from '@/features/games/GameIGDBRefreshModal'
+import { GameMediaEditModal } from '@/features/games/GameMediaEditModal'
 import type { IGDBRefreshSource } from '@/features/games/GameIGDBRefreshModal'
 import {
   useGame,
@@ -110,6 +111,7 @@ export function GameDetailPage() {
   const igdbRefreshMutation = useRefreshGameIGDB()
   const interestedMutation = useSetReleaseInterested()
   const [igdbRefreshOpen, setIgdbRefreshOpen] = useState(false)
+  const [mediaEditOpen, setMediaEditOpen] = useState(false)
 
   // Стримы по игре грузим порциями: сначала 50, дальше по кнопке.
   const [streamsLimit, setStreamsLimit] = useState(STREAMS_PAGE)
@@ -200,6 +202,16 @@ export function GameDetailPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
+            {canEdit && game ? (
+              <button
+                type="button"
+                onClick={() => setMediaEditOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-3 py-1.5 text-sm text-[var(--text-muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--text)]"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Редактирование
+              </button>
+            ) : null}
           </SectionHeader>
 
           {query.isLoading ? (
@@ -490,6 +502,15 @@ export function GameDetailPage() {
               gameName={game.name}
               onClose={() => setIgdbRefreshOpen(false)}
               onSubmit={refreshIGDB}
+            />
+          ) : null}
+          {mediaEditOpen && game ? (
+            <GameMediaEditModal
+              gameId={game.id}
+              gameName={game.name}
+              coverUrl={game.cover_url}
+              currentIgdbId={game.igdb_id ?? null}
+              onClose={() => setMediaEditOpen(false)}
             />
           ) : null}
         </div>

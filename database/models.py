@@ -207,11 +207,130 @@ class Clip(Base):
     url = Column(Text, nullable=False)
     thumbnail_url = Column(Text)
     notes = Column(Text)
+    twitch_video_id = Column(Text)
     created_at = Column(DateTime, nullable=False)
     clip_offset_seconds = Column(Integer)
     duration_seconds = Column(Integer)
     views_count = Column(Integer)
     synced_at = Column(DateTime)
+
+
+class MediaAsset(Base):
+    """An external media URL or a file stored in the persistent media volume."""
+
+    __tablename__ = "media_assets"
+
+    id = Column(BigInteger, primary_key=True)
+    storage_kind = Column(String(10), nullable=False)
+    url = Column(Text)
+    storage_key = Column(Text, unique=True)
+    original_filename = Column(Text)
+    mime_type = Column(String(100))
+    size_bytes = Column(BigInteger)
+    sha256 = Column(String(64))
+    source = Column(String(30), nullable=False, default="manual", server_default="manual")
+    source_ref = Column(Text)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    __table_args__ = (
+        CheckConstraint(
+            "(storage_kind = 'url' AND url IS NOT NULL) OR "
+            "(storage_kind = 'file' AND storage_key IS NOT NULL)",
+            name="ck_media_assets_storage_reference",
+        ),
+        CheckConstraint(
+            "storage_kind IN ('url', 'file')",
+            name="ck_media_assets_storage_kind",
+        ),
+        Index("ix_media_assets_source", "source"),
+        Index("ix_media_assets_sha256", "sha256"),
+    )
+
+
+class GameMediaAsset(Base):
+    """Game artwork links. Different sources can coexist for one role."""
+
+    __tablename__ = "game_media_assets"
+
+    id = Column(BigInteger, primary_key=True)
+    game_id = Column(Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False)
+    asset_id = Column(BigInteger, ForeignKey("media_assets.id"), nullable=False)
+    role = Column(String(30), nullable=False, default="cover", server_default="cover")
+    source = Column(String(30), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("game_id", "role", "source", name="uq_game_media_role_source"),
+        Index("ix_game_media_assets_asset_id", "asset_id"),
+    )
+
+
+class StreamRecordingMedia(Base):
+    """Recording preview links from Twitch, Telegram, or manual overrides."""
+
+    __tablename__ = "stream_recording_media"
+
+    id = Column(BigInteger, primary_key=True)
+    recording_id = Column(
+        BigInteger,
+        ForeignKey("stream_recordings.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    asset_id = Column(BigInteger, ForeignKey("media_assets.id"), nullable=False)
+    role = Column(String(30), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("recording_id", "role", name="uq_recording_media_role"),
+        Index("ix_stream_recording_media_asset_id", "asset_id"),
+    )
+
+
+class SocialLink(Base):
+    """Editable social destination shown in the channel dropdown."""
+
+    __tablename__ = "social_links"
+
+    id = Column(Integer, primary_key=True)
+    service_key = Column(String(40), nullable=False, unique=True)
+    name = Column(Text, nullable=False)
+    url = Column(Text, nullable=False, default="#", server_default="#")
+    description = Column(Text, nullable=False, default="", server_default="")
+    icon_asset_id = Column(BigInteger, ForeignKey("media_assets.id"))
+    sort_order = Column(Integer, nullable=False, default=0, server_default="0")
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    __table_args__ = (Index("ix_social_links_active_order", "is_active", "sort_order"),)
+
+
+class ClipSyncState(Base):
+    """Durable checkpoints for bounded Twitch clip synchronization."""
+
+    __tablename__ = "clip_sync_state"
+
+    state_key = Column(String(64), primary_key=True)
+    cursor_at = Column(DateTime)
+    last_completed_at = Column(DateTime)
+    updated_at = Column(DateTime, nullable=False)
+
+
+class ClipSyncJob(Base):
+    """Delayed per-stream clip refresh, scheduled after stream finalization."""
+
+    __tablename__ = "clip_sync_jobs"
+
+    id = Column(BigInteger, primary_key=True)
+    stream_id = Column(Integer, ForeignKey("streams.id"), nullable=False, unique=True)
+    check_at = Column(DateTime, nullable=False)
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    last_error = Column(Text)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    __table_args__ = (
+        Index("ix_clip_sync_jobs_status_check_at", "status", "check_at"),
+    )
 
 
 clip_tags = Table(
@@ -639,10 +758,12 @@ class StreamRecording(Base):
     # если трансляция рвалась и стример перезапускал broadcast.
     twitch_stream_id = Column(Text)
     twitch_video_id = Column(Text)
+    title = Column(Text)
     duration_minutes = Column(Integer)
+    views_count = Column(Integer)
     recorded_at = Column(DateTime)
-    # Истёкшие записи не удаляем: False скрывает VOD на сайте, но оставляет
-    # историю и связь с постом Telegram.
+    # Для доступности сайта/Sheets; записи, на которые ссылается Telegram,
+    # сохраняются как tombstone при исчезновении из архива.
     is_available = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
@@ -730,7 +851,6 @@ class GameMetadataIGDB(Base):
     steam_score = Column(Float)
     description_en = Column(Text)
     description_ru = Column(Text)
-    cover_url = Column(Text)
     raw_payload = Column(JSONB)
     synced_at = Column(DateTime)
 
@@ -1061,6 +1181,11 @@ class TelegramAnnouncement(Base):
         cascade="all, delete-orphan",
         order_by="TelegramAnnouncementVod.stream_started_at",
     )
+    media_assets = relationship(
+        "TelegramAnnouncementMedia",
+        back_populates="announcement",
+        cascade="all, delete-orphan",
+    )
 
 
 class TelegramAnnouncementVod(Base):
@@ -1107,6 +1232,31 @@ class TelegramAnnouncementVod(Base):
 
     announcement = relationship("TelegramAnnouncement", back_populates="vods")
     recording = relationship("StreamRecording", foreign_keys=[recording_id])
+
+
+class TelegramAnnouncementMedia(Base):
+    """Media assets attached to an announcement (e.g. its original photo)."""
+
+    __tablename__ = "telegram_announcement_media"
+
+    id = Column(BigInteger, primary_key=True)
+    announcement_id = Column(
+        Integer,
+        ForeignKey("telegram_announcements.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    asset_id = Column(BigInteger, ForeignKey("media_assets.id"), nullable=False)
+    role = Column(String(30), nullable=False, default="photo", server_default="photo")
+    position = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "announcement_id", "role", "position",
+            name="uq_telegram_announcement_media_role_position",
+        ),
+        Index("ix_telegram_announcement_media_asset_id", "asset_id"),
+    )
+    announcement = relationship("TelegramAnnouncement", back_populates="media_assets")
 
 
 class TelegramPostEditSettings(Base):

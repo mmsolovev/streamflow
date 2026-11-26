@@ -122,6 +122,7 @@ async def list_streams(
     offset: int,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    stream_id: int | None = None,
     query: ListQuery | None = None,
 ) -> tuple[list[dict], int, int, dict[str, int]]:
     """Список стримов: поиск, фильтры, сортировка и пагинация выполняются в БД."""
@@ -129,6 +130,8 @@ async def list_streams(
     # Runtime создаёт строку `streams` в момент старта эфира. Пока сессия
     # collecting, её показываем отдельным live-островком, а не как историю.
     where = [_not_collecting_stream()]
+    if stream_id is not None:
+        where.append(Stream.id == stream_id)
     if date_from is not None:
         where.append(Stream.started_at >= date_from)
     if date_to is not None:

@@ -34,6 +34,8 @@
   --accent-releases: #eb9f35;
   --accent-recommendations: #5bbdf4;
   --accent-hltb: #bf1313;
+  --accent-recordings: #b69cff;
+  --accent-clips: #39d3c4;
 
   /* Фирменные цвета внешних сервисов для ссылок и интеграций. */
   --brand-telegram: #2aabee;
@@ -53,6 +55,18 @@
   --section-bg: #1f1f23;
   --card-bg: #26262c;
   --accent: #9152f8;
+}
+
+[data-section='recordings'] {
+  --section-bg: #1d1a27;
+  --card-bg: #282433;
+  --accent: #b69cff;
+}
+
+[data-section='clips'] {
+  --section-bg: #17211f;
+  --card-bg: #202c29;
+  --accent: #39d3c4;
 }
 
 [data-section='releases'] {
