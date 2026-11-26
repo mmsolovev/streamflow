@@ -272,14 +272,27 @@ function makeColumns(
       label: 'Стримов',
       align: 'center',
       sortValue: (game) => game.streams_count,
-      render: (game) => game.currentStandalone ? null : (
-        <Link
-          to={`/games/${game.id}`}
-          className="transition-colors hover:text-[var(--accent)]"
-        >
-          {formatNumber(game.streams_count)}
-        </Link>
-      ),
+      render: (game) =>
+        game.current ? (
+          <span className="flex flex-col items-center leading-tight">
+            {!game.currentStandalone ? (
+              <Link
+                to={`/games/${game.id}`}
+                className="transition-colors hover:text-[var(--accent)]"
+              >
+                {formatNumber(game.streams_count)}
+              </Link>
+            ) : null}
+            <span className="text-[var(--accent)]">+1</span>
+          </span>
+        ) : (
+          <Link
+            to={`/games/${game.id}`}
+            className="transition-colors hover:text-[var(--accent)]"
+          >
+            {formatNumber(game.streams_count)}
+          </Link>
+        ),
     },
     {
       key: 'hltb',
@@ -357,7 +370,15 @@ function makeColumns(
       key: 'clips',
       label: 'Клипы',
       align: 'center',
-      render: () => null,
+      render: (game) =>
+        game.currentStandalone ? null : (
+          <Link
+            to={`/media/clips?period=all&filters=game%3A${game.id}`}
+            className="font-social text-[var(--accent)] transition-opacity hover:opacity-80"
+          >
+            Клипы
+          </Link>
+        ),
     },
     {
       key: 'review',

@@ -12,6 +12,7 @@ export interface StreamsListParams {
   direction?: 'asc' | 'desc'
   filters?: string[]
   date?: string
+  stream_id?: number
   limit: number
   offset: number
 }

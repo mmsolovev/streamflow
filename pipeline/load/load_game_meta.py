@@ -80,6 +80,9 @@ async def apply_igdb_patch(session: AsyncSession, *, game_id: int, igdb_id: str 
     if not patch:
         return False
 
+    has_cover = "cover_url" in patch
+    cover_url = patch.get("cover_url")
+    patch = {key: value for key, value in patch.items() if key != "cover_url"}
     result = await session.execute(select(GameMetadataIGDB).where(GameMetadataIGDB.game_id == game_id))
     row = result.scalar_one_or_none()
     created = False
@@ -103,6 +106,19 @@ async def apply_igdb_patch(session: AsyncSession, *, game_id: int, igdb_id: str 
 
     if changed:
         session.add(row)
+    if has_cover:
+        from services.media_asset_service import (
+            clear_game_media_source,
+            set_igdb_cover_url,
+        )
+
+        if cover_url:
+            await set_igdb_cover_url(session, game_id=game_id, url=cover_url)
+        else:
+            await clear_game_media_source(
+                session, game_id=game_id, role="cover", source="igdb"
+            )
+        changed = True
     return changed
 
 

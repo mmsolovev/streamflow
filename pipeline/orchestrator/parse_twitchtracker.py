@@ -102,6 +102,7 @@ async def _fetch_vods_data(
         client_id=client_id,
         access_token=access_token,
         user_id=user_id,
+        strict_status=True,
     )
     return build_vods_index(vods), vods
 
@@ -220,15 +221,15 @@ async def _sync_vod_recordings(
             )
             break
 
-    # --- 3. Истёкшие записи: скрыть, но не удалять ------------------------
+    # --- 3. Синхронизировать исчезнувшие из архива записи -----------------
     if vod_urls_all:
-        hidden = await recording_service.mark_missing_unavailable(
+        changed = await recording_service.mark_missing_unavailable(
             session,
             keep_urls=vod_urls_all,
             keep_video_ids=used_vod_ids,
         )
-        if hidden:
-            _log(f"  Marked {hidden} unavailable VOD recording(s)")
+        if changed:
+            _log(f"  Synchronized {changed} stale VOD recording(s)")
 
     return added
 

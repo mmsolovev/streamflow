@@ -8,6 +8,7 @@ import { goToStreamerLogin } from '@/features/auth/api'
 import { useAuth } from '@/features/auth/context'
 import { useStreamerStatus } from '@/features/auth/useStreamerStatus'
 import { TelegramPostStreamPanel } from '@/features/telegramPostEdit/TelegramPostStreamPanel'
+import { SocialLinksPanel } from '@/features/socialLinks/SocialLinksPanel'
 import type { AdminSection, TelegramTab } from '@/config/nav'
 import { ADMIN_TABS, DEFAULT_TELEGRAM_TAB, TELEGRAM_TABS } from '@/config/nav'
 import { cn } from '@/lib/cn'
@@ -17,12 +18,14 @@ const TITLES: Record<AdminSection, string> = {
   management: 'Управление',
   connections: 'Подключения',
   telegram: 'Telegram',
+  links: 'Ссылки',
 }
 
 const NOTES: Record<AdminSection, string> = {
   management: 'Раздел управления ботом.',
   connections: 'Информация о подключенных сервисах.',
   telegram: 'Управление Telegram-ботом по ходу стрима',
+  links: 'Ссылки и иконки в меню канала.',
 }
 
 /** Карточка сервиса Twitch: подключенные аккаунты и запрошенные разрешения. */
@@ -208,6 +211,8 @@ export function AdminPage({ section }: { section: AdminSection }) {
             </div>
           ) : section === 'telegram' ? (
             <TelegramContent />
+          ) : section === 'links' ? (
+            <SocialLinksPanel />
           ) : (
             <div className="flex flex-1 items-center justify-center p-8 text-sm text-[var(--text-muted)]">
               Раздел в разработке.

@@ -54,6 +54,7 @@ async def list_streams(
     filters: list[str] = Query(default=[]),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    stream_id: int | None = Query(None, ge=1),
     date: datetime | None = Query(None, description="Фильтр по конкретному дню (ISO)"),
     from_: datetime | None = Query(None, alias="from", description="Начало окна (ISO)"),
     to: datetime | None = Query(None, description="Конец окна (ISO, включительно)"),
@@ -72,6 +73,7 @@ async def list_streams(
         offset=offset,
         date_from=date_from,
         date_to=to,
+        stream_id=stream_id,
         query=query,
     )
     return Page[StreamView](

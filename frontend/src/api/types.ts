@@ -54,6 +54,12 @@ export type BotCommandCreateBody = Schemas['BotCommandCreateIn']
 
 export type GamesPage = Schemas['Page_GameView_']
 export type StreamsPage = Schemas['Page_StreamView_']
+export type ClipView = Schemas['ClipView']
+export type RecordingView = Schemas['RecordingView']
+export type MediaFilterOptions = Schemas['MediaFilterOptions']
+export type SocialLinkView = Schemas['SocialLinkView']
+export type ClipsPage = Schemas['Page_ClipView_']
+export type RecordingsPage = Schemas['Page_RecordingView_']
 export type ReleasesPage = Schemas['Page_ReleaseView_']
 export type RecommendationsPage = Schemas['Page_RecommendationView_']
 

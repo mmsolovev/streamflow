@@ -10,8 +10,9 @@ VOD — это запись трансляции на Twitch. Один стри�
 `sync_vods`, импорт TwitchTracker) идут через `upsert_recording`, чтобы не
 плодить дубли и не расходиться в том, что считать актуальной записью.
 
-Истёкшие записи не удаляются: `is_available=False` скрывает их на сайте, но
-оставляет историю и связь с постом.
+Истёкшие записи без ссылок из Telegram удаляются. Если запись нужна старому
+анонсу, она сохраняется как tombstone с `is_available=False`: сайт и таблицы
+её не показывают, но FK и история поста остаются целыми.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import Any, Iterable
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import Stream, StreamRecording
+from database.models import Stream, StreamRecording, TelegramAnnouncementVod
 
 DEFAULT_SOURCE = "twitch"
 
@@ -89,7 +90,14 @@ def fields_from_vod(vod: dict[str, Any]) -> dict[str, Any]:
         "url": url,
         "twitch_video_id": video_id,
         "twitch_stream_id": broadcast_id,
+        "title": str(vod.get("title") or "").strip() or None,
+        "thumbnail_url": str(vod.get("thumbnail_url") or "").strip() or None,
         "duration_minutes": parse_duration_minutes(vod.get("duration")),
+        "views_count": (
+            int(vod["view_count"])
+            if vod.get("view_count") is not None
+            else None
+        ),
         "recorded_at": to_naive_utc(vod.get("created_at") or vod.get("published_at")),
     }
 
@@ -136,7 +144,10 @@ async def upsert_recording(
     url: str | None,
     twitch_stream_id: str | None = None,
     twitch_video_id: str | None = None,
+    title: str | None = None,
+    thumbnail_url: str | None = None,
     duration_minutes: int | None = None,
+    views_count: int | None = None,
     recorded_at: datetime | str | None = None,
     source: str = DEFAULT_SOURCE,
     is_available: bool = True,
@@ -172,7 +183,9 @@ async def upsert_recording(
             url=url,
             twitch_stream_id=twitch_stream_id,
             twitch_video_id=twitch_video_id,
+            title=title,
             duration_minutes=duration_minutes,
+            views_count=views_count,
             recorded_at=recorded,
             is_available=bool(is_available),
             created_at=now,
@@ -180,6 +193,11 @@ async def upsert_recording(
         )
         session.add(recording)
         await session.flush()
+        from services.media_asset_service import set_recording_twitch_preview
+
+        await set_recording_twitch_preview(
+            session, recording_id=int(recording.id), url=thumbnail_url
+        )
         return recording
 
     changed = False
@@ -192,6 +210,9 @@ async def upsert_recording(
     if twitch_stream_id and recording.twitch_stream_id != twitch_stream_id:
         recording.twitch_stream_id = twitch_stream_id
         changed = True
+    if title and recording.title != title:
+        recording.title = title
+        changed = True
     # Точная привязка важнее подобранной по времени: VOD принадлежит
     # конкретному broadcast, а не «примерно тому же вечеру».
     if twitch_stream_id and int(recording.stream_id) != int(stream_id):
@@ -199,6 +220,9 @@ async def upsert_recording(
         changed = True
     if duration_minutes is not None and recording.duration_minutes != duration_minutes:
         recording.duration_minutes = duration_minutes
+        changed = True
+    if views_count is not None and recording.views_count != views_count:
+        recording.views_count = views_count
         changed = True
     if recorded is not None and recording.recorded_at != recorded:
         recording.recorded_at = recorded
@@ -208,6 +232,11 @@ async def upsert_recording(
         changed = True
     if changed:
         recording.updated_at = now
+    from services.media_asset_service import set_recording_twitch_preview
+
+    await set_recording_twitch_preview(
+        session, recording_id=int(recording.id), url=thumbnail_url
+    )
     return recording
 
 
@@ -319,26 +348,92 @@ async def mark_missing_unavailable(
     keep_video_ids: Iterable[str] = (),
     source: str = DEFAULT_SOURCE,
 ) -> int:
-    """Скрыть записи, которых больше нет в архиве Twitch. Не удаляет строки."""
+    """Синхронизировать истёкшие VOD.
+
+    Строки, которые нужны Telegram-анонсам, сохраняются как недоступные
+    tombstone из-за FK/истории новостных постов. Не связанные с Telegram
+    устаревшие записи удаляются из реестра.
+    """
     urls = {str(url).strip() for url in keep_urls if str(url or "").strip()}
     video_ids = {str(vid).strip() for vid in keep_video_ids if str(vid or "").strip()}
 
     result = await session.execute(
         select(StreamRecording).where(StreamRecording.source == source)
     )
-    hidden = 0
+    recordings = list(result.scalars().all())
+    stale = []
+    changed = 0
     now = utcnow()
-    for recording in result.scalars().all():
-        if recording.url in urls:
+    for recording in recordings:
+        present = recording.url in urls or (
+            recording.twitch_video_id
+            and recording.twitch_video_id in video_ids
+        )
+        if present:
+            if not recording.is_available:
+                recording.is_available = True
+                recording.updated_at = now
+                changed += 1
             continue
-        if recording.twitch_video_id and recording.twitch_video_id in video_ids:
-            continue
-        if recording.is_available is False:
-            continue
-        recording.is_available = False
-        recording.updated_at = now
-        hidden += 1
-    return hidden
+        stale.append(recording)
+
+    if not stale:
+        return changed
+
+    stale_ids = {int(recording.id) for recording in stale}
+    stale_stream_ids = {int(recording.stream_id) for recording in stale}
+    stale_broadcast_ids = {
+        str(recording.twitch_stream_id)
+        for recording in stale
+        if recording.twitch_stream_id
+    }
+    references = (
+        await session.execute(
+            select(
+                TelegramAnnouncementVod.recording_id,
+                TelegramAnnouncementVod.stream_db_id,
+                TelegramAnnouncementVod.stream_id,
+            ).where(
+                or_(
+                    TelegramAnnouncementVod.recording_id.in_(stale_ids),
+                    TelegramAnnouncementVod.stream_db_id.in_(stale_stream_ids),
+                    TelegramAnnouncementVod.stream_id.in_(stale_broadcast_ids),
+                )
+            )
+        )
+    ).all()
+    telegram_recording_ids = {
+        int(row.recording_id)
+        for row in references
+        if row.recording_id is not None
+    }
+    telegram_stream_ids = {
+        int(row.stream_db_id)
+        for row in references
+        if row.stream_db_id is not None
+    }
+    telegram_broadcast_ids = {
+        str(row.stream_id) for row in references if row.stream_id
+    }
+
+    for recording in stale:
+        referenced_by_telegram = (
+            int(recording.id) in telegram_recording_ids
+            or int(recording.stream_id) in telegram_stream_ids
+            or (
+                recording.twitch_stream_id
+                and str(recording.twitch_stream_id) in telegram_broadcast_ids
+            )
+        )
+        if referenced_by_telegram:
+            if recording.is_available:
+                recording.is_available = False
+                recording.updated_at = now
+                changed += 1
+        else:
+            await session.delete(recording)
+            changed += 1
+    return changed
 
 
 __all__ = [

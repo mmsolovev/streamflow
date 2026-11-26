@@ -288,7 +288,6 @@ async def sync_game_metadata() -> None:
                         existing.description_en = summary
                         existing.release_date = release_date
                         existing.steam_url = steam_url
-                        existing.cover_url = cover_url or None
                         existing.igdb_score = igdb_score
                         existing.raw_payload = payload
                         existing.synced_at = _utcnow()
@@ -305,13 +304,28 @@ async def sync_game_metadata() -> None:
                             description_en=summary,
                             release_date=release_date,
                             steam_url=steam_url,
-                            cover_url=cover_url or None,
                             igdb_score=igdb_score,
                             raw_payload=payload,
                             synced_at=_utcnow(),
                         )
                         session.add(meta)
                         inserted += 1
+                    from services.media_asset_service import (
+                        clear_game_media_source,
+                        set_igdb_cover_url,
+                    )
+
+                    if cover_url:
+                        await set_igdb_cover_url(
+                            session, game_id=int(game.id), url=cover_url
+                        )
+                    else:
+                        await clear_game_media_source(
+                            session,
+                            game_id=int(game.id),
+                            role="cover",
+                            source="igdb",
+                        )
                     # Replace genre/platform links with fresh data from IGDB
                     await session.execute(
                         game_genres.delete().where(game_genres.c.game_id == game.id)

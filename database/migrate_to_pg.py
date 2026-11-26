@@ -491,6 +491,11 @@ async def migrate_recommended_games_to_games(sqlite_conn, pg_session, game_id_ma
                 raw_payload = json.loads(rec["source_payload"])
             except (json.JSONDecodeError, TypeError):
                 pass
+        cover_url = rec["cover_url"]
+        if not cover_url and isinstance(raw_payload, dict):
+            from pipeline.transform.igdb_transform import normalize_cover_url
+
+            cover_url = normalize_cover_url(raw_payload.get("cover"))
 
         if rec["matched_game_id"] is not None:
             pg_game_id = game_id_mapping.get(rec["matched_game_id"])
@@ -501,17 +506,18 @@ async def migrate_recommended_games_to_games(sqlite_conn, pg_session, game_id_ma
                 text("""
                     INSERT INTO game_metadata_igdb
                         (game_id, igdb_id, steam_url, release_date, description_ru,
-                         igdb_score, cover_url, raw_payload, synced_at)
+                         igdb_score, raw_payload, synced_at)
                     VALUES (:game_id, :igdb_id, :steam_url, :release_date, :description_ru,
-                            :igdb_score, :cover_url, :raw_payload, :now)
+                            :igdb_score, :raw_payload, :now)
                     ON CONFLICT (game_id) DO NOTHING
                 """),
                 {"game_id": pg_game_id, "igdb_id": igdb_id,
-                 "steam_url": rec["steam_url"], "release_date": release_dt,
-                 "description_ru": rec["description_short"], "igdb_score": igdb_score,
-                 "cover_url": rec["cover_url"], "raw_payload": json.dumps(raw_payload) if raw_payload else None,
-                 "now": utcnow()},
+                  "steam_url": rec["steam_url"], "release_date": release_dt,
+                  "description_ru": rec["description_short"], "igdb_score": igdb_score,
+                  "raw_payload": json.dumps(raw_payload) if raw_payload else None,
+                  "now": utcnow()},
             )
+            await _upsert_game_cover_url(pg_session, pg_game_id, cover_url)
             continue
 
         slug_base = (rec["normalized_name"] or rec["title"]).lower().replace(" ", "-")
@@ -554,24 +560,64 @@ async def migrate_recommended_games_to_games(sqlite_conn, pg_session, game_id_ma
              "normalized_alias": normalized, "now": utcnow()},
         )
 
-        if rec["steam_url"] or rec["description_short"] or rec["cover_url"] or raw_payload:
+        if rec["steam_url"] or rec["description_short"] or cover_url or raw_payload:
             await pg_session.execute(
                 text("""
                     INSERT INTO game_metadata_igdb
                         (game_id, igdb_id, steam_url, release_date, description_ru,
-                         igdb_score, cover_url, raw_payload, synced_at)
+                         igdb_score, raw_payload, synced_at)
                     VALUES (:game_id, :igdb_id, :steam_url, :release_date, :description_ru,
-                            :igdb_score, :cover_url, :raw_payload, :now)
+                            :igdb_score, :raw_payload, :now)
                     ON CONFLICT (game_id) DO NOTHING
                 """),
                 {"game_id": pg_game_id, "igdb_id": igdb_id,
-                 "steam_url": rec["steam_url"], "release_date": release_dt,
-                 "description_ru": rec["description_short"], "igdb_score": igdb_score,
-                 "cover_url": rec["cover_url"], "raw_payload": json.dumps(raw_payload) if raw_payload else None,
-                 "now": utcnow()},
+                  "steam_url": rec["steam_url"], "release_date": release_dt,
+                  "description_ru": rec["description_short"], "igdb_score": igdb_score,
+                  "raw_payload": json.dumps(raw_payload) if raw_payload else None,
+                  "now": utcnow()},
             )
+        await _upsert_game_cover_url(pg_session, pg_game_id, cover_url)
 
     return rec_to_game
+
+
+async def _upsert_game_cover_url(pg_session, game_id: int, url: str | None) -> None:
+    """Store a legacy IGDB cover as a central media asset."""
+    url = str(url or "").strip()
+    if not url:
+        return
+    if url.startswith("//"):
+        url = f"https:{url}"
+    elif url.startswith("/"):
+        url = f"https://images.igdb.com{url}"
+    asset_result = await pg_session.execute(
+        text(
+            "SELECT id FROM media_assets "
+            "WHERE storage_kind = 'url' AND url = :url LIMIT 1"
+        ),
+        {"url": url},
+    )
+    asset_id = asset_result.scalar_one_or_none()
+    if asset_id is None:
+        asset_result = await pg_session.execute(
+            text(
+                "INSERT INTO media_assets "
+                "(storage_kind, url, source, created_at, updated_at) "
+                "VALUES ('url', :url, 'igdb', :now, :now) RETURNING id"
+            ),
+            {"url": url, "now": utcnow()},
+        )
+        asset_id = asset_result.scalar_one()
+    await pg_session.execute(
+        text(
+            "INSERT INTO game_media_assets "
+            "(game_id, asset_id, role, source, created_at) "
+            "VALUES (:game_id, :asset_id, 'cover', 'igdb', :now) "
+            "ON CONFLICT (game_id, role, source) "
+            "DO UPDATE SET asset_id = EXCLUDED.asset_id"
+        ),
+        {"game_id": int(game_id), "asset_id": int(asset_id), "now": utcnow()},
+    )
 
 
 async def migrate_game_recommendations(sqlite_conn, pg_session, rec_to_game):

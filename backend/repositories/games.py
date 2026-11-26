@@ -30,9 +30,11 @@ from database.models import (
 from backend.repositories._shared import JUST_CHATTING_NAMES, game_recommenders, release_delta_days
 from backend.repositories.filters import tag_condition
 from backend.repositories.list_query import ListQuery
+from backend.repositories.media_assets import game_cover_url_expression
 from backend.repositories.releases import RECENT_RELEASE_DAYS
 from config import settings as bot_settings
 from pipeline.load.load_recommendations import UPCOMING_RELEASE_LOGIN
+from services.media_asset_service import get_game_cover_url
 
 _LIGHT_PLATFORMS = {"PC (Microsoft Windows)", "PlayStation 4", "PlayStation 5"}
 
@@ -223,7 +225,7 @@ async def list_current_stream_games(session: AsyncSession) -> list[dict]:
                 Game.id,
                 Game.name,
                 GameMetadataIGDB.steam_url,
-                GameMetadataIGDB.cover_url,
+                game_cover_url_expression(Game.id),
             )
             .join(Game, Game.id == GameTwitchCategory.game_id)
             .outerjoin(GameMetadataIGDB, GameMetadataIGDB.game_id == Game.id)
@@ -250,7 +252,7 @@ async def list_current_stream_games(session: AsyncSession) -> list[dict]:
                 Game.name,
                 Game.twitch_category_id,
                 GameMetadataIGDB.steam_url,
-                GameMetadataIGDB.cover_url,
+                game_cover_url_expression(Game.id),
             )
             .outerjoin(GameMetadataIGDB, GameMetadataIGDB.game_id == Game.id)
             .where(or_(*fallback_conditions))
@@ -535,7 +537,7 @@ def _ranked_games_subquery():
             ),
             counts.c.streams_count.label("streams_count"),
             GameMetadataIGDB.steam_url.label("steam_url"),
-            GameMetadataIGDB.cover_url.label("cover_url"),
+            game_cover_url_expression(Game.id).label("cover_url"),
             GameMetadataHLTB.hltb_all_styles.label("hltb_all_styles"),
             func.row_number()
             .over(
@@ -745,7 +747,7 @@ async def list_games_covers(session: AsyncSession) -> list[dict]:
     """Имя → обложка для всех игр (нужно для полосы обложек в «Стримах»)."""
     rows = (
         await session.execute(
-            select(Game.id, Game.name, GameMetadataIGDB.cover_url)
+            select(Game.id, Game.name, game_cover_url_expression(Game.id))
             .outerjoin(GameMetadataIGDB, GameMetadataIGDB.game_id == Game.id)
         )
     ).all()
@@ -863,6 +865,7 @@ async def get_game(
     )
     interested = await _is_interested(session, streamer_id, game.id)
     release_date = igdb.release_date if igdb else None
+    cover_url = await get_game_cover_url(session, int(game.id))
     in_games, in_releases, in_recommendations = _sheets_presence(
         has_streams=streams_count > 0,
         has_recommendations=bool(recommenders),
@@ -883,7 +886,7 @@ async def get_game(
         "duration_minutes": stats.duration_minutes if stats else 0,
         "hltb_all_styles": hltb.hltb_all_styles if hltb else None,
         "steam_url": igdb.steam_url if igdb else None,
-        "cover_url": igdb.cover_url if igdb else None,
+        "cover_url": cover_url,
         "liked": liked,
         "completed": completed,
         "tags": tags,

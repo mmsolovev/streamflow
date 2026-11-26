@@ -88,6 +88,37 @@ export function refreshGameIGDB(
     .then((response) => response.data)
 }
 
+export async function setGameCoverUrl(gameId: number, url: string) {
+  const { data } = await api.put<{ game_id: number; cover_url: string }>(
+    `/games/${gameId}/cover/url`,
+    { url },
+  )
+  return data
+}
+
+export async function uploadGameCover(gameId: number, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<{ game_id: number; cover_url: string }>(
+    `/games/${gameId}/cover/file`,
+    form,
+  )
+  return data
+}
+
+export async function deleteGameCover(gameId: number): Promise<void> {
+  await api.delete(`/games/${gameId}/cover`)
+}
+
+export async function updateGameIGDBId(gameId: number, igdbId: string | null) {
+  const { data } = await api.patch<{
+    game_id: number
+    igdb_id: string | null
+    message: string
+  }>(`/games/${gameId}/igdb-id`, { igdb_id: igdbId })
+  return data
+}
+
 /** Установить полный список ссылок на отзывы/клипы игры. */
 export async function updateGameReviews(
   gameId: number,

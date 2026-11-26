@@ -39,14 +39,14 @@
 | `game_twitch_categories` | crosswalk Twitch category ID → canonical `game_id`; поддерживает переименования и несколько ID, не смешивая совпадающие названия |
 | `games_franchises` | франшизы |
 | `genres`, `platforms`, `game_genres`, `game_platforms` | справочники и M2M-связи |
-| `game_metadata_igdb` | IGDB-метаданные: `igdb_id`, дата релиза, оценки, описания, обложка, `raw_payload` |
+| `game_metadata_igdb` | IGDB-метаданные: `igdb_id`, дата релиза, оценки, описания и `raw_payload`; обложки находятся в медиатеке |
 | `game_metadata_hltb` | HLTB-метаданные: main story / extra / completionist, coop, multiplayer |
 | `game_metadata_twitchtracker` | последняя импортированная сводка игры со страницы игр TT: rank, hours, avg/max viewers, followers/hour, last stream; исходные метрики отделены от вычисляемых |
 | `game_stats` | производные агрегаты по игре: минуты, streams count, last stream, max/средние зрители и followers/hour; строятся из `stream_games` / `streams`, если детализация полная |
 | `streams` | стримы: `external_id` (unique), title, `started_at`, `ended_at`, `duration_minutes`, viewers, followers/views gained; заполняется runtime и TT |
 | `stream_titles` | история смены названий стрима |
 | `stream_games` | игры внутри стрима: порядок, интервал, минуты, зрители, подписчики; источник детализации для `game_stats` |
-| `stream_recordings` | единый реестр записей/VOD: `stream_id`, `source`, `url`, `twitch_stream_id` (broadcast id), `twitch_video_id`, `duration_minutes`, `recorded_at`, `is_available`; у стрима может быть несколько записей после реконнектов, истёкшие не удаляются, а скрываются (`is_available=false`) |
+| `stream_recordings` | единый реестр записей/VOD: `stream_id`, `source`, `url`, `twitch_stream_id` (broadcast id), `twitch_video_id`, `title`, `views_count`, `duration_minutes`, `recorded_at`, `is_available`; превью хранится в медиатеке и выбирается по приоритету manual → Telegram → Twitch |
 | `streamers_on_stream` | M2M `streams` ↔ `users` (кто участвовал) |
 | `streamer_games` | M2M стример ↔ игра (интерес/статус) |
 | `game_recommendations` | рекомендации игр пользователями |
@@ -80,7 +80,14 @@
 | `calendar_days` | календарные даты (`day`, `month`, `day_of_year`) |
 | `holidays` | праздники, привязанные к `calendar_days`; заполняются `database/sync_holidays.py` из `storage/holidays.json` |
 | `famous_persons` | известные люди, привязанные к `calendar_days` |
-| `clips`, `clip_tags` | клипы и теги |
+| `clips`, `clip_tags` | клипы и теги; `views_count`, thumbnail, Twitch VOD ID, автор, игра и привязка к стриму используются в медиакаталоге |
+| `clip_sync_state` | устойчивые контрольные точки инкрементальной синхронизации новых клипов и обновления метрик |
+| `clip_sync_jobs` | отложенная повторная сверка клипов по стриму после завершения эфира |
+| `media_assets` | ссылки и файлы изображений, MIME-тип, размер, checksum и источник; файлы лежат в постоянном `MEDIA_STORAGE_DIR` |
+| `game_media_assets` | изображения игр с ролью и источником (IGDB или ручное назначение) |
+| `stream_recording_media` | превью записей (ручное, Telegram-анонс, Twitch) |
+| `telegram_announcement_media` | фото, прикреплённые к Telegram-анонсам |
+| `social_links` | редактируемые ссылки канала с описанием и ссылкой на asset-иконку |
 
 ### Runtime live-метрики
 
@@ -164,7 +171,7 @@ python -m pipeline.orchestrator.rollback_stats --stream 123
 
 ## Миграции
 
-Текущая история — `alembic/versions/0001…0023`:
+Текущая история — `alembic/versions/0001…0027`:
 
 - `0001` — начальная схема;
 - `0002` — аббревиатуры жанров/платформ;
@@ -187,5 +194,9 @@ python -m pipeline.orchestrator.rollback_stats --stream 123
 - `0021` — удаление legacy `telegram_announcements.custom_emoji_id` вместе с сохранёнными значениями.
 - `0022` — `game_metadata_twitchtracker`, перенос уже сохранённых TT-сводок и разделение исходных и вычисленных метрик.
 - `0023` — `game_twitch_categories`, кроссворк Twitch category ID → игра.
+- `0024` — ссылки на обзоры игр с метаданными.
+- `0025` — заголовки ссылок на обзоры игр.
+- `0026` — метаданные `stream_recordings`, Twitch VOD ID на клипах и устойчивые состояния/задачи синхронизации клипов.
+- `0027` — медиатека и типизированные связи, перенос IGDB/Twitch превью, ссылки соцсетей; удаление legacy-колонок обложек.
 
 Проверить текущую ревизию: `.venv\Scripts\python.exe -m alembic current`.

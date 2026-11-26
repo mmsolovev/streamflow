@@ -13,6 +13,7 @@ from database.db import AsyncSessionLocal
 from database.models import Game, GameMetadataIGDB, User, UserProfile, game_recommendations, streamer_games
 from services.authz_service import Capability, Role, resolve_actor
 from services.games_service import build_game_response, find_game_lookup
+from services.media_asset_service import get_game_cover_url
 from services.user_service import find_user_by_login
 from pipeline.ingest.igdb_api import (
     fetch_igdb_metadata_by_id,
@@ -135,7 +136,7 @@ async def build_recommendation_summary(session: AsyncSession, game: Game) -> Rec
     release_date = _as_naive_utc(meta.release_date) if meta else None
     steam_url = meta.steam_url if meta else None
     igdb_score = meta.igdb_score if meta else None
-    cover_url = meta.cover_url if meta else None
+    cover_url = await get_game_cover_url(session, int(game.id))
 
     is_streamed = await _check_if_streamed(session, game.name)
 

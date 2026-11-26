@@ -78,10 +78,15 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 | GET | `/games/search?q=` | поиск игры |
 | GET | `/games/{game_id}` | детали игры |
 | GET | `/games/{game_id}/streams` | стримы с игрой |
-| GET | `/streams` | список стримов (`date`, `from`, `to`, фильтры) |
+| GET | `/streams` | список стримов (`date`, `from`, `to`, `stream_id`, фильтры) |
 | GET | `/streams/filters` | фильтры стримов |
 | GET | `/streams/current` | текущая runtime-сессия (если сэмпл не старше 3 минут) |
 | GET | `/streams/{stream_id}` | один стрим |
+| GET | `/media/recordings` | пагинированный каталог доступных Twitch VOD; фильтр `game:<id>` |
+| GET | `/media/clips` | пагинированный каталог клипов; `period=day|week|month|all`, сортировка по просмотрам по умолчанию; фильтры `game:<id>`, `creator:<id>`, `stream:<id>` |
+| GET | `/media/filters?section=recordings|clips` | фильтры игр, авторов клипов и стримов |
+| GET | `/media/social-links` | активные ссылки для меню канала |
+| GET | `/media/assets/{asset_id}/content` | публичный контент файла медиатеки |
 | GET | `/releases` | ожидаемые релизы |
 | GET | `/releases/filters` | фильтры релизов |
 | GET | `/recommendations` | рекомендации |
@@ -101,9 +106,16 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 | PATCH | `/games/{game_id}/streamer-state` | `EDIT_TABLES` | `{liked: bool, completed: bool}` |
 | PATCH | `/games/{game_id}/reviews` | `EDIT_TABLES` | `{links: [{title, url}]}` (подпись и HTTPS-ссылка) |
 | POST | `/games/{game_id}/refresh-igdb` | `EDIT_TABLES` | ровно одно из `{igdb_id}` / `{igdb_url}` |
+| PUT | `/games/{game_id}/cover/url` | `EDIT_TABLES` | `{url}` |
+| POST | `/games/{game_id}/cover/file` | `EDIT_TABLES` | multipart `file` |
+| DELETE | `/games/{game_id}/cover` | `EDIT_TABLES` | удалить ручную обложку |
+| PATCH | `/games/{game_id}/igdb-id` | `EDIT_TABLES` | `{igdb_id: str|null}`; `null` удаляет только IGDB-метаданные |
 | PATCH | `/releases/{game_id}/interested` | `EDIT_TABLES` | `{interested: bool}` |
 | POST | `/streams/{stream_id}/participants` | streamer/admin | `{user_login: str}` |
 | DELETE | `/streams/{stream_id}/participants/{user_id}` | streamer/admin | — |
+| PUT | `/media/recordings/{recording_id}/preview/url` | `EDIT_TABLES` | `{url}` |
+| POST | `/media/recordings/{recording_id}/preview/file` | `EDIT_TABLES` | multipart `file` |
+| DELETE | `/media/recordings/{recording_id}/preview` | `EDIT_TABLES` | удалить ручное превью |
 | POST | `/recommendations` | `RECOMMEND` | `{query: str}` |
 | DELETE | `/recommendations/{game_id}` | `RECOMMEND` | — |
 | POST | `/hltb/lookup` | `EDIT_TABLES` | `{url: str}` |
@@ -111,6 +123,8 @@ CORS задаётся `BACKEND_CORS_ORIGINS` (конкретные origin, crede
 | POST | `/bot-commands` | `ADMIN_COMMANDS` | `{name: str, description: str, bot_name?: str}` |
 | PATCH | `/bot-commands/{command_id}` | `ADMIN_COMMANDS` | `{is_visible?: bool, is_active?: bool}` |
 | POST | `/auth/logout` | любой вошедший | — |
+
+CRUD ссылок канала находится в `/admin/links` и требует роль администратора.
 
 `POST /recommendations` возвращает `outcome`: `created`, `voted`,
 `duplicate_vote`, `already_streamed` (409), `not_found` (404),

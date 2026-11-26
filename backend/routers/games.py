@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import delete, select
 
-from database.models import Game, streamer_games
+from database.models import Game, GameMediaAsset, GameMetadataIGDB, streamer_games
 from backend.deps import EditorDep, SessionDep, StreamerIdDep
 from backend.repositories import games as repo
 from backend.repositories.list_query import parse_list_query
@@ -22,6 +23,18 @@ from backend.schemas.game import (
     GameStateUpdateOut,
     GameStream,
     GameView,
+)
+from backend.schemas.media import (
+    GameIGDBIdUpdateIn,
+    GameIGDBIdUpdateOut,
+    MediaUrlIn,
+)
+from services.media_asset_service import (
+    MAX_IMAGE_BYTES,
+    create_file_asset,
+    get_or_create_url_asset,
+    public_asset_url,
+    set_game_media,
 )
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -156,6 +169,142 @@ async def refresh_game_igdb(
         igdb_id=str(metadata.source_game_id),
         igdb_name=metadata.title,
         message=f"Данные IGDB для игры «{metadata.title}» обновлены.",
+    )
+
+
+@router.put("/{game_id}/cover/url")
+async def set_game_cover_url(
+    game_id: int,
+    body: MediaUrlIn,
+    session: SessionDep,
+    actor: EditorDep,
+) -> dict:
+    game = await session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Игра не найдена.")
+    try:
+        asset = await get_or_create_url_asset(
+            session,
+            url=body.url,
+            source="manual",
+            created_by=actor.user_id,
+        )
+        await set_game_media(
+            session,
+            game_id=game_id,
+            asset=asset,
+            role="cover",
+            source="manual",
+        )
+        await session.commit()
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"game_id": game_id, "cover_url": public_asset_url(asset)}
+
+
+@router.post("/{game_id}/cover/file")
+async def upload_game_cover(
+    game_id: int,
+    session: SessionDep,
+    actor: EditorDep,
+    file: UploadFile = File(...),
+) -> dict:
+    game = await session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Игра не найдена.")
+    try:
+        asset = await create_file_asset(
+            session,
+            data=await file.read(MAX_IMAGE_BYTES + 1),
+            filename=file.filename,
+            source="manual",
+            created_by=actor.user_id,
+        )
+        await set_game_media(
+            session,
+            game_id=game_id,
+            asset=asset,
+            role="cover",
+            source="manual",
+        )
+        await session.commit()
+    except ValueError as error:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"game_id": game_id, "cover_url": public_asset_url(asset)}
+
+
+@router.delete("/{game_id}/cover", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_game_cover(
+    game_id: int,
+    session: SessionDep,
+    _actor: EditorDep,
+) -> None:
+    if await session.get(Game, game_id) is None:
+        raise HTTPException(status_code=404, detail="Игра не найдена.")
+    await session.execute(
+        delete(GameMediaAsset).where(
+            GameMediaAsset.game_id == game_id,
+            GameMediaAsset.role == "cover",
+            GameMediaAsset.source == "manual",
+        )
+    )
+    await session.commit()
+
+
+@router.patch("/{game_id}/igdb-id", response_model=GameIGDBIdUpdateOut)
+async def update_game_igdb_id(
+    game_id: int,
+    body: GameIGDBIdUpdateIn,
+    session: SessionDep,
+    _actor: EditorDep,
+) -> GameIGDBIdUpdateOut:
+    game = await session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Игра не найдена.")
+
+    igdb_id = (body.igdb_id or "").strip()
+    if not igdb_id:
+        metadata = await session.get(GameMetadataIGDB, game_id)
+        if metadata is not None:
+            await session.delete(metadata)
+        await session.execute(
+            delete(GameMediaAsset).where(
+                GameMediaAsset.game_id == game_id,
+                GameMediaAsset.role == "cover",
+                GameMediaAsset.source == "igdb",
+            )
+        )
+        await session.commit()
+        return GameIGDBIdUpdateOut(
+            game_id=game_id,
+            igdb_id=None,
+            message="Связь игры с IGDB удалена. Игра сохранена.",
+        )
+
+    from services.game_metadata_service import (
+        IGDBGameNotFound,
+        IGDBMappingConflict,
+        IGDBUpstreamError,
+        InvalidIGDBReference,
+        refresh_game_igdb as refresh_igdb,
+    )
+
+    try:
+        metadata = await refresh_igdb(session, game_id=game_id, igdb_id=igdb_id)
+    except InvalidIGDBReference as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except IGDBGameNotFound as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except IGDBMappingConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except IGDBUpstreamError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    await session.commit()
+    return GameIGDBIdUpdateOut(
+        game_id=game_id,
+        igdb_id=str(metadata.source_game_id),
+        message=f"IGDB ID игры обновлён на {metadata.source_game_id}.",
     )
 
 

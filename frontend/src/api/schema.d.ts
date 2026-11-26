@@ -75,6 +75,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/games/{game_id}/cover/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Game Cover Url */
+        put: operations["set_game_cover_url_api_v1_games__game_id__cover_url_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/games/{game_id}/cover/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Game Cover */
+        post: operations["upload_game_cover_api_v1_games__game_id__cover_file_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/games/{game_id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Game Cover */
+        delete: operations["delete_game_cover_api_v1_games__game_id__cover_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/games/{game_id}/igdb-id": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Game Igdb Id */
+        patch: operations["update_game_igdb_id_api_v1_games__game_id__igdb_id_patch"];
+        trace?: never;
+    };
     "/api/v1/games/covers": {
         parameters: {
             query?: never;
@@ -347,6 +415,229 @@ export interface paths {
         post?: never;
         /** Delete Stream Participant */
         delete: operations["delete_stream_participant_api_v1_streams__stream_id__participants__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/filters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Media Filters */
+        get: operations["list_media_filters_api_v1_media_filters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/social-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Social Links */
+        get: operations["social_links_api_v1_media_social_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/assets/{asset_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Media Asset Content */
+        get: operations["media_asset_content_api_v1_media_assets__asset_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/recordings/{recording_id}/preview/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Recording Preview Url */
+        put: operations["set_recording_preview_url_api_v1_media_recordings__recording_id__preview_url_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/recordings/{recording_id}/preview/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Recording Preview */
+        post: operations["upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/recordings/{recording_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Recording Preview */
+        delete: operations["delete_recording_preview_api_v1_media_recordings__recording_id__preview_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Recordings */
+        get: operations["list_recordings_api_v1_media_recordings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/clips": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Clips */
+        get: operations["list_clips_api_v1_media_clips_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Admin Links */
+        get: operations["list_admin_links_api_v1_admin_links_get"];
+        put?: never;
+        /** Create Link */
+        post: operations["create_link_api_v1_admin_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Link */
+        delete: operations["delete_link_api_v1_admin_links__link_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Link */
+        patch: operations["update_link_api_v1_admin_links__link_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/links/{link_id}/icon/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Link Icon Url */
+        put: operations["set_link_icon_url_api_v1_admin_links__link_id__icon_url_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/links/{link_id}/icon/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Link Icon */
+        post: operations["upload_link_icon_api_v1_admin_links__link_id__icon_file_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/links/{link_id}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Link Icon */
+        delete: operations["delete_link_icon_api_v1_admin_links__link_id__icon_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1037,6 +1328,21 @@ export interface components {
              */
             created_at: string;
         };
+        /** Body_upload_game_cover_api_v1_games__game_id__cover_file_post */
+        Body_upload_game_cover_api_v1_games__game_id__cover_file_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_link_icon_api_v1_admin_links__link_id__icon_file_post */
+        Body_upload_link_icon_api_v1_admin_links__link_id__icon_file_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post */
+        Body_upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post: {
+            /** File */
+            file: string;
+        };
         /**
          * BotCommandCreateIn
          * @description Новая команда другого бота (ручное добавление в реестр).
@@ -1098,6 +1404,42 @@ export interface components {
              * @default false
              */
             is_live: boolean;
+        };
+        /** ClipView */
+        ClipView: {
+            /** Id */
+            id: number;
+            /** External Id */
+            external_id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /** Thumbnail Url */
+            thumbnail_url: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            /** Views Count */
+            views_count: number | null;
+            /** Stream Id */
+            stream_id: number;
+            /** Stream Title */
+            stream_title: string | null;
+            /** Game Id */
+            game_id: number | null;
+            /** Game Name */
+            game_name: string | null;
+            /** Creator User Id */
+            creator_user_id: number | null;
+            /** Creator Login */
+            creator_login: string | null;
+            /** Creator Display Name */
+            creator_display_name: string | null;
         };
         /**
          * CurrentStreamGame
@@ -1277,6 +1619,20 @@ export interface components {
              * @default false
              */
             in_recommendations: boolean;
+        };
+        /** GameIGDBIdUpdateIn */
+        GameIGDBIdUpdateIn: {
+            /** Igdb Id */
+            igdb_id: string | null;
+        };
+        /** GameIGDBIdUpdateOut */
+        GameIGDBIdUpdateOut: {
+            /** Game Id */
+            game_id: number;
+            /** Igdb Id */
+            igdb_id: string | null;
+            /** Message */
+            message: string;
         };
         /** GameIGDBRefreshIn */
         GameIGDBRefreshIn: {
@@ -1494,10 +1850,55 @@ export interface components {
             /** Interested */
             interested: boolean;
         };
+        /** MediaFilterOption */
+        MediaFilterOption: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
+        /** MediaFilterOptions */
+        MediaFilterOptions: {
+            /** Games */
+            games: components["schemas"]["MediaFilterOption"][];
+            /** Creators */
+            creators: components["schemas"]["MediaFilterOption"][];
+            /** Streams */
+            streams: components["schemas"]["MediaFilterOption"][];
+        };
+        /** MediaGameRef */
+        MediaGameRef: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /** MediaUrlIn */
+        MediaUrlIn: {
+            /** Url */
+            url: string;
+        };
         /** Page[BotCommandView] */
         Page_BotCommandView_: {
             /** Items */
             items: components["schemas"]["BotCommandView"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total All */
+            total_all?: number | null;
+            /** Aggregates */
+            aggregates?: {
+                [key: string]: number;
+            } | null;
+        };
+        /** Page[ClipView] */
+        Page_ClipView_: {
+            /** Items */
+            items: components["schemas"]["ClipView"][];
             /** Total */
             total: number;
             /** Limit */
@@ -1566,6 +1967,23 @@ export interface components {
         Page_RecommendationView_: {
             /** Items */
             items: components["schemas"]["RecommendationView"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total All */
+            total_all?: number | null;
+            /** Aggregates */
+            aggregates?: {
+                [key: string]: number;
+            } | null;
+        };
+        /** Page[RecordingView] */
+        Page_RecordingView_: {
+            /** Items */
+            items: components["schemas"]["RecordingView"][];
             /** Total */
             total: number;
             /** Limit */
@@ -1806,6 +2224,42 @@ export interface components {
             /** Recommendation Note */
             recommendation_note?: string | null;
         };
+        /** RecordingPreviewOut */
+        RecordingPreviewOut: {
+            /** Recording Id */
+            recording_id: number;
+            /** Thumbnail Url */
+            thumbnail_url: string | null;
+            /** Message */
+            message: string;
+        };
+        /** RecordingView */
+        RecordingView: {
+            /** Id */
+            id: number;
+            /** Twitch Video Id */
+            twitch_video_id: string | null;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /** Thumbnail Url */
+            thumbnail_url: string | null;
+            /** Recorded At */
+            recorded_at: string | null;
+            /** Duration Minutes */
+            duration_minutes: number | null;
+            /** Views Count */
+            views_count: number | null;
+            /** Stream Id */
+            stream_id: number;
+            /** Stream Title */
+            stream_title: string | null;
+            /** Games */
+            games: string[];
+            /** Game Refs */
+            game_refs: components["schemas"]["MediaGameRef"][];
+        };
         /** ReleaseView */
         ReleaseView: {
             /** Id */
@@ -1887,6 +2341,65 @@ export interface components {
             run_id: number;
             /** Announcement Id */
             announcement_id: number;
+        };
+        /** SocialLinkCreateIn */
+        SocialLinkCreateIn: {
+            /** Service Key */
+            service_key: string;
+            /** Name */
+            name: string;
+            /**
+             * Url
+             * @default #
+             */
+            url: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+        };
+        /** SocialLinkUpdateIn */
+        SocialLinkUpdateIn: {
+            /** Name */
+            name?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            /** Is Active */
+            is_active?: boolean | null;
+        };
+        /** SocialLinkView */
+        SocialLinkView: {
+            /** Id */
+            id: number;
+            /** Service Key */
+            service_key: string;
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+            /** Description */
+            description: string;
+            /** Icon Url */
+            icon_url: string | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Is Active */
+            is_active: boolean;
         };
         /**
          * StreamParticipant
@@ -2187,6 +2700,144 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GameIGDBRefreshOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_game_cover_url_api_v1_games__game_id__cover_url_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaUrlIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_game_cover_api_v1_games__game_id__cover_file_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_game_cover_api_v1_games__game_id__cover_file_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_game_cover_api_v1_games__game_id__cover_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_game_igdb_id_api_v1_games__game_id__igdb_id_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameIGDBIdUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GameIGDBIdUpdateOut"];
                 };
             };
             /** @description Validation Error */
@@ -2545,6 +3196,7 @@ export interface operations {
                 filters?: string[];
                 limit?: number;
                 offset?: number;
+                stream_id?: number | null;
                 /** @description Фильтр по конкретному дню (ISO) */
                 date?: string | null;
                 /** @description Начало окна (ISO) */
@@ -2684,6 +3336,480 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StreamParticipantDeleteOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_media_filters_api_v1_media_filters_get: {
+        parameters: {
+            query: {
+                section: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaFilterOptions"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    social_links_api_v1_media_social_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SocialLinkView"][];
+                };
+            };
+        };
+    };
+    media_asset_content_api_v1_media_assets__asset_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_recording_preview_url_api_v1_media_recordings__recording_id__preview_url_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recording_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaUrlIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recording_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_recording_preview_api_v1_media_recordings__recording_id__preview_file_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_recording_preview_api_v1_media_recordings__recording_id__preview_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recording_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_recordings_api_v1_media_recordings_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                sort?: string;
+                direction?: string;
+                filters?: string[];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RecordingView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_clips_api_v1_media_clips_get: {
+        parameters: {
+            query?: {
+                period?: string;
+                search?: string | null;
+                sort?: string;
+                direction?: string;
+                filters?: string[];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ClipView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_admin_links_api_v1_admin_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SocialLinkView"][];
+                };
+            };
+        };
+    };
+    create_link_api_v1_admin_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SocialLinkCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SocialLinkView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_link_api_v1_admin_links__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_link_api_v1_admin_links__link_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SocialLinkUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SocialLinkView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_link_icon_url_api_v1_admin_links__link_id__icon_url_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaUrlIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_link_icon_api_v1_admin_links__link_id__icon_file_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_link_icon_api_v1_admin_links__link_id__icon_file_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_link_icon_api_v1_admin_links__link_id__icon_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

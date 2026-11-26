@@ -38,7 +38,7 @@ _GAME_STATS_COLS = [
 _IGDB_COLS = [
     "igdb_id", "is_primary", "release_date", "igdb_name", "steam_url",
     "igdb_score", "steam_score", "description_en", "description_ru",
-    "cover_url", "raw_payload", "synced_at",
+    "raw_payload", "synced_at",
 ]
 _HLTB_COLS = [
     "hltb_id", "hltb_name", "hltb_main_story", "hltb_main_extra",
@@ -56,6 +56,7 @@ _REF_TABLES = [
     ("game_genres", "game_id"),
     ("game_platforms", "game_id"),
     ("game_metadata_igdb", "game_id"),
+    ("game_media_assets", "game_id"),
     ("game_metadata_hltb", "game_id"),
     ("game_stats", "game_id"),
 ]
@@ -137,6 +138,19 @@ def _merge_game_pair(conn, keeper: int, dup: int, canonical_name: str | None) ->
     )
     summary["actions"]["game_metadata_hltb"] = _merge_one_cell_table(
         conn, "game_metadata_hltb", keeper, dup, _HLTB_COLS
+    )
+
+    conn.execute(
+        sa.text(
+            "DELETE FROM game_media_assets d USING game_media_assets k "
+            "WHERE d.game_id = :dup AND k.game_id = :keeper "
+            "AND d.role = k.role AND d.source = k.source"
+        ),
+        {"dup": dup, "keeper": keeper},
+    )
+    conn.execute(
+        sa.text("UPDATE game_media_assets SET game_id = :k WHERE game_id = :d"),
+        {"k": keeper, "d": dup},
     )
 
     for table in ("stream_games", "clips"):

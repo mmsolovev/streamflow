@@ -190,12 +190,15 @@ async def create_game_with_igdb(
         igdb_name=name,
         description_en=description_en,
         description_ru=description_ru,
-        cover_url=cover_url,
         raw_payload=_json.loads(raw_payload) if raw_payload else None,
         synced_at=now,
     )
     session.add(igdb_meta)
     await session.flush()
+    if cover_url:
+        from services.media_asset_service import set_igdb_cover_url
+
+        await set_igdb_cover_url(session, game_id=int(game.id), url=cover_url)
 
     # Теги (жанры/платформы) для списков — из того же IGDB-payload, что и метаданные.
     if isinstance(igdb_meta.raw_payload, dict):

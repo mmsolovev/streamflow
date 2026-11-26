@@ -8,7 +8,8 @@
      единственный надёжный способ отличить записи реконнектов.
   2. Fallback по времени — только для legacy-стримов без записи (и строк
      без `external_id`): раньше связь определялась по широкому окну.
-  3. Записи, которых больше нет в архиве, не удаляются: `is_available=False`.
+  3. Записи, которых больше нет в архиве, скрываются из сайта/Sheets;
+     строки, на которые ссылаются Telegram-анонсы, сохраняются как tombstone.
 """
 
 from __future__ import annotations
@@ -54,14 +55,14 @@ def _stream_end(stream: Stream):
     return stream.started_at + timedelta(hours=12)
 
 
-async def _fetch_vods(http: aiohttp.ClientSession) -> list[dict]:
+async def _fetch_vods(http: aiohttp.ClientSession) -> list[dict] | None:
     token = settings.TWITCH_ACCESS_TOKEN
     client_id = settings.CLIENT_ID
     channel = settings.TWITCH_PRIMARY_CHANNEL
 
     if not (client_id and token and channel):
         _log.error("Missing CLIENT_ID / TWITCH_ACCESS_TOKEN / TWITCH_PRIMARY_CHANNEL")
-        return []
+        return None
 
     try:
         user_id = await fetch_user_id(
@@ -73,7 +74,7 @@ async def _fetch_vods(http: aiohttp.ClientSession) -> list[dict]:
         new_token = await try_refresh_token()
         if not new_token:
             _log.error("Token refresh failed")
-            return []
+            return None
         settings.TWITCH_ACCESS_TOKEN = new_token
         token = new_token
         user_id = await fetch_user_id(
@@ -81,20 +82,26 @@ async def _fetch_vods(http: aiohttp.ClientSession) -> list[dict]:
         )
 
     vods = await fetch_vods(
-        http, client_id=client_id, access_token=token, user_id=user_id
+        http,
+        client_id=client_id,
+        access_token=token,
+        user_id=user_id,
+        strict_status=True,
     )
     _log.info("Fetched %d VOD(s)", len(vods))
     return vods
 
 
-async def run() -> None:
+async def run() -> bool:
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as http:
         vods = await _fetch_vods(http)
 
+    if vods is None:
+        _log.warning("VOD sync skipped because archive access is not configured.")
+        return False
     if not vods:
-        _log.warning("No VODs fetched, nothing to sync.")
-        return
+        _log.warning("Twitch archive returned no VODs; marking old recordings unavailable.")
 
     vods_by_date = build_vods_index(vods)
     vod_by_broadcast: dict[str, dict] = {}
@@ -151,7 +158,8 @@ async def run() -> None:
         # --- 2. Fallback по времени для legacy-стримов ---------------------
         rec_result = await session.execute(
             select(StreamRecording.stream_id).where(
-                StreamRecording.source == "twitch"
+                StreamRecording.source == "twitch",
+                StreamRecording.is_available.is_(True),
             )
         )
         streams_with_recording = {int(row[0]) for row in rec_result.all()}
@@ -198,8 +206,8 @@ async def run() -> None:
 
         _log.info("Legacy time-based additions: %d", added)
 
-        # --- 3. Истёкшие записи: скрыть, но не удалять ---------------------
-        hidden = await recording_service.mark_missing_unavailable(
+        # --- 3. Синхронизировать исчезнувшие из архива записи -------------
+        changed = await recording_service.mark_missing_unavailable(
             session,
             keep_urls={
                 str(vod.get("url") or "").strip()
@@ -212,10 +220,14 @@ async def run() -> None:
                 if str(vod.get("id") or "").strip()
             },
         )
-        _log.info("Marked unavailable: %d recording(s)", hidden)
+        _log.info(
+            "Synchronized stale/unavailable recording(s): %d",
+            changed,
+        )
 
         await session.commit()
         _log.info("Done. Committed.")
+    return True
 
 
 def main() -> None:
